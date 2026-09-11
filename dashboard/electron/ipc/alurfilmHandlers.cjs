@@ -756,6 +756,12 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
     }
 
     let durationSec = Number(opts.durationSec || opts.duration) || 0;
+    if (durationSec <= 0 && Array.isArray(opts.chunks) && opts.chunks.length > 0) {
+      const foundChunk = opts.chunks.find(c => Number(c.part) === Number(chunkPart));
+      if (foundChunk) {
+        durationSec = Number(foundChunk.durationSec || foundChunk.duration) || 0;
+      }
+    }
     if (durationSec <= 0) {
       const targetContentId = opts.contentId || opts.modeContentId;
       const partStr = String(chunkPart).padStart(2, '0');
@@ -769,7 +775,7 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
         if (matchFile) {
           const targetVideo = path.join(dir, matchFile);
           try {
-            const meta = me.getVideoMetaHelper ? await me.getVideoMetaHelper(targetVideo) : await ffmpeg.getVideoMetaHelper(targetVideo);
+            const meta = await ffmpeg.getVideoMetaHelper(targetVideo);
             if (meta && meta.duration && meta.duration > 0) {
               durationSec = meta.duration;
               break;

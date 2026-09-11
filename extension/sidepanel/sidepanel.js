@@ -279,6 +279,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       const res = await chrome.runtime.sendMessage({
+        module: 'chunkValidator',
         action: 'VALIDATE_DRIVE_FILE',
         tabId: targetTab.id,
         filename: chunk.filename
@@ -360,14 +361,21 @@ document.addEventListener('DOMContentLoaded', async () => {
             uploaded_at: new Date().toISOString()
           }).catch(() => {});
           foundCount++;
+        } else if (res && !res.success) {
+          console.warn(`[SidePanel] Part ${chunk.part_number} validation error:`, res.error);
+          bulkStatusText.innerHTML = `<span style="color: #f59e0b;">⚠️ Part #${chunk.part_number} gagal dicek (${res.error}). Melanjutkan...</span>`;
         }
       } catch (err) {
         console.error(`Error validating part ${chunk.part_number}:`, err);
+        bulkStatusText.innerHTML = `<span style="color: #ef4444;">❌ Part #${chunk.part_number} gagal dicek: ${err.message}</span>`;
+        chunk._isChecking = false;
+        renderChunksList();
+        break;
       }
 
       chunk._isChecking = false;
       renderChunksList();
-      await new Promise(r => setTimeout(r, 1000));
+      await new Promise(r => setTimeout(r, 600));
     }
 
     bulkProgressBar.style.width = '100%';

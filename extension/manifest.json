@@ -40,7 +40,8 @@
       ],
       "js": [
         "lib/supabase.js",
-        "content.js"
+        "content.js",
+        "modules/chunk-validator.js"
       ],
       "css": [
         "content.css"

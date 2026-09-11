@@ -20,6 +20,7 @@ export interface SyncedPartRecord {
   video_path: string;
   duration_sec?: number;
   size_bytes?: number;
+  prompt?: string | null;
   upload_status: string;
   script_status: string;
   updated_at: string;
@@ -32,9 +33,11 @@ export async function syncChunksToSupabase(params: {
   contentId: string;
   title?: string;
   chunks: (AlurfilmChunk | SyncChunkItem)[];
-  getPromptFn?: (partNum: number, totalChunks: number) => Promise<string>;
+  totalParts?: number;
+  getPromptFn?: (partNum: number, totalChunks: number, chunk?: AlurfilmChunk | SyncChunkItem) => Promise<string>;
+  onlyFirstPartPrompt?: boolean;
 }): Promise<{ success: boolean; count: number; error?: string }> {
-  const { contentId, title, chunks, getPromptFn } = params;
+  const { contentId, title, chunks, totalParts, getPromptFn, onlyFirstPartPrompt = true } = params;
 
   if (!contentId) {
     throw new Error('Content ID tidak boleh kosong.');
@@ -44,7 +47,18 @@ export async function syncChunksToSupabase(params: {
   }
 
   try {
-    // 1. Upsert Content Session ke autocontent.content_sessions
+    // 1. Ambil session yang sudah ada untuk menjaga total_parts agar tidak tertimpa angka lebih kecil
+    const { data: existingSess } = await supabase
+      .from('content_sessions')
+      .select('total_parts')
+      .eq('id', contentId)
+      .maybeSingle();
+
+    const existingTotal = existingSess?.total_parts || 0;
+    const computedTotal = totalParts || Math.max(chunks.length, ...chunks.map((c) => c.part || 1));
+    const effectiveTotalParts = Math.max(existingTotal, computedTotal);
+
+    // Upsert Content Session ke autocontent.content_sessions
     const { error: sessionError } = await supabase
       .from('content_sessions')
       .upsert(
@@ -52,7 +66,7 @@ export async function syncChunksToSupabase(params: {
           id: contentId,
           title: title || contentId,
           category: 'alurfilm',
-          total_parts: chunks.length,
+          total_parts: effectiveTotalParts,
           status: 'active',
           updated_at: new Date().toISOString(),
         },
@@ -67,12 +81,15 @@ export async function syncChunksToSupabase(params: {
     // 2. Siapkan baris data per part untuk autocontent.content_parts
     const rows = await Promise.all(
       chunks.map(async (chunk) => {
-        let partPrompt = ('prompt' in chunk && chunk.prompt) ? chunk.prompt : null;
+        let partPrompt: string | null = ('prompt' in chunk && chunk.prompt) ? chunk.prompt : null;
 
-        // Ambil prompt otomatis jika tersedia generator function dan belum ada prompt
-        if (!partPrompt && getPromptFn) {
+        // Ambil prompt otomatis jika tersedia generator function dan belum ada prompt.
+        // Default: hanya Part 1 yang di-generate prompt awal, karena Part 2 ke atas
+        // membutuhkan metadata dinamis (previous_context dsb.) dari hasil output part sebelumnya.
+        const shouldGeneratePrompt = !partPrompt && getPromptFn && (!onlyFirstPartPrompt || chunk.part === 1);
+        if (shouldGeneratePrompt) {
           try {
-            partPrompt = await getPromptFn(chunk.part, chunks.length);
+            partPrompt = (await getPromptFn(chunk.part, chunks.length, chunk)) || null;
           } catch (e) {
             console.warn(`[SupabaseSync] Gagal generate prompt part #${chunk.part}:`, e);
           }
@@ -127,7 +144,7 @@ export async function getSyncedChunks(
   try {
     const { data, error } = await supabase
       .from('content_parts')
-      .select('id, content_id, part_number, filename, video_path, duration_sec, size_bytes, upload_status, script_status, updated_at')
+      .select('id, content_id, part_number, filename, video_path, duration_sec, size_bytes, prompt, upload_status, script_status, updated_at')
       .eq('content_id', contentId)
       .order('part_number', { ascending: true });
 

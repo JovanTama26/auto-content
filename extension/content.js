@@ -1,135 +1,71 @@
 // extension/content.js
-// Content script yang berjalan di Google AI Studio (aistudio.google.com)
-// HANYA sebagai listener otomasi DOM (membuka menu attachment & Google Drive Picker)
+// Entry point utama Content Script di Google AI Studio (aistudio.google.com)
+// Menyediakan Global Registry & Message Dispatcher agar setiap modul otomatisasi terisolasi dan tidak saling bentrok
 
-(function initContentAutoAutomation() {
-  console.log('[Content Auto] Content script siap di Google AI Studio.');
+(function initContentAutoCore() {
+  if (window.__CONTENT_AUTO_CORE_INITIALIZED__) return;
+  window.__CONTENT_AUTO_CORE_INITIALIZED__ = true;
 
-  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  console.log('[Content Auto] Core Dispatcher & Automation Hub siap di Google AI Studio.');
 
-  function isDrivePickerOpen() {
-    const iframe = document.querySelector('iframe[src*="picker"], iframe[src*="docs.google.com"], iframe[name*="I0_"], iframe[name*="I1_"]');
-    return !!(iframe && (iframe.offsetParent !== null || iframe.offsetWidth > 0));
-  }
+  // Global Registry untuk modularitas otomatisasi yang terisolasi
+  window.ContentAuto = window.ContentAuto || {
+    modules: {},
 
-  /**
-   * Helper mencari tombol attachment (+) secara tangguh
-   */
-  function findAttachButton() {
-    // 1. Selector aria-label spesifik
-    const ariaSelectors = [
-      'button[aria-label="Insert images, videos, audio, or files"]',
-      'button[aria-label*="Insert"]',
-      'button[aria-label*="Sisipkan"]',
-      'button[aria-label*="image"]',
-      'button[aria-label*="media"]',
-      'button[aria-label*="file"]'
-    ];
-
-    for (const sel of ariaSelectors) {
-      const el = document.querySelector(sel);
-      if (el && (el.offsetParent !== null || el.offsetWidth > 0)) return el;
-    }
-
-    // 2. Cari berdasarkan icon Material (add_circle, add, attach_file)
-    const allButtons = Array.from(document.querySelectorAll('button'));
-    const iconBtn = allButtons.find((b) => {
-      const txt = (b.textContent || '').trim().toLowerCase();
-      const isVis = b.offsetParent !== null || b.offsetWidth > 0;
-      return isVis && (txt.includes('add_circle') || txt === 'add' || txt.includes('attach'));
-    });
-    if (iconBtn) return iconBtn;
-
-    // 3. Cari button di sekitar bar prompt chat
-    const promptContainer = document.querySelector('ms-prompt-bar, .prompt-box, .input-area, footer, [role="main"]');
-    if (promptContainer) {
-      const promptBtns = Array.from(promptContainer.querySelectorAll('button'));
-      const found = promptBtns.find(b => {
-        const aria = (b.getAttribute('aria-label') || '').toLowerCase();
-        const inner = (b.innerHTML || '').toLowerCase();
-        return aria.includes('insert') || aria.includes('add') || inner.includes('add_circle') || inner.includes('<svg');
-      });
-      if (found) return found;
-    }
-
-    return null;
-  }
-
-  /**
-   * Membuka modal Google Drive Picker jika belum terbuka
-   */
-  async function ensureDrivePickerOpen() {
-    if (isDrivePickerOpen()) {
-      console.log('[Content Auto] Modal Google Drive Picker sudah terbuka di layar.');
-      return { alreadyOpen: true };
-    }
-
-    console.log('[Content Auto] Membuka modal Drive Picker...');
-    const attachBtn = findAttachButton();
-    if (!attachBtn) {
-      throw new Error('Tombol attachment (+) tidak ditemukan di halaman Google AI Studio.');
-    }
-
-    // Beri visual highlight pada tombol attachment
-    attachBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    const originalOutline = attachBtn.style.outline;
-    attachBtn.style.outline = '3px solid #8b5cf6';
-    await sleep(250);
-
-    attachBtn.click();
-    await sleep(500);
-    attachBtn.style.outline = originalOutline;
-
-    // Tunggu menu popover opsi muncul
-    let driveItem = null;
-    for (let i = 0; i < 10; i++) {
-      const menuItems = Array.from(
-        document.querySelectorAll('.mat-mdc-menu-panel button, .mat-mdc-menu-panel [role="menuitem"], [role="menuitem"], .cdk-overlay-pane button')
-      );
-
-      driveItem = menuItems.find((el) => {
-        const text = (el.textContent || '').trim().toLowerCase();
-        return text.includes('drive');
-      });
-
-      if (driveItem) break;
-      await sleep(400);
-    }
-
-    if (!driveItem) {
-      throw new Error('Menu popup terbuka, tapi opsi "Drive" tidak ditemukan.');
-    }
-
-    driveItem.style.outline = '3px solid #06b6d4';
-    await sleep(250);
-    driveItem.click();
-
-    // Tunggu iframe Drive Picker muncul
-    for (let i = 0; i < 15; i++) {
-      if (isDrivePickerOpen()) {
-        console.log('[Content Auto] Modal Drive Picker berhasil terbuka!');
-        return { alreadyOpen: false, opened: true };
+    /**
+     * Mendaftarkan modul otomatisasi baru secara terisolasi
+     */
+    registerModule(name, moduleObj) {
+      if (this.modules[name]) {
+        console.warn(`[Content Auto] Modul "${name}" sudah terdaftar sebelumnya, menimpa instance...`);
       }
-      await sleep(500);
+      this.modules[name] = moduleObj;
+      if (typeof moduleObj.init === 'function') {
+        try {
+          moduleObj.init();
+        } catch (e) {
+          console.error(`[Content Auto] Error saat inisialisasi modul "${name}":`, e);
+        }
+      }
+      console.log(`[Content Auto] ✅ Modul otomatisasi terdaftar: ${name}`);
+    },
+
+    /**
+     * Mengambil modul yang telah terdaftar berdasarkan nama
+     */
+    getModule(name) {
+      return this.modules[name];
     }
+  };
 
-    return { alreadyOpen: false, opened: true };
-  }
-
-  // Listener pesan dari Side Panel / Background
+  // Central Message Dispatcher ke modul yang dituju
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.action === 'ENSURE_DRIVE_PICKER_OPEN' || message.action === 'DOM_TRIGGER_ATTACH_MENU') {
-      ensureDrivePickerOpen()
-        .then((res) => sendResponse({ success: true, ...res }))
-        .catch((err) => sendResponse({ success: false, error: err.message }));
-      return true; // async
+    // 1. Jika pesan memiliki target modul spesifik
+    if (message.module && window.ContentAuto.modules[message.module]) {
+      const targetMod = window.ContentAuto.modules[message.module];
+      if (typeof targetMod.handleMessage === 'function') {
+        targetMod
+          .handleMessage(message, sender)
+          .then((res) => sendResponse({ success: true, ...res }))
+          .catch((err) => sendResponse({ success: false, error: err.message }));
+        return true; // async
+      }
     }
 
-    if (message.action === 'CHECK_ATTACHMENT_STATUS') {
-      sendResponse({
-        isPickerOpen: isDrivePickerOpen()
-      });
-      return true;
+    // 2. Broadcast / fallback ke modul yang menangani action tersebut
+    for (const [modName, mod] of Object.entries(window.ContentAuto.modules)) {
+      if (typeof mod.handleMessage === 'function') {
+        mod
+          .handleMessage(message, sender)
+          .then((res) => {
+            if (res !== null && res !== undefined) {
+              sendResponse({ success: true, ...res });
+            }
+          })
+          .catch((err) => sendResponse({ success: false, error: err.message }));
+      }
     }
+
+    return true; // async
   });
 })();

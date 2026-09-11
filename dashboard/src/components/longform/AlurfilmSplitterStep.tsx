@@ -56,6 +56,7 @@ const AlurfilmSplitterStep: React.FC = () => {
   
   const [syncingSupabase, setSyncingSupabase] = useState<boolean>(false);
   const [syncedParts, setSyncedParts] = useState<number[]>([]);
+  const [partsWithPrompt, setPartsWithPrompt] = useState<number[]>([]);
 
   const [toast, setToast] = useState<string | null>(null);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
@@ -81,11 +82,69 @@ const AlurfilmSplitterStep: React.FC = () => {
           try {
             const synced = await getSyncedChunks(id);
             setSyncedParts(synced.map((s) => s.part_number));
+            setPartsWithPrompt(synced.filter((s) => !!s.prompt).map((s) => s.part_number));
           } catch {}
         }
       } catch {}
     })();
   }, []);
+
+  const generatePromptForChunk = async (partNum: number, total: number, chunkItem?: any): Promise<string> => {
+    if (partNum !== 1) return '';
+
+    const targetChunk = chunkItem || chunks.find((c) => c.part === partNum);
+    const chunkDur = targetChunk?.durationSec || ('duration' in (targetChunk || {}) ? (targetChunk as any).duration : 0) || 1200;
+
+    const savedTitle = (contentId && localStorage.getItem(`alurfilm_movie_title_${contentId}`)) || masterSource?.name?.replace(/\.[^/.]+$/, '') || '';
+    const savedYear = (contentId && localStorage.getItem(`alurfilm_movie_year_${contentId}`)) || '';
+
+    if (api.getAlurfilmPrompt) {
+      try {
+        const res = await api.getAlurfilmPrompt({
+          chunkPart: partNum,
+          totalChunks: total,
+          chunks,
+          durationSec: chunkDur,
+          contentId,
+          movieTitle: savedTitle,
+          movieYear: savedYear,
+        } as any);
+        if (res) return res;
+      } catch (err) {
+        console.warn('[AlurfilmSplitterStep] getAlurfilmPrompt IPC error:', err);
+      }
+    }
+
+    if (api.readFromProject) {
+      try {
+        const promptTpl = await api.readFromProject('dashboard/prompts/longform/alurfilm-singlepass-prompt.md');
+        if (promptTpl) {
+          const chunkDurText = chunkDur < 60
+            ? `${Math.round(chunkDur)} Detik`
+            : `${(chunkDur / 60).toFixed(1)} Menit`;
+          const computedWords = Math.max(40, Math.min(500, Math.round(chunkDur * (500 / 1200))));
+          const isFirstPartStr = 'YA (Chunk #1 / Part Pembuka Film Utama)';
+          const isLastPartStr = total === 1 ? 'YA (Chunk Terakhir / Part Penutup Film)' : 'TIDAK (Part Bukan Penutup)';
+          const prevCtxStr = 'Tidak ada (Chunk #1 / Awal Film)';
+          const styleExampleStr = 'Langsung masuk ke alur cerita sejak kalimat pertama dengan gaya santai & dinamis (misal: "Okeee, jadi nih di awal cerita...", "Nah, cerita dimulai pas..."). DILARANG menggunakan sapaan MC atau intro formal.';
+
+          return promptTpl
+            .replace(/\{\{chunk_part\}\}/g, String(partNum))
+            .replace(/\{\{total_chunks\}\}/g, String(total))
+            .replace(/\{\{movie_title\}\}/g, savedTitle.trim() || 'Tidak disebutkan')
+            .replace(/\{\{movie_year\}\}/g, savedYear.trim() ? `tahun ${savedYear.trim()}` : '')
+            .replace(/\{\{is_first_part\}\}/g, isFirstPartStr)
+            .replace(/\{\{is_last_part\}\}/g, isLastPartStr)
+            .replace(/\{\{target_words_per_chunk\}\}/g, String(computedWords))
+            .replace(/\{\{chunk_duration_text\}\}/g, chunkDurText)
+            .replace(/\{\{previous_context\}\}/g, prevCtxStr)
+            .replace(/\{\{style_example\}\}/g, styleExampleStr);
+        }
+      } catch {}
+    }
+
+    return '';
+  };
 
   const handleSyncToSupabase = async () => {
     if (!contentId || chunks.length === 0) return;
@@ -95,17 +154,12 @@ const AlurfilmSplitterStep: React.FC = () => {
       const res = await syncChunksToSupabase({
         contentId,
         chunks,
-        getPromptFn: async (partNum, total) => {
-          if (api.getAlurfilmPrompt) {
-            try {
-              return await api.getAlurfilmPrompt(partNum, total);
-            } catch {}
-          }
-          return '';
-        },
+        onlyFirstPartPrompt: true,
+        getPromptFn: generatePromptForChunk,
       });
       setSyncedParts(chunks.map((c) => c.part));
-      showToast(`☁️ Berhasil menyimpan ${res.count} part ke Supabase (schema: autocontent) untuk AI Studio!`);
+      setPartsWithPrompt([1]);
+      showToast(`☁️ Berhasil menyimpan ${res.count} part ke Supabase (Prompt otomatis hanya untuk Part 1)!`);
     } catch (err: any) {
       setError(`Gagal menyimpan ke Supabase: ${err.message}`);
     } finally {
@@ -120,17 +174,14 @@ const AlurfilmSplitterStep: React.FC = () => {
       await syncChunksToSupabase({
         contentId,
         chunks: [chunk],
-        getPromptFn: async (partNum, total) => {
-          if (api.getAlurfilmPrompt) {
-            try {
-              return await api.getAlurfilmPrompt(partNum, total);
-            } catch {}
-          }
-          return '';
-        },
+        onlyFirstPartPrompt: chunk.part !== 1,
+        getPromptFn: generatePromptForChunk,
       });
       setSyncedParts((prev) => Array.from(new Set([...prev, chunk.part])));
-      showToast(`☁️ Part #${chunk.part} berhasil disimpan ke Supabase!`);
+      if (chunk.part === 1) {
+        setPartsWithPrompt((prev) => Array.from(new Set([...prev, 1])));
+      }
+      showToast(`☁️ Part #${chunk.part} berhasil disimpan ke Supabase${chunk.part === 1 ? ' (dengan Prompt awal)' : ''}!`);
     } catch (err: any) {
       setError(`Gagal menyimpan Part #${chunk.part} ke Supabase: ${err.message}`);
     } finally {
@@ -501,7 +552,7 @@ const AlurfilmSplitterStep: React.FC = () => {
                     ? 'bg-emerald-950/60 hover:bg-emerald-900/70 border-emerald-700/60 text-emerald-300'
                     : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 border-emerald-500/50 text-white shadow-emerald-600/30'
                 }`}
-                title="Simpan daftar part video ke Supabase (schema: autocontent) untuk diproses ekstensi AI Studio"
+                title="Simpan daftar part video ke Supabase (schema: autocontent). Prompt diisi hanya untuk Part 1 by default."
               >
                 <span>{syncingSupabase ? '⏳' : syncedParts.length === chunks.length ? '✓' : '☁️'}</span>
                 <span>
@@ -548,7 +599,7 @@ const AlurfilmSplitterStep: React.FC = () => {
                         ) : null}
                         {syncedParts.includes(chunk.part) ? (
                           <span className="text-[10px] bg-sky-950/80 text-sky-400 border border-sky-800/60 px-1.5 py-0.5 rounded-md font-bold flex items-center gap-1">
-                            <span>☁️</span> Supabase
+                            <span>☁️</span> Supabase {partsWithPrompt.includes(chunk.part) ? '(Prompt ✓)' : '(Part Only)'}
                           </span>
                         ) : null}
                       </p>
@@ -567,9 +618,9 @@ const AlurfilmSplitterStep: React.FC = () => {
                           ? 'bg-sky-950/40 hover:bg-sky-900/80 text-sky-300 border-sky-800/60'
                           : 'bg-gray-900 hover:bg-gray-800 text-gray-400 hover:text-emerald-300 border-gray-800'
                       }`}
-                      title="Simpan part ini ke Supabase"
+                      title={chunk.part === 1 ? 'Simpan Part #1 ke Supabase (dengan Prompt)' : 'Simpan part ini ke Supabase (tanpa prompt, menunggu analisis part sebelumnya)'}
                     >
-                      <span>{syncedParts.includes(chunk.part) ? '✓ DB' : '☁️ DB'}</span>
+                      <span>{syncedParts.includes(chunk.part) ? (partsWithPrompt.includes(chunk.part) ? '✓ DB (P)' : '✓ DB') : '☁️ DB'}</span>
                     </button>
                     <button
                       onClick={(e) => {
