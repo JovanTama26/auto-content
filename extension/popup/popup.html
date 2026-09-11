@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Content Auto - AI Studio Bridge</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="brand">
+        <div class="logo">⚡</div>
+        <div>
+          <h1>Content Auto</h1>
+          <span class="subtext">Drive Chunks Uploader</span>
+        </div>
+      </div>
+      <div class="header-badges">
+        <div id="domStatus" class="status-badge connected" title="Mode: Otomasi DOM Langsung di Tab Browser">
+          <span class="dot"></span>
+          <span class="status-text">Direct DOM</span>
+        </div>
+        <div id="connStatus" class="status-badge connecting" title="Status Supabase schema autocontent">
+          <span class="dot"></span>
+          <span class="status-text">DB...</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Session Picker -->
+    <section class="section">
+      <div class="section-title">
+        <span>🎬 Active Session</span>
+        <button id="btnRefresh" class="btn-icon" title="Refresh Session & Chunks">🔄</button>
+      </div>
+      <div class="session-card">
+        <select id="sessionSelect" class="session-dropdown">
+          <option value="">Memuat session...</option>
+        </select>
+        <div id="sessionMeta" class="session-meta">
+          <span id="sessionPartsCount">0 Part</span>
+          <span class="meta-dot">•</span>
+          <span id="sessionCategory">alurfilm</span>
+          <span class="meta-dot">•</span>
+          <span id="sessionDriveCount" class="text-drive">0 di Drive</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Bulk Action: Upload Serentak -->
+    <section class="section action-section">
+      <button id="btnUploadAll" class="btn-upload-all" disabled>
+        <span class="btn-icon-spin hidden" id="bulkSpinner">🔄</span>
+        <span id="bulkUploadText">⚡ Upload Serentak (Semua Part ke Drive)</span>
+      </button>
+      <div id="bulkProgressBarContainer" class="progress-bar-container hidden">
+        <div id="bulkProgressBar" class="progress-bar-fill" style="width: 0%;"></div>
+      </div>
+      <div id="bulkStatusText" class="bulk-status-text"></div>
+    </section>
+
+    <!-- Chunks Queue List -->
+    <section class="section flex-1">
+      <div class="section-title">
+        <span>📑 Video Chunks List</span>
+        <span id="queueCount" class="count-pill">0</span>
+      </div>
+      <div id="chunksList" class="chunks-list">
+        <div class="empty-state">
+          <span>Memuat data chunk dari Supabase...</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer Action -->
+    <footer class="footer">
+      <button id="btnOpenAIStudio" class="btn-secondary">
+        <span>🌐 Buka Google AI Studio</span>
+      </button>
+    </footer>
+  </div>
+
+  <script src="../lib/supabase.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
