@@ -1675,16 +1675,27 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
         }
       }
 
-      // Step 2: Extract CLEAN narration sentences ONLY for Faster-Whisper
-      const narrationSentencesOnly = scriptElements
-        .filter(el => el.type === 'narration')
-        .map(el => el.text)
-        .join('\n');
+      // Step 2: Extract structured narration sentences for Faster-Whisper
+      const narrationList = [];
+      let narrIndex = 0;
+      for (let idx = 0; idx < scriptElements.length; idx++) {
+        const el = scriptElements[idx];
+        if (el.type === 'narration') {
+          const nextEl = idx < scriptElements.length - 1 ? scriptElements[idx + 1] : null;
+          const isBeforeVo = nextEl && nextEl.type === 'visual_only';
+          narrationList.push({
+            id: narrIndex++,
+            element_index: idx,
+            text: el.text,
+            is_before_visual_only: !!isBeforeVo
+          });
+        }
+      }
 
       const timestamp = Date.now();
-      const tempNarasiPath = path.join(p.TMP_DIR, `${contentId}_narasi_part_${partStr}_${timestamp}.txt`);
+      const tempNarasiPath = path.join(p.TMP_DIR, `${contentId}_narasi_part_${partStr}_${timestamp}.json`);
       const tempOutputPath = path.join(p.TMP_DIR, `${contentId}_alignment_part_${partStr}_${timestamp}.json`);
-      fs.writeFileSync(tempNarasiPath, narrationSentencesOnly || 'Naskah alur film.', 'utf-8');
+      fs.writeFileSync(tempNarasiPath, JSON.stringify({ sentences: narrationList }, null, 2), 'utf-8');
 
       let whisperSentences = [];
       let isFasterWhisperUsed = false;
@@ -1707,8 +1718,8 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
             const cleanTextForCompare = (txt) => (txt || '').toLowerCase().replace(/[^\w\s]/g, '').trim();
 
             const rawSentences = parsedData.map((item, idx) => {
-              let rawSpeechEnd = item.end_seconds !== undefined ? item.end_seconds : (item.end || 0);
-              let firstWordStart = item.start_seconds !== undefined ? item.start_seconds : (item.start || 0);
+              let rawSpeechEnd = item.speech_end !== undefined ? item.speech_end : (item.end_seconds !== undefined ? item.end_seconds : (item.end || 0));
+              let firstWordStart = item.speech_start !== undefined ? item.speech_start : (item.start_seconds !== undefined ? item.start_seconds : (item.start || 0));
               if (Array.isArray(item.words) && item.words.length > 0) {
                 const firstWord = item.words[0];
                 const lastWord = item.words[item.words.length - 1];
@@ -1716,12 +1727,16 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
                 if (lastWord && lastWord.end !== undefined) rawSpeechEnd = lastWord.end;
               }
               return {
+                id: item.id !== undefined ? item.id : idx,
                 sentence_index: idx,
                 text: item.text || item.kalimat || item.narration || '',
                 start: Number((item.start_seconds !== undefined ? item.start_seconds : (item.start || 0)).toFixed(3)),
                 end: Number((item.end_seconds !== undefined ? item.end_seconds : (item.end || 0)).toFixed(3)),
+                speech_start: Number(Number(item.speech_start !== undefined ? item.speech_start : firstWordStart).toFixed(3)),
+                speech_end: Number(Number(item.speech_end !== undefined ? item.speech_end : rawSpeechEnd).toFixed(3)),
                 firstWordStart: Number(Number(firstWordStart).toFixed(3)),
-                lastWordEnd: Number(Number(rawSpeechEnd).toFixed(3))
+                lastWordEnd: Number(Number(rawSpeechEnd).toFixed(3)),
+                is_before_visual_only: !!item.is_before_visual_only
               };
             });
 
@@ -1743,6 +1758,16 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
       try { fs.unlinkSync(tempNarasiPath); } catch { }
       try { fs.unlinkSync(tempOutputPath); } catch { }
 
+      // Assign deterministic sectionIndex to separate pre-visual and post-visual groups
+      let secCounter = 0;
+      for (let idx = 0; idx < scriptElements.length; idx++) {
+        if (scriptElements[idx].type === 'visual_only') {
+          secCounter++;
+        } else {
+          scriptElements[idx].sectionIndex = secCounter;
+        }
+      }
+
       // Step 3: Map whisper sentences onto scriptElements (using PURE Faster-Whisper text)
       let whisperIdx = 0;
       let simClock = 0;
@@ -1756,15 +1781,17 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
 
           if (isFasterWhisperUsed && whisperIdx < whisperSentences.length) {
             const w = whisperSentences[whisperIdx++];
-            const lastWordEnd = w.lastWordEnd || w.end;
-            const firstWordStart = w.firstWordStart || w.start;
-            const actualEnd = isFollowedByVisualOnly ? lastWordEnd : w.end;
+            const lastWordEnd = w.lastWordEnd || w.speech_end || w.end;
+            const firstWordStart = w.firstWordStart || w.speech_start || w.start;
+            const actualEnd = isFollowedByVisualOnly ? (w.speech_end || lastWordEnd) : w.end;
             simClock = actualEnd;
             alignedElements.push({
               ...el,
               text: w.text || el.text, // PURE Faster-Whisper transcribed text
               start: w.start,
               end: actualEnd,
+              speech_start: w.speech_start !== undefined ? w.speech_start : firstWordStart,
+              speech_end: w.speech_end !== undefined ? w.speech_end : actualEnd,
               firstWordStart,
               lastWordEnd
             });
@@ -1774,7 +1801,7 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
             const start = Number(simClock.toFixed(3));
             simClock += dur;
             const end = Number(simClock.toFixed(3));
-            alignedElements.push({ ...el, start, end });
+            alignedElements.push({ ...el, start, end, speech_start: start, speech_end: end, firstWordStart: start, lastWordEnd: end });
           }
         } else {
           alignedElements.push(el);
@@ -1791,9 +1818,12 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
         if (!isDuplicate && w.text && w.text.trim().length > 0) {
           alignedElements.push({
             type: 'narration',
+            sectionIndex: secCounter,
             text: w.text,
             start: w.start,
             end: w.end,
+            speech_start: w.speech_start !== undefined ? w.speech_start : (w.firstWordStart || w.start),
+            speech_end: w.speech_end !== undefined ? w.speech_end : (w.lastWordEnd || w.end),
             firstWordStart: w.firstWordStart || w.start,
             lastWordEnd: w.lastWordEnd || w.end
           });
@@ -1810,6 +1840,7 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
           const audioMeta = await ffmpeg.getVideoMetaHelper(targetAudioPath);
           const totalRawAudioDur = (audioMeta && audioMeta.duration) ? audioMeta.duration : 0.0;
           let lastCutTime = 0.0;
+          let chunkSectionIdx = 0;
 
           for (let i = 0; i < alignedElements.length; i++) {
             const current = alignedElements[i];
@@ -1831,23 +1862,39 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
               }
 
               if (prevNarr && prevNarr.end !== undefined) {
-                const cutEnd = Math.min(totalRawAudioDur, Number(prevNarr.end.toFixed(3)));
-                if (cutEnd > lastCutTime) {
+                const prevEnd = prevNarr.speech_end !== undefined ? prevNarr.speech_end : (prevNarr.lastWordEnd !== undefined ? prevNarr.lastWordEnd : prevNarr.end);
+                const nextStart = nextNarr
+                  ? (nextNarr.speech_start !== undefined ? nextNarr.speech_start : (nextNarr.firstWordStart !== undefined ? nextNarr.firstWordStart : nextNarr.start))
+                  : totalRawAudioDur;
+
+                let cutEnd;
+                let nextCutStart;
+
+                if (nextNarr && nextStart > prevEnd) {
+                  // Safe decay for last word (+40ms), but leaves at least 80ms silence before next sentence starts
+                  const maxSafeCutEnd = Math.max(prevEnd, nextStart - 0.08);
+                  cutEnd = Math.min(maxSafeCutEnd, prevEnd + 0.04);
+                  // Next slice starts 40ms before first word to capture onset without clipping
+                  nextCutStart = Math.max(cutEnd, Math.max(0.0, nextStart - 0.04));
+                } else if (nextNarr) {
+                  const midPoint = (prevEnd + nextStart) / 2;
+                  cutEnd = midPoint;
+                  nextCutStart = midPoint;
+                } else {
+                  cutEnd = Math.min(totalRawAudioDur, prevEnd + 0.05);
+                  nextCutStart = cutEnd;
+                }
+
+                cutEnd = Math.min(totalRawAudioDur, Math.max(lastCutTime, Number(cutEnd.toFixed(3))));
+                nextCutStart = Math.min(totalRawAudioDur, Math.max(cutEnd, Number(nextCutStart.toFixed(3))));
+
+                if (cutEnd > lastCutTime + 0.02) {
                   audioSplits.push({
                     type: 'audio_chunk',
+                    sectionIndex: chunkSectionIdx,
                     startSec: Number(lastCutTime.toFixed(3)),
                     endSec: Number(cutEnd.toFixed(3))
                   });
-                }
-
-                // Synchronize silence_buffer duration 100% with visual_only element duration.
-                // If nextNarr exists, set lastCutTime to nextStart so nextNarr starts speaking
-                // immediately when its audio slice begins, eliminating audio desync and overlap.
-                if (nextNarr && nextNarr.firstWordStart !== undefined) {
-                  const nextStart = Number(nextNarr.firstWordStart.toFixed(3));
-                  lastCutTime = Math.max(cutEnd, nextStart);
-                } else {
-                  lastCutTime = cutEnd;
                 }
 
                 const silenceDur = Number((current.duration || 5.0).toFixed(3));
@@ -1856,13 +1903,22 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
                   durationSec: silenceDur,
                   element: current
                 });
+
+                chunkSectionIdx++;
+                lastCutTime = nextCutStart;
               } else {
                 // No preceding narration — push silence for exact visual_only duration
+                const silenceDur = Number((current.duration || 5.0).toFixed(3));
                 audioSplits.push({
                   type: 'silence_buffer',
-                  durationSec: Number((current.duration || 5.0).toFixed(3)),
+                  durationSec: silenceDur,
                   element: current
                 });
+                chunkSectionIdx++;
+                if (nextNarr) {
+                  const nextStart = nextNarr.speech_start !== undefined ? nextNarr.speech_start : (nextNarr.firstWordStart !== undefined ? nextNarr.firstWordStart : nextNarr.start);
+                  lastCutTime = Math.max(0.0, Number((nextStart - 0.04).toFixed(3)));
+                }
               }
             }
 
@@ -1871,6 +1927,7 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
           if (totalRawAudioDur > lastCutTime + 0.05) {
             audioSplits.push({
               type: 'audio_chunk',
+              sectionIndex: chunkSectionIdx,
               startSec: Number(lastCutTime.toFixed(3)),
               endSec: Number(totalRawAudioDur.toFixed(3))
             });
@@ -2016,9 +2073,11 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
           let end = 0.0;
 
           if (audioSpliced && audioSplits.length > 0) {
-            let matchingChunk = audioSplits.find(item => item.type === 'audio_chunk' && origStart >= item.startSec && origStart <= item.endSec);
+            let matchingChunk = audioSplits.find(item => item.type === 'audio_chunk' && item.sectionIndex === current.sectionIndex);
             if (!matchingChunk) {
-              matchingChunk = audioSplits.filter(item => item.type === 'audio_chunk').find(item => origStart <= item.endSec) || audioSplits.filter(item => item.type === 'audio_chunk').pop();
+              matchingChunk = audioSplits.find(item => item.type === 'audio_chunk' && origStart >= item.startSec && origStart <= item.endSec)
+                || audioSplits.filter(item => item.type === 'audio_chunk').find(item => origStart <= item.endSec)
+                || audioSplits.filter(item => item.type === 'audio_chunk').pop();
             }
 
             if (matchingChunk) {
@@ -3120,14 +3179,25 @@ import { renderIntroVideo } from '${enginePath}';
       }
     }
 
-    // Step 2: Extract clean narration text for Faster-Whisper alignment
-    const narrationSentencesOnly = scriptElements
-      .filter(el => el.type === 'narration')
-      .map(el => el.text)
-      .join('\n');
+    // Step 2: Extract structured narration sentences for Faster-Whisper alignment
+    const narrationList = [];
+    let narrIndex = 0;
+    for (let idx = 0; idx < scriptElements.length; idx++) {
+      const el = scriptElements[idx];
+      if (el.type === 'narration') {
+        const nextEl = idx < scriptElements.length - 1 ? scriptElements[idx + 1] : null;
+        const isBeforeVo = nextEl && nextEl.type === 'visual_only';
+        narrationList.push({
+          id: narrIndex++,
+          element_index: idx,
+          text: el.text,
+          is_before_visual_only: !!isBeforeVo
+        });
+      }
+    }
 
-    const tmpScriptPath = path.join(tmpDir, `tmp_test_script_${timestamp}.txt`);
-    fs.writeFileSync(tmpScriptPath, narrationSentencesOnly || 'Naskah pengujian alur film.', 'utf-8');
+    const tmpScriptPath = path.join(tmpDir, `tmp_test_script_${timestamp}.json`);
+    fs.writeFileSync(tmpScriptPath, JSON.stringify({ sentences: narrationList }, null, 2), 'utf-8');
 
     const outJsonPath = path.join(tmpDir, `tmp_test_transcript_${timestamp}.json`);
     const pythonBin = process.platform === 'win32'
@@ -3170,8 +3240,8 @@ import { renderIntroVideo } from '${enginePath}';
           const data = JSON.parse(fs.readFileSync(outJsonPath, 'utf-8'));
           const parsed = Array.isArray(data) ? data : (data.transcript || data.sentences || []);
           whisperSentences = parsed.map((item, idx) => {
-            let rawSpeechEnd = item.end_seconds !== undefined ? item.end_seconds : (item.end || 0);
-            let firstWordStart = item.start_seconds !== undefined ? item.start_seconds : (item.start || 0);
+            let rawSpeechEnd = item.speech_end !== undefined ? item.speech_end : (item.end_seconds !== undefined ? item.end_seconds : (item.end || 0));
+            let firstWordStart = item.speech_start !== undefined ? item.speech_start : (item.start_seconds !== undefined ? item.start_seconds : (item.start || 0));
             if (Array.isArray(item.words) && item.words.length > 0) {
               const firstWord = item.words[0];
               const lastWord = item.words[item.words.length - 1];
@@ -3179,12 +3249,16 @@ import { renderIntroVideo } from '${enginePath}';
               if (lastWord && lastWord.end !== undefined) rawSpeechEnd = lastWord.end;
             }
             return {
+              id: item.id !== undefined ? item.id : idx,
               sentence_index: idx,
               text: item.text || item.kalimat || item.narration || '',
               start: Number((item.start_seconds !== undefined ? item.start_seconds : (item.start || 0)).toFixed(3)),
               end: Number((item.end_seconds !== undefined ? item.end_seconds : (item.end || 0)).toFixed(3)),
+              speech_start: Number(Number(item.speech_start !== undefined ? item.speech_start : firstWordStart).toFixed(3)),
+              speech_end: Number(Number(item.speech_end !== undefined ? item.speech_end : rawSpeechEnd).toFixed(3)),
               firstWordStart: Number(Number(firstWordStart).toFixed(3)),
-              lastWordEnd: Number(Number(rawSpeechEnd).toFixed(3))
+              lastWordEnd: Number(Number(rawSpeechEnd).toFixed(3)),
+              is_before_visual_only: !!item.is_before_visual_only
             };
           });
           isFasterWhisperUsed = true;
@@ -3198,6 +3272,16 @@ import { renderIntroVideo } from '${enginePath}';
     try { fs.unlinkSync(tmpScriptPath); } catch { }
     try { fs.unlinkSync(outJsonPath); } catch { }
 
+    // Assign deterministic sectionIndex to separate pre-visual and post-visual groups
+    let secCounter = 0;
+    for (let idx = 0; idx < scriptElements.length; idx++) {
+      if (scriptElements[idx].type === 'visual_only') {
+        secCounter++;
+      } else {
+        scriptElements[idx].sectionIndex = secCounter;
+      }
+    }
+
     // Step 3: Map whisper timestamps onto narration elements
     let whisperIdx = 0;
     let simClock = 0;
@@ -3209,14 +3293,16 @@ import { renderIntroVideo } from '${enginePath}';
 
         if (isFasterWhisperUsed && whisperIdx < whisperSentences.length) {
           const w = whisperSentences[whisperIdx++];
-          const lastWordEnd = w.lastWordEnd || w.end;
-          const firstWordStart = w.firstWordStart || w.start;
-          const actualEnd = isFollowedByVisualOnly ? lastWordEnd : w.end;
+          const lastWordEnd = w.lastWordEnd || w.speech_end || w.end;
+          const firstWordStart = w.firstWordStart || w.speech_start || w.start;
+          const actualEnd = isFollowedByVisualOnly ? (w.speech_end || lastWordEnd) : w.end;
           simClock = actualEnd;
           return {
             ...el,
             start: w.start,
             end: actualEnd,
+            speech_start: w.speech_start !== undefined ? w.speech_start : firstWordStart,
+            speech_end: w.speech_end !== undefined ? w.speech_end : actualEnd,
             firstWordStart,
             lastWordEnd
           };
@@ -3226,13 +3312,13 @@ import { renderIntroVideo } from '${enginePath}';
           const start = Number(simClock.toFixed(3));
           simClock += dur;
           const end = Number(simClock.toFixed(3));
-          return { ...el, start, end };
+          return { ...el, start, end, speech_start: start, speech_end: end, firstWordStart: start, lastWordEnd: end };
         }
       }
       return el;
     });
 
-    // Step 4: Zero-Loss Sequential Audio Splicing with 200ms Acoustic Tail Padding (Millisecond Precision)
+    // Step 4: Zero-Loss Sequential Audio Splicing with Acoustic Safety Margins (Millisecond Precision)
     let finalAudioPath = audioPath || '';
     let finalAudioUrl = audioPath ? media.mediaUrl(audioPath) : '';
     let audioSpliced = false;
@@ -3240,9 +3326,10 @@ import { renderIntroVideo } from '${enginePath}';
     const audioMeta = (audioPath && fs.existsSync(audioPath)) ? await ffmpeg.getVideoMetaHelper(audioPath) : null;
     const totalRawAudioDur = (audioMeta && audioMeta.duration) ? audioMeta.duration : 0.0;
 
-    // Build sequential audio slice instructions with +0.20s acoustic tail padding
+    // Build sequential audio slice instructions
     const audioSplits = [];
     let lastCutTime = 0.0;
+    let chunkSectionIdx = 0;
 
     for (let i = 0; i < alignedElements.length; i++) {
       const current = alignedElements[i];
@@ -3265,33 +3352,71 @@ import { renderIntroVideo } from '${enginePath}';
         }
 
         if (prevNarr && prevNarr.end !== undefined) {
-          const cutEnd = Math.min(totalRawAudioDur, Number(prevNarr.end.toFixed(3)));
-          if (cutEnd > lastCutTime) {
+          const prevEnd = prevNarr.speech_end !== undefined ? prevNarr.speech_end : (prevNarr.lastWordEnd !== undefined ? prevNarr.lastWordEnd : prevNarr.end);
+          const nextStart = nextNarr
+            ? (nextNarr.speech_start !== undefined ? nextNarr.speech_start : (nextNarr.firstWordStart !== undefined ? nextNarr.firstWordStart : nextNarr.start))
+            : totalRawAudioDur;
+
+          let cutEnd;
+          let nextCutStart;
+
+          if (nextNarr && nextStart > prevEnd) {
+            // Safe decay for last word (+40ms), but leaves at least 80ms silence before next sentence starts
+            const maxSafeCutEnd = Math.max(prevEnd, nextStart - 0.08);
+            cutEnd = Math.min(maxSafeCutEnd, prevEnd + 0.04);
+            // Next slice starts 40ms before first word to capture onset without clipping
+            nextCutStart = Math.max(cutEnd, Math.max(0.0, nextStart - 0.04));
+          } else if (nextNarr) {
+            const midPoint = (prevEnd + nextStart) / 2;
+            cutEnd = midPoint;
+            nextCutStart = midPoint;
+          } else {
+            cutEnd = Math.min(totalRawAudioDur, prevEnd + 0.05);
+            nextCutStart = cutEnd;
+          }
+
+          cutEnd = Math.min(totalRawAudioDur, Math.max(lastCutTime, Number(cutEnd.toFixed(3))));
+          nextCutStart = Math.min(totalRawAudioDur, Math.max(cutEnd, Number(nextCutStart.toFixed(3))));
+
+          if (cutEnd > lastCutTime + 0.02) {
             audioSplits.push({
               type: 'audio_chunk',
+              sectionIndex: chunkSectionIdx,
               startSec: Number(lastCutTime.toFixed(3)),
               endSec: Number(cutEnd.toFixed(3))
             });
           }
 
-          if (nextNarr && nextNarr.firstWordStart !== undefined) {
-            lastCutTime = Math.max(cutEnd, Number(nextNarr.firstWordStart.toFixed(3)));
-          } else {
-            lastCutTime = cutEnd;
+          const silenceDur = Number((current.duration || 5.0).toFixed(3));
+          audioSplits.push({
+            type: 'silence_buffer',
+            durationSec: silenceDur,
+            element: current
+          });
+
+          chunkSectionIdx++;
+          lastCutTime = nextCutStart;
+        } else {
+          // No preceding narration
+          const silenceDur = Number((current.duration || 5.0).toFixed(3));
+          audioSplits.push({
+            type: 'silence_buffer',
+            durationSec: silenceDur,
+            element: current
+          });
+          chunkSectionIdx++;
+          if (nextNarr) {
+            const nextStart = nextNarr.speech_start !== undefined ? nextNarr.speech_start : (nextNarr.firstWordStart !== undefined ? nextNarr.firstWordStart : nextNarr.start);
+            lastCutTime = Math.max(0.0, Number((nextStart - 0.04).toFixed(3)));
           }
         }
-
-        audioSplits.push({
-          type: 'silence_buffer',
-          durationSec: Number((current.duration || 5.0).toFixed(3)),
-          element: current
-        });
       }
     }
 
     if (totalRawAudioDur > lastCutTime + 0.05) {
       audioSplits.push({
         type: 'audio_chunk',
+        sectionIndex: chunkSectionIdx,
         startSec: Number(lastCutTime.toFixed(3)),
         endSec: Number(totalRawAudioDur.toFixed(3))
       });
@@ -3453,9 +3578,11 @@ import { renderIntroVideo } from '${enginePath}';
         let end = 0.0;
 
         if (audioSpliced && audioSplits.length > 0) {
-          let matchingChunk = audioSplits.find(item => item.type === 'audio_chunk' && origStart >= item.startSec && origStart <= item.endSec);
+          let matchingChunk = audioSplits.find(item => item.type === 'audio_chunk' && item.sectionIndex === current.sectionIndex);
           if (!matchingChunk) {
-            matchingChunk = audioSplits.filter(item => item.type === 'audio_chunk').find(item => origStart <= item.endSec) || audioSplits.filter(item => item.type === 'audio_chunk').pop();
+            matchingChunk = audioSplits.find(item => item.type === 'audio_chunk' && origStart >= item.startSec && origStart <= item.endSec)
+              || audioSplits.filter(item => item.type === 'audio_chunk').find(item => origStart <= item.endSec)
+              || audioSplits.filter(item => item.type === 'audio_chunk').pop();
           }
 
           if (matchingChunk) {

@@ -38,31 +38,29 @@ Judul HARUS menyisakan pertanyaan menggantung di otak penonton (Curiosity Gap) t
 - ✅ WAJIB (Curiosity Gap): "TERJEBAK DI LAUT, TAPI YANG DITEMUKANNYA LEBIH MENGERIKAN ‼️ Alur Cerita Film"
 
 ==================================================
-3. FORMULA THUMBNAIL HIGH-CTR (COLOSSAL SCALE & HIGH-STAKES SURVIVAL STYLE)
+3. FORMULA THUMBNAIL HIGH-CTR (COLOSSAL SCALE & SUBJECT OCCLUSION LAYERING)
 ==================================================
-PRINSIP UTAMA VISUAL THUMBNAIL YOUTUBE (SCALE PARADOX & REALISTIC DRAMA > 3D RENDER AI):
+PRINSIP UTAMA VISUAL THUMBNAIL (SCALE PARADOX & REALISTIC DRAMA > 3D RENDER AI):
 - ❌ DILARANG KERAS menghasilkan gambar gaya 3D render kartun / close-up foto stock polos yang terkesan "sangat AI".
 - ✅ WAJIB GAYA COLOSSAL SCALE & EXTREME SURVIVAL DILEMMA:
-  * **Scale Paradox (Skala Manusia vs Lingkungan/Ancaman)**: Tampilkan 1-4 siluet/karakter manusia kecil di posisi 1/3 bawah frame berhadapan dengan struktur colossal raksasa, monster titan, piramida/candi kuno, retakan gurun, atau ancaman alam apokaliptik yang mengisi 1/2 hingga 2/3 latar frame.
-  * **Extreme Survival Dilemma / Torture Trap**: Manusia terikat pada struktur kayu gurun, tergantung di tebing curam berjurang, atau terisolasi di bangkai pesawat hancur dengan framing dramatis.
-  * **Kamera Perspective**: Extreme wide-shot perspective atau high-angle bird's-eye view dari atas yang memperjelas skala luar lingkungan.
-  * **Pencahayaan & Gras**: Cinematic natural daylight kontras tinggi (pasir emas, laut teal, salju putih) dengan pemisahan subjek dan latar belakang yang bersih.
+  * **Scale Paradox (Skala Manusia vs Lingkungan/Predator)**: Tampilkan karakter utama dengan skala kecil di posisi 1/3 bawah frame berhadapan dengan struktur colossal raksasa, monster titan, tebing curam, atau ancaman lingkungan yang mengisi 1/2 hingga 2/3 latar frame.
+  * **Kamera Perspective**: Extreme wide-shot perspective atau high-angle bird's-eye view dari atas yang memperjelas skala luas lingkungan dan isolasi karakter.
+  * **Pencahayaan**: Cinematic natural daylight kontras tinggi dengan pemisahan subjek dan latar belakang yang bersih.
 - ✅ AREA BEBAS BADGE DURASI: Jaga area pojok kanan bawah 100% bersih dari elemen teks/karakter penting karena akan tertutup badge durasi video YouTube.
-- 🚨 ATURAN HINDARI INDIKATOR WAKTU (TIMESTAMP/DURATION BADGE): DILARANG SANGAT menyertakan kata "YouTube thumbnail", "duration badge", "timestamp", "video player", atau "timecode" di dalam isi string "thumbnail_prompt". Kata-kata tersebut membuat AI image generator (seperti Nano Banana Pro, Imagen 3, Midjourney, Flux) secara otomatis menggambar indikator durasi video (seperti '0:00:01') di pojok kanan bawah. Gunakan istilah "Cinematic film scene poster" dan WAJIB tambahkan Negative Constraints di akhir prompt.
+- 🚨 ATURAN HINDARI INDIKATOR WAKTU: DILARANG SANGAT menyertakan kata "YouTube thumbnail", "duration badge", "timestamp", "video player", atau "timecode" di dalam string prompt. Gunakan istilah "Cinematic film scene poster" dan WAJIB sertakan Negative Constraints.
 
-🎨 ATURAN TEKS THUMBNAIL DUA WARNA (KOMPLEMENTER, BUKAN MENGULANG JUDUL):
-- Teks thumbnail HANYA 2-4 KATA (Singkat, Padat, Berdaya Ledak Tinggi).
-- TEKS THUMBNAIL HARUS MELENGKAPI (COMPLEMENT) JUDUL, DILARANG MENGULANG KATA YANG SAMA DENGAN JUDUL.
-  * Judul: "DIKURUNG BERTAHUN-TAHUN, GADIS INI AKHIRNYA MENEMUKAN JALAN KELUAR ‼️ Alur Cerita Film"
-  * Teks Thumbnail ✅: "SALAH → ORANG" atau "TETAP → TERKURUNG"
-  * Teks Thumbnail ❌ (Mengulang): "GADIS → DIKURUNG"
-- Format Teks Dua Warna:
-  * Kata Pertama (Yellow Part): Teks penarik perhatian warna Kuning Cerah (#FFD700) ALL CAPS.
-  * Kata Kedua (Red Part): Teks klimaks emosi warna Merah Menyala (#FF0000) dengan Outline Hitam ALL CAPS.
+🎨 ATURAN TATA LETAK TEKS: 1 BARIS HORIZONTAL, PROPORSI SEDANG, & SUBJECT OCCLUSION:
+- **Teks Wajib 1 Baris Horizontal (Single-line)**: DILARANG membuat teks bertingkat/2 baris. Teks kuning dan merah disusun berdampingan mendatar di baris yang sama.
+- **Ukuran Proporsional Grid Atas**: Teks hanya boleh memakan 12% - 15% dari tinggi frame (bukan font raksasa yang mendominasi layar), memberikan ruang bernapas luas bagi lanskap/skala lingkungan.
+- **Teknik Subject Punch-Through Occlusion (Text Behind Subject)**: Ujung vertikal dari subjek latar depan (ujung karang runcing, kepala, tangan, atau struktur objek) WAJIB menusuk ke atas dan menutupi sebagian kecil huruf dari depan, menciptakan ilusi 3D magazine cover layering.
+- **Komplementer**: Teks thumbnail HANYA 2-4 KATA dan DILARANG mengulang kata yang ada di judul.
+  * Format Teks:
+    - Kata Pertama (Yellow Part): Kuning Cerah (#FFD700) ALL CAPS.
+    - Kata Kedua (Red Part): Merah Menyala (#FF0000) ALL CAPS dengan stroke outline hitam tebal.
 
-🎨 PETUNJUK "thumbnail_prompt" SIAP COPAS (GAYA COLOSSAL SCALE & EXTREME SURVIVAL):
-Setiap nilai "thumbnail_prompt" WAJIB di-format sebagai prompt AI ber-gaya "Colossal Scale Paradox & High-Stakes Survival" siap-copas ke Midjourney v6 / Flux / DALL-E 3 dengan rumus:
-`Cinematic film scene poster, 16:9 widescreen aspect ratio. [Extreme wide-shot perspective OR High-angle bird's eye view framing] of [EXACT REAL ENVIRONMENT SETTING extracted from the climax scene of NASKAH VOICEOVER LENGKAP, e.g. a vast desert ruin with ancient obelisks / flooded city rooftop / frozen mountain portal]. [1-2 tiny human silhouettes or trapped survivors matching real main characters] facing [1 colossal ancient structure / giant monster anomaly / extreme desert wreckage / massive titan gate / brutal torture trap matching the real climax scene]. High-contrast natural daylight, wide environmental framing, scale paradox depicting tiny humans vs massive threat environment. Top-third ultra-bold text overlay: Part 1 '[thumbnail_text_yellow]' in bright gold yellow (#FFD700), Part 2 '[thumbnail_text_red]' in intense bright red (#FF0000) with thick solid black stroke outline and drop shadow. Empty clean bottom-right corner. High-CTR mobile visual impact, photorealistic, 8k resolution, cinematic film still. Negative Constraints: video player UI, timestamp, duration badge, timecode, play button, YouTube overlay, video controls, watermark, screen clutter, numbers in corner --ar 16:9 --v 6.0`
+🎨 PETUNJUK "thumbnail_prompt" SIAP COPAS:
+Format prompt AI wajib mengikuti struktur berikut:
+`Cinematic film scene poster, 16:9 widescreen aspect ratio. [Extreme wide-angle perspective OR High-angle bird's-eye view] of [EXACT REAL ENVIRONMENT SETTING extracted from NASKAH VOICEOVER LENGKAP]. [Tiny human silhouette/trapped survivor] facing [colossal threat/structure/apex predator]. Epic scale paradox depicting tiny fragile human versus massive environment. Grid layout and single-line typography: Centered horizontally at the top grid row, a single unbroken horizontal line of compact text (occupying 12-15% frame height) reading side-by-side: '[thumbnail_text_yellow]' in bright gold yellow (#FFD700) immediately followed on the exact same line by '[thumbnail_text_red]' in vivid red (#FF0000), bold sans-serif with solid black stroke outline and drop shadow. Layering interaction: The sharp vertical peak of the foreground subject extends upward, naturally overlapping and occluding the front of the single-line text for a subject punch-through depth effect. Clean bottom-right corner. Natural high-contrast daylight, photorealistic, 8k resolution, cinematic film still. Negative Constraints: two lines of text, stacked text, multiple lines, vertical text, oversized giant typography, giant letters covering screen, video player UI, timestamp, duration badge, timecode, play button, YouTube overlay, video controls, watermark, screen clutter, numbers in corner --ar 16:9 --v 6.0`
 
 ==================================================
 4. SEO DESKRIPSI & METADATA YOUTUBE
@@ -70,8 +68,8 @@ Setiap nilai "thumbnail_prompt" WAJIB di-format sebagai prompt AI ber-gaya "Colo
 1. 2 Baris Pertama Deskripsi: WAJIB menyertakan Nama Judul Film Asli (Bahasa Inggris/Asalnya) dan Tahun Rilis secara alami untuk pengindeksan SEO YouTube Search.
 2. Ringkasan Cerita (Sinopsis 100-150 kata): Rangkuman alur film tanpa membocorkan spoiler akhir cerita.
 3. Fair Use & Copyright Notice: Kalimat standar penafsiran hak cipta karya film.
-4. Call to Action (CTA): Ajak penonton Like, Comment pendapat mereka, dan Subscribe channel.
-5. Tags & Keywords: 10-15 kata kunci paling relevan dipisahkan koma.
+4. Call to Action (CTA): Ajak penonton Like, Comment, dan Subscribe.
+5. Tags & Keywords: 10-15 kata kunci relevan dipisahkan koma.
 
 ==================================================
 OUTPUT FORMAT (MANDATORY JSON OBJECT ONLY)

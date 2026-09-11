@@ -13,7 +13,7 @@ Usage:
     --audio <path.wav> \
     --text <path_to_script_txt_or_json> \
     --output <out.json> \
-    --model small \
+    --model medium \
     --device cpu
 """
 import argparse
@@ -41,14 +41,17 @@ def get_audio_duration(audio_path: str) -> float:
         return 0.0
 
 
-def load_narration_text(text_path: str) -> str:
-    """Load teks narasi dari file .txt atau JSON (analysis/transcript format)."""
+def load_narration_input(text_path: str):
+    """Load teks narasi atau daftar kalimat terstruktur dari file .txt atau .json."""
     if not os.path.exists(text_path):
         raise FileNotFoundError(text_path)
     if text_path.endswith(".json"):
         with open(text_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         if isinstance(data, dict):
+            # Cek jika format daftar kalimat terstruktur: { "sentences": [...] }
+            if "sentences" in data and isinstance(data["sentences"], list):
+                return data["sentences"]
             naskah = data.get("naskah_voiceover") or data.get("script") or {}
             if isinstance(naskah, dict):
                 return naskah.get("script_text") or naskah.get("text") or ""
@@ -58,12 +61,22 @@ def load_narration_text(text_path: str) -> str:
                 if key in data and isinstance(data[key], str):
                     return data[key]
         elif isinstance(data, list):
+            if data and isinstance(data[0], dict) and "text" in data[0]:
+                return data
             texts = [item.get("text") for item in data if isinstance(item, dict) and item.get("text")]
             if texts:
                 return " ".join(texts)
         raise ValueError(f"Tidak bisa ekstrak teks narasi dari {text_path}")
     with open(text_path, "r", encoding="utf-8") as f:
         return f.read().strip()
+
+
+def load_narration_text(text_path: str) -> str:
+    """Backward-compatible helper returning raw text string."""
+    res = load_narration_input(text_path)
+    if isinstance(res, list):
+        return "\n".join([item.get("text", "") if isinstance(item, dict) else str(item) for item in res])
+    return str(res)
 
 
 def strip_voice_tags(text: str) -> str:
@@ -85,7 +98,7 @@ def format_minute(sec: float) -> str:
     return f"{m:02d}:{s:02d}"
 
 
-def run_faster_whisper_pipeline(audio_path: str, raw_text: str, model_name: str = "small", device: str = "cpu", language: str = None) -> list:
+def run_faster_whisper_pipeline(audio_path: str, raw_text, model_name: str = "medium", device: str = "cpu", language: str = None) -> list:
     import os
     from faster_whisper import WhisperModel
 
@@ -116,8 +129,6 @@ def run_faster_whisper_pipeline(audio_path: str, raw_text: str, model_name: str 
         best_of=5,
         condition_on_previous_text=False,
         vad_filter=True,
-        # min_silence_duration_ms dinaikkan ke 700ms agar narasi VO panjang tidak dipotong
-        # di tengah kalimat saat narator ngomong cepat dengan jeda pendek antar frasa
         vad_parameters=dict(min_silence_duration_ms=700, speech_pad_ms=200),
         word_timestamps=True
     )
@@ -142,8 +153,34 @@ def run_faster_whisper_pipeline(audio_path: str, raw_text: str, model_name: str 
 
     log(f"✨ Selesai VAD Transcribe dalam {time.time() - start_t:.1f}s. Terdeteksi {len(fw_segments)} segmen audio fisik.")
 
-    sentences = split_sentences(raw_text)
-    log(f"🔍 Perform Two-Phase Smart Sentence Alignment: {len(sentences)} kalimat ke kata-kata audio fisik...")
+    # Parse raw_text: bisa berupa list of dicts [{id, text, is_before_visual_only}] atau string
+    if isinstance(raw_text, list):
+        sentence_items = []
+        for idx, item in enumerate(raw_text):
+            if isinstance(item, dict):
+                sentence_items.append({
+                    "sent_idx": idx,
+                    "sent_id": item.get("id", idx + 1),
+                    "text": item.get("text", ""),
+                    "is_before_visual_only": bool(item.get("is_before_visual_only", False))
+                })
+            else:
+                sentence_items.append({
+                    "sent_idx": idx,
+                    "sent_id": idx + 1,
+                    "text": str(item),
+                    "is_before_visual_only": False
+                })
+    else:
+        sents = split_sentences(str(raw_text))
+        sentence_items = [{
+            "sent_idx": idx,
+            "sent_id": idx + 1,
+            "text": s,
+            "is_before_visual_only": False
+        } for idx, s in enumerate(sents)]
+
+    log(f"🔍 Perform Two-Phase Smart Sentence Alignment: {len(sentence_items)} kalimat ke kata-kata audio fisik...")
 
     # Extract all physical audio words
     all_words = []
@@ -173,11 +210,11 @@ def run_faster_whisper_pipeline(audio_path: str, raw_text: str, model_name: str 
                         })
 
     total_words = len(all_words)
-    if total_words == 0 or len(sentences) == 0:
+    if total_words == 0 or len(sentence_items) == 0:
         entries = []
         for idx, seg in enumerate(fw_segments, start=1):
-            start = round(float(seg.start), 1)
-            end = round(float(seg.end), 1)
+            start = round(float(seg.start), 3)
+            end = round(float(seg.end), 3)
             entries.append({
                 "id": idx,
                 "sentence_id": idx,
@@ -185,9 +222,15 @@ def run_faster_whisper_pipeline(audio_path: str, raw_text: str, model_name: str 
                 "end_seconds": end,
                 "start": start,
                 "end": end,
+                "speech_start": start,
+                "speech_end": end,
+                "first_word_start": start,
+                "last_word_end": end,
                 "timestamp_minute": f"{format_minute(start)} - {format_minute(end)}",
                 "text": seg.text.strip(),
-                "speaker": "Narator"
+                "speaker": "Narator",
+                "is_before_visual_only": False,
+                "words": []
             })
         return entries, all_words
 
@@ -195,8 +238,11 @@ def run_faster_whisper_pipeline(audio_path: str, raw_text: str, model_name: str 
     matched_sentences = []
     last_end_word_idx = 0
 
-    for s_idx, sent in enumerate(sentences):
-        # Strip voice tags sebelum tokenisasi — [chuckles], [pause] tidak ada di audio
+    for s_idx, item_in in enumerate(sentence_items):
+        sent = item_in["text"]
+        sent_id = item_in["sent_id"]
+        is_bvo = item_in["is_before_visual_only"]
+
         sent_for_match = strip_voice_tags(sent)
         tokens = [t for t in sent_for_match.strip().split() if t.strip()]
         clean_tokens = [re.sub(r'[^\w\s]', '', t.lower()) for t in tokens if re.sub(r'[^\w\s]', '', t.lower())]
@@ -207,21 +253,51 @@ def run_faster_whisper_pipeline(audio_path: str, raw_text: str, model_name: str 
 
         target_text = " ".join(clean_tokens)
 
-        search_start = max(0, last_end_word_idx - 15)
-        search_end = min(total_words, last_end_word_idx + max(80, sent_len * 5))
+        search_start = max(0, last_end_word_idx - 6)
+        search_end = min(total_words, last_end_word_idx + max(30, sent_len + 15))
 
         best_score = -1.0
         best_w_start = -1
         best_w_end = -1
 
-        candidate_indices = range(search_start, search_end)
-        for w_start in candidate_indices:
-            for w_end in range(w_start + 1, min(search_end + 1, w_start + sent_len + 8)):
-                span_text = " ".join([w["text"] for w in all_words[w_start:w_end]])
-                score = difflib.SequenceMatcher(None, target_text, span_text).ratio()
+        candidate_indices = range(search_start, min(search_end, last_end_word_idx + 8))
+        last_target_word = clean_tokens[-1] if clean_tokens else ""
 
+        for w_start in candidate_indices:
+            min_span_len = max(1, sent_len - 5)
+            max_span_len = sent_len + max(4, int(sent_len * 0.35))
+            for w_end in range(w_start + min_span_len, min(search_end + 1, w_start + max_span_len + 1)):
+                span_words = all_words[w_start:w_end]
+                span_clean_words = [w["text"] for w in span_words]
+                span_text = " ".join(span_clean_words)
+
+                char_ratio = difflib.SequenceMatcher(None, target_text, span_text).ratio()
+                tok_ratio = difflib.SequenceMatcher(None, clean_tokens, span_clean_words).ratio()
+                base_score = 0.5 * char_ratio + 0.5 * tok_ratio
+
+                # Tail match bonus/penalty: ensure full sentence completion without dropping tail words
+                tail_bonus = 0.0
+                if last_target_word and span_clean_words:
+                    last_span_w = span_clean_words[-1]
+                    last_sim = difflib.SequenceMatcher(None, last_target_word, last_span_w).ratio()
+                    if last_sim >= 0.7:
+                        tail_bonus += 0.15
+                    elif any(difflib.SequenceMatcher(None, last_target_word, w).ratio() >= 0.7 for w in span_clean_words[-3:]):
+                        tail_bonus += 0.08
+                    else:
+                        tail_bonus -= 0.10
+
+                # Silence boundary bonus: a natural acoustic pause (>= 0.30s) after sentence end
+                silence_bonus = 0.0
+                if w_end < total_words:
+                    gap = float(all_words[w_end]["start"]) - float(all_words[w_end - 1]["end"])
+                    if gap >= 0.30:
+                        silence_bonus = 0.08
+
+                # Sequential bonus to prefer starting right where previous sentence left off
                 seq_bonus = max(0, 0.05 - abs(w_start - last_end_word_idx) * 0.001)
-                total_score = score + seq_bonus
+
+                total_score = base_score + tail_bonus + silence_bonus + seq_bonus
 
                 if total_score > best_score:
                     best_score = total_score
@@ -229,27 +305,37 @@ def run_faster_whisper_pipeline(audio_path: str, raw_text: str, model_name: str 
                     best_w_end = w_end - 1
 
         if best_score >= 0.55 and best_w_start >= 0 and best_w_end >= best_w_start:
+            p_start = float(all_words[best_w_start]["start"])
+            p_end = float(all_words[best_w_end]["end"])
             matched_sentences.append({
                 "sent_idx": s_idx,
+                "sent_id": sent_id,
                 "text": sent,
                 "tokens": tokens,
                 "w_start": best_w_start,
                 "w_end": best_w_end,
                 "score": best_score,
-                "start": all_words[best_w_start]["start"],
-                "end": all_words[best_w_end]["end"]
+                "speech_start": p_start,
+                "speech_end": p_end,
+                "start": p_start,
+                "end": p_end,
+                "is_before_visual_only": is_bvo
             })
             last_end_word_idx = best_w_end + 1
         else:
             matched_sentences.append({
                 "sent_idx": s_idx,
+                "sent_id": sent_id,
                 "text": sent,
                 "tokens": tokens,
                 "w_start": None,
                 "w_end": None,
                 "score": 0.0,
+                "speech_start": None,
+                "speech_end": None,
                 "start": None,
-                "end": None
+                "end": None,
+                "is_before_visual_only": is_bvo
             })
 
     # Phase 2: Monotonicity & Interpolation of Timestamps & Words
@@ -285,8 +371,8 @@ def run_faster_whisper_pipeline(audio_path: str, raw_text: str, model_name: str 
             for item in unmatched_group:
                 w_count = max(1, len(item["tokens"]))
                 sent_dur = avail_dur * (w_count / total_words_in_gap)
-                item["start"] = round(curr_time, 2)
-                item["end"] = round(curr_time + sent_dur, 2)
+                item["start"] = round(curr_time, 3)
+                item["end"] = round(curr_time + sent_dur, 3)
                 curr_time += sent_dur
         else:
             k += 1
@@ -299,65 +385,87 @@ def run_faster_whisper_pipeline(audio_path: str, raw_text: str, model_name: str 
         tokens = item["tokens"]
         s_start = item["start"]
         s_end = item["end"]
-        s_dur = max(0.2, s_end - s_start)
 
         if item["w_start"] is not None and item["w_end"] is not None:
             audio_span = all_words[item["w_start"]:item["w_end"] + 1]
+            phys_start = float(audio_span[0]["start"])
+            phys_end = float(audio_span[-1]["end"])
+            phys_dur = max(0.05, phys_end - phys_start)
+
             if len(audio_span) == len(tokens):
                 for idx, tok in enumerate(tokens):
                     s_words.append({
                         "word": tok,
-                        "start": round(audio_span[idx]["start"], 2),
-                        "end": round(audio_span[idx]["end"], 2)
+                        "start": round(float(audio_span[idx]["start"]), 3),
+                        "end": round(float(audio_span[idx]["end"]), 3)
                     })
             else:
+                # Strictly bound synthetic words within [phys_start, phys_end]
                 total_chars = sum(max(1, len(t)) for t in tokens)
-                curr_t = s_start
+                curr_t = phys_start
                 for tok in tokens:
-                    w_dur = s_dur * (max(1, len(tok)) / total_chars)
+                    w_dur = phys_dur * (max(1, len(tok)) / total_chars)
                     s_words.append({
                         "word": tok,
-                        "start": round(curr_t, 2),
-                        "end": round(curr_t + w_dur, 2)
+                        "start": round(curr_t, 3),
+                        "end": round(curr_t + w_dur, 3)
                     })
                     curr_t += w_dur
         else:
+            s_dur = max(0.2, s_end - s_start)
             total_chars = sum(max(1, len(t)) for t in tokens)
             curr_t = s_start
             for tok in tokens:
                 w_dur = s_dur * (max(1, len(tok)) / total_chars)
                 s_words.append({
                     "word": tok,
-                    "start": round(curr_t, 2),
-                    "end": round(curr_t + w_dur, 2)
+                    "start": round(curr_t, 3),
+                    "end": round(curr_t + w_dur, 3)
                 })
                 curr_t += w_dur
 
         all_aligned_words.extend(s_words)
 
+        first_w_start = s_words[0]["start"] if s_words else (item["speech_start"] if item["speech_start"] is not None else s_start)
+        last_w_end = s_words[-1]["end"] if s_words else (item["speech_end"] if item["speech_end"] is not None else s_end)
+
+        speech_st = item["speech_start"] if item["speech_start"] is not None else s_start
+        speech_en = item["speech_end"] if item["speech_end"] is not None else s_end
+
         entries.append({
-            "id": item["sent_idx"] + 1,
-            "sentence_id": item["sent_idx"] + 1,
-            "start_seconds": round(s_start, 1),
-            "end_seconds": round(s_end, 1),
-            "start": round(s_start, 1),
-            "end": round(s_end, 1),
+            "id": item.get("sent_id", item["sent_idx"] + 1),
+            "sentence_id": item.get("sent_id", item["sent_idx"] + 1),
+            "start_seconds": round(s_start, 3),
+            "end_seconds": round(s_end, 3),
+            "start": round(s_start, 3),
+            "end": round(s_end, 3),
+            "speech_start": round(speech_st, 3),
+            "speech_end": round(speech_en, 3),
+            "first_word_start": round(first_w_start, 3),
+            "last_word_end": round(last_w_end, 3),
             "timestamp_minute": f"{format_minute(s_start)} - {format_minute(s_end)}",
             "text": item["text"],
             "speaker": "Narator",
+            "is_before_visual_only": item.get("is_before_visual_only", False),
             "words": s_words
         })
 
     # Seamless gap smoothing between consecutive sentences (gaps <= 1.5s)
+    # CRITICAL: NEVER smooth across a sentence followed by VISUAL_ONLY!
     for i in range(len(entries) - 1):
+        if entries[i].get("is_before_visual_only"):
+            # Do NOT smooth: preserve exact physical speech_end for clean audio cut!
+            continue
+
         curr_end = entries[i]["end_seconds"]
         next_start = entries[i + 1]["start_seconds"]
         if curr_end < next_start and (next_start - curr_end) <= 1.5:
-            smooth_end = round(next_start, 1)
+            # Leave at least 30ms gap so display end never touches next_start
+            smooth_end = round(max(curr_end, next_start - 0.03), 3)
             entries[i]["end_seconds"] = smooth_end
-            entries[i]["start"] = entries[i]["start_seconds"]
             entries[i]["end"] = smooth_end
             entries[i]["timestamp_minute"] = f"{format_minute(entries[i]['start_seconds'])} - {format_minute(smooth_end)}"
+            # NOTE: speech_start, speech_end, first_word_start, last_word_end are 100% PRESERVED!
 
     return entries, all_aligned_words
 
@@ -367,7 +475,7 @@ def main():
     parser.add_argument("--audio", required=True, help="Path file audio")
     parser.add_argument("--text", required=True, help="Path script teks (.txt/.json)")
     parser.add_argument("--output", help="Path output JSON (default: stdout)")
-    parser.add_argument("--model", default="small", help="Whisper model: tiny|base|small|medium|large-v2|large-v3")
+    parser.add_argument("--model", default="medium", help="Whisper model: medium|large-v2|large-v3 (default: medium)")
     parser.add_argument("--device", default="cpu", help="cpu|cuda")
     parser.add_argument("--language", default=None, help="Language code: id|en|etc. (default: auto-detect)")
     args = parser.parse_args()
@@ -379,8 +487,8 @@ def main():
     audio_dur = get_audio_duration(args.audio)
     log(f"Durasi audio: {audio_dur:.1f}s")
 
-    raw_text = load_narration_text(args.text)
-    entries, all_words = run_faster_whisper_pipeline(args.audio, raw_text, model_name=args.model, device=args.device, language=args.language)
+    raw_input = load_narration_input(args.text)
+    entries, all_words = run_faster_whisper_pipeline(args.audio, raw_input, model_name=args.model, device=args.device, language=args.language)
 
     total_end = entries[-1]["end_seconds"] if entries else 0.0
     log(f"Selesai! {len(entries)} entri, total durasi transkrip {total_end:.1f}s / audio {audio_dur:.1f}s")
