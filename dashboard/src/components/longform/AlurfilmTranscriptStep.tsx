@@ -122,6 +122,13 @@ const AlurfilmTranscriptStep: React.FC = () => {
   const [showAlignModal, setShowAlignModal] = useState<boolean>(false);
   const logContainerRef = useRef<HTMLDivElement | null>(null);
 
+  // Batch Sequential Alignment State
+  const [isBatchRunning, setIsBatchRunning] = useState<boolean>(false);
+  const [batchCurrentIndex, setBatchCurrentIndex] = useState<number>(0);
+  const [batchTotalCount, setBatchTotalCount] = useState<number>(0);
+  const [batchCurrentLabel, setBatchCurrentLabel] = useState<string>('');
+  const batchCancelRef = useRef<boolean>(false);
+
   // Auto-scroll terminal log window
   useEffect(() => {
     if (logContainerRef.current) {
@@ -148,8 +155,8 @@ const AlurfilmTranscriptStep: React.FC = () => {
     setTimeout(() => setToast(null), 3500);
   };
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = async (silent: boolean = false) => {
+    if (!silent) setLoading(true);
     try {
       const id = await api.getContentId('longform');
       setContentId(id);
@@ -191,14 +198,14 @@ const AlurfilmTranscriptStep: React.FC = () => {
         }
         setTranscripts(transcriptMap);
 
-        if (chunkList && chunkList.length > 0) {
+        if (!silent && chunkList && chunkList.length > 0 && activePart === 1) {
           setActivePart(chunkList[0].part);
         }
       }
     } catch (err: any) {
       setError(err.message || 'Failed to load transcript files');
     }
-    setLoading(false);
+    if (!silent) setLoading(false);
   };
 
   useEffect(() => {
@@ -260,6 +267,7 @@ const AlurfilmTranscriptStep: React.FC = () => {
           label: `Part #${chunk.part}`,
           parts: [chunk.part],
           primaryPart: chunk.part,
+          audio,
           isDone,
           hasSomeDone: isDone,
         });
@@ -275,10 +283,25 @@ const AlurfilmTranscriptStep: React.FC = () => {
       label: `Part #${activePart}`,
       parts: [activePart],
       primaryPart: activePart,
+      audio: audios[activePart],
       isDone: !!getEntriesForPart(activePart)?.length,
       hasSomeDone: !!getEntriesForPart(activePart)?.length,
     };
-  }, [partGroups, activePart, transcripts]);
+  }, [partGroups, activePart, audios, transcripts]);
+
+  // Groups that have audio file ready for alignment
+  const groupsWithAudio = useMemo(() => {
+    return partGroups.filter((g) => g.audio && g.audio.filePath);
+  }, [partGroups]);
+
+  // Count of completed groups
+  const completedGroupsCount = useMemo(() => {
+    return partGroups.filter((g) => g.isDone).length;
+  }, [partGroups]);
+
+  const totalTranscribedPartsCount = useMemo(() => {
+    return chunks.filter((c) => !!getEntriesForPart(c.part)?.length).length;
+  }, [chunks, transcripts]);
 
   const handleCopyPromptForPart = async (partNum: number) => {
     try {
@@ -368,14 +391,28 @@ const AlurfilmTranscriptStep: React.FC = () => {
     setShowImportModal(true);
   };
 
+  // Single Part Faster-Whisper Alignment
   const handleRunWhisperXAlignment = async () => {
     const targetParts = activeGroup.parts || [activePart];
     const targetAudio = currentAudio?.filePath;
 
+    if (!targetAudio) {
+      setError(`Audio voiceover untuk Part #${activePart} belum ada. Silakan upload audio terlebih dahulu di Step 3.`);
+      showToast(`⚠️ Audio voiceover belum terupload untuk Part #${activePart}`);
+      return;
+    }
+
     setIsAligning(true);
+    setIsBatchRunning(false);
+    setBatchTotalCount(1);
+    setBatchCurrentIndex(1);
+    setBatchCurrentLabel(activeGroup.label);
     setAlignProgress(0);
     setAlignStage('preparing');
-    setAlignLogs([`🚀 Initializing WhisperX Voiceover Alignment for Parts #${targetParts.join(', #')}...`]);
+    setAlignLogs([
+      `🚀 Memulai Faster-Whisper Voiceover Alignment untuk ${activeGroup.label}...`,
+      `🎙️ Target Audio: ${currentAudio?.name || 'Voiceover Audio'}`
+    ]);
     setShowAlignModal(true);
 
     try {
@@ -384,8 +421,8 @@ const AlurfilmTranscriptStep: React.FC = () => {
       }
       const result = await api.runAlurfilmWhisperXAlignment(targetParts, targetAudio);
       if (result && result.success) {
-        showToast(`✨ WhisperX alignment complete! Saved transcripts for Parts #${targetParts.join(', #')}`);
-        await loadData();
+        showToast(`✨ Faster-Whisper alignment selesai untuk ${activeGroup.label}!`);
+        await loadData(true);
       }
     } catch (err: any) {
       console.error('WhisperX Alignment Error:', err);
@@ -394,6 +431,115 @@ const AlurfilmTranscriptStep: React.FC = () => {
       setError(`WhisperX alignment failed: ${err.message || String(err)}`);
     } finally {
       setIsAligning(false);
+    }
+  };
+
+  // Sequential Batch Auto-Align for ALL Part Groups
+  const handleRunBatchAlignment = async () => {
+    if (isAligning || isBatchRunning) return;
+
+    // Filter groups that have audio available
+    const targets = partGroups.filter((g) => g.audio && g.audio.filePath);
+
+    if (targets.length === 0) {
+      setError('Tidak ada file audio voiceover yang ditemukan. Silakan upload audio di Step 3 terlebih dahulu.');
+      showToast('⚠️ Belum ada audio voiceover yang siap.');
+      return;
+    }
+
+    setIsBatchRunning(true);
+    batchCancelRef.current = false;
+    setBatchTotalCount(targets.length);
+    setBatchCurrentIndex(1);
+    setBatchCurrentLabel(targets[0].label);
+
+    setIsAligning(true);
+    setAlignProgress(0);
+    setAlignStage('preparing');
+    setAlignLogs([
+      `🚀 MEMULAI SEQUENTIAL BATCH ALIGNMENT`,
+      `📋 Total Antrean: ${targets.length} Audio Group (${targets.map((t) => t.label).join(', ')})`,
+      `⚡ Engine: Faster-Whisper (Silero VAD + CTranslate2)`,
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
+    ]);
+    setShowAlignModal(true);
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (let i = 0; i < targets.length; i++) {
+      if (batchCancelRef.current) {
+        setAlignLogs((prev) => [
+          ...prev,
+          `⏹️ Antrean dihentikan oleh pengguna pada nomor #${i + 1}.`
+        ]);
+        break;
+      }
+
+      const group = targets[i];
+      const targetParts = group.parts;
+      const targetAudio = group.audio?.filePath;
+
+      setBatchCurrentIndex(i + 1);
+      setBatchCurrentLabel(group.label);
+      setActivePart(group.primaryPart);
+
+      setAlignStage('preparing');
+      setAlignProgress(0);
+      setAlignLogs((prev) => [
+        ...prev,
+        ``,
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+        `▶️ [${i + 1}/${targets.length}] Memproses ${group.label} (Parts #${targetParts.join(', #')})...`,
+        `🎙️ Audio: ${group.audio?.name || 'Voiceover Audio'}`
+      ]);
+
+      try {
+        if (!api.runAlurfilmWhisperXAlignment) {
+          throw new Error('WhisperX Alignment API not available in Electron preload');
+        }
+
+        const result = await api.runAlurfilmWhisperXAlignment(targetParts, targetAudio);
+        if (result && result.success) {
+          successCount++;
+          setAlignLogs((prev) => [
+            ...prev,
+            `✅ Selesai: ${group.label} (${targetParts.length} Parts) tersinkronisasi!`
+          ]);
+          await loadData(true);
+        } else {
+          throw new Error('Hasil alignment tidak valid');
+        }
+      } catch (err: any) {
+        console.error(`Batch Alignment Error on ${group.label}:`, err);
+        failCount++;
+        setAlignLogs((prev) => [
+          ...prev,
+          `❌ Gagal pada ${group.label}: ${err.message || String(err)}`
+        ]);
+      }
+    }
+
+    setIsAligning(false);
+    setIsBatchRunning(false);
+    setAlignStage('done');
+    setAlignProgress(100);
+
+    await loadData(true);
+
+    if (failCount === 0 && !batchCancelRef.current) {
+      showToast(`🎉 Semua ${successCount} Audio Group berhasil ditranskrip secara berurutan!`);
+    } else if (batchCancelRef.current) {
+      showToast(`⏹️ Antrean dihentikan. (${successCount} selesai, ${failCount} gagal)`);
+    } else {
+      showToast(`⚠️ Batch selesai: ${successCount} berhasil, ${failCount} gagal.`);
+    }
+  };
+
+  const handleCancelBatch = () => {
+    if (isBatchRunning) {
+      batchCancelRef.current = true;
+      setAlignLogs((prev) => [...prev, '⏳ Menghentikan antrean setelah part yang sedang berjalan selesai...']);
     }
   };
 
@@ -415,9 +561,16 @@ const AlurfilmTranscriptStep: React.FC = () => {
     }
   };
 
+  const handleSeekOffset = (offsetSeconds: number) => {
+    if (mediaRef.current) {
+      const newTime = Math.max(0, mediaRef.current.currentTime + offsetSeconds);
+      mediaRef.current.currentTime = newTime;
+      setCurrentTime(newTime);
+    }
+  };
+
   const currentChunk = chunks.find((c) => c.part === activePart);
   const currentAudio = audios[activePart];
-  const currentTranscriptResult = transcripts[activePart];
   const currentEntries: AlurfilmTranscriptEntry[] | null = getEntriesForPart(activePart);
   const currentAudioDuration = audioDurations[activePart] || null;
 
@@ -436,7 +589,6 @@ const AlurfilmTranscriptStep: React.FC = () => {
   const activeEntryId = useMemo(() => {
     if (!currentEntries || currentEntries.length === 0) return null;
 
-    // Calculate effective time matching master transcript timeline
     let timeToMatch = currentTime;
     if (mediaMode === 'video' && currentEntries.length > 0) {
       const firstEntryStart = currentEntries[0].start_seconds;
@@ -445,7 +597,6 @@ const AlurfilmTranscriptStep: React.FC = () => {
       }
     }
 
-    // Find active entry with seamless gap continuity (keeps line highlighted until next sentence starts)
     for (let i = 0; i < currentEntries.length; i++) {
       const curr = currentEntries[i];
       const next = currentEntries[i + 1];
@@ -501,88 +652,182 @@ const AlurfilmTranscriptStep: React.FC = () => {
     : 0;
 
   return (
-    <div className="flex flex-col h-full bg-gray-950 text-gray-100 p-6 overflow-hidden">
-      {/* Toast */}
+    <div className="flex flex-col h-full bg-[#0b0f19] text-gray-100 p-5 overflow-hidden select-none">
+      {/* Toast Notification */}
       {toast && (
-        <div className="fixed top-5 right-5 z-50 bg-purple-600 text-white text-xs font-semibold px-4 py-2.5 rounded-xl shadow-2xl border border-purple-400 animate-bounce">
-          {toast}
+        <div className="fixed top-5 right-5 z-50 bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-xs font-semibold px-4 py-2.5 rounded-xl shadow-2xl border border-purple-400/50 animate-bounce flex items-center gap-2">
+          <span>🔔</span>
+          <span>{toast}</span>
         </div>
       )}
 
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-gray-800 shrink-0">
-        <div>
-          <h1 className="text-xl font-bold text-white flex items-center gap-2">
-            <span className="p-2 bg-purple-600/20 text-purple-400 rounded-lg text-lg">📝</span>
-            Alur Film Audio Transcript & Timestamp Studio
-          </h1>
-          <p className="text-xs text-gray-400 mt-1">
-            Click any transcript line to preview & seek audio/video narration in real-time.
-          </p>
+      {/* TOP HEADER: Title, Stats & Sequential Batch Action Bar */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-gray-800/80 shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 bg-gradient-to-br from-purple-600/30 to-indigo-600/20 text-purple-400 rounded-xl text-xl border border-purple-500/30 shadow-inner">
+            🎙️
+          </div>
+          <div>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-lg font-bold text-white tracking-tight">
+                Alur Film Audio Transcript & Timestamp Studio
+              </h1>
+              <span className="px-2 py-0.5 bg-purple-950/60 border border-purple-800/60 text-purple-300 rounded-full text-[10px] font-mono font-semibold">
+                Faster-Whisper Sync
+              </span>
+            </div>
+            <p className="text-xs text-gray-400 mt-0.5 flex items-center gap-2">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Sinkronisasi audio voiceover & transkrip per kalimat untuk auto-cut video mapping.
+            </p>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 font-mono text-xs text-purple-300 bg-purple-950/40 border border-purple-800/50 px-3 py-1.5 rounded-xl">
-          <span>🎙️ Mode:</span>
-          <strong className="text-white">Grouped Voiceover Audio Sync</strong>
+        {/* Global Progress Indicators & Primary Batch Action Button */}
+        <div className="flex items-center flex-wrap gap-2.5 shrink-0">
+          {/* Stats Chips */}
+          <div className="hidden sm:flex items-center gap-2 bg-gray-900/80 border border-gray-800 px-3 py-1.5 rounded-xl text-xs font-mono">
+            <span className="text-gray-400">Transcribed:</span>
+            <span className="text-emerald-400 font-bold">
+              {totalTranscribedPartsCount}/{chunks.length || 0} Parts
+            </span>
+            <span className="text-gray-600">|</span>
+            <span className="text-gray-400">Audio Ready:</span>
+            <span className="text-purple-300 font-bold">
+              {groupsWithAudio.length}/{partGroups.length || 0}
+            </span>
+          </div>
+
+          {/* Sequential Batch Auto-Align Button */}
+          <button
+            onClick={handleRunBatchAlignment}
+            disabled={isAligning || isBatchRunning || groupsWithAudio.length === 0}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-lg flex items-center gap-2 border ${
+              isBatchRunning
+                ? 'bg-amber-600/90 text-white border-amber-400 animate-pulse cursor-wait'
+                : groupsWithAudio.length === 0
+                ? 'bg-gray-800/60 text-gray-500 border-gray-700/50 cursor-not-allowed'
+                : 'bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white border-emerald-400/40 shadow-emerald-600/20 hover:scale-[1.02] active:scale-[0.98]'
+            }`}
+            title="Transkrip semua file audio voiceover satu per satu secara berurutan dengan Faster-Whisper"
+          >
+            {isBatchRunning ? (
+              <>
+                <svg className="animate-spin h-3.5 w-3.5 text-white" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                <span>Memproses Antrean ({batchCurrentIndex}/{batchTotalCount})...</span>
+              </>
+            ) : (
+              <>
+                <span className="text-sm">⚡</span>
+                <span>Auto-Align Semua Part (Sequential)</span>
+                <span className="px-1.5 py-0.5 bg-black/40 rounded text-[10px] font-mono text-emerald-200">
+                  {completedGroupsCount}/{partGroups.length}
+                </span>
+              </>
+            )}
+          </button>
+
+          {/* Stop Batch Queue Button */}
+          {isBatchRunning && (
+            <button
+              onClick={handleCancelBatch}
+              className="px-3 py-2 bg-rose-950/80 hover:bg-rose-600 text-rose-200 hover:text-white rounded-xl text-xs font-bold border border-rose-800/60 transition-all flex items-center gap-1.5 shadow"
+              title="Hentikan antrean setelah proses saat ini selesai"
+            >
+              <span>⏹️</span> Stop
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Main Grid Workspace with Side Parts List */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 pt-5 flex-1 min-h-0 overflow-hidden">
-        {/* SIDE COLUMN: Vertical Parts Selector (Col 3) */}
-        <div className="lg:col-span-3 flex flex-col bg-gray-900/60 border border-gray-800 rounded-2xl overflow-hidden shadow-xl p-3.5 space-y-3">
-          <div className="flex items-center justify-between pb-2 border-b border-gray-800 shrink-0">
-            <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">
-              Parts ({chunks.length})
+      {/* MAIN 3-COLUMN WORKSPACE */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 pt-4 flex-1 min-h-0 overflow-hidden">
+        {/* LEFT COLUMN: Parts Selector (Col 3) */}
+        <div className="lg:col-span-3 flex flex-col bg-gray-900/50 backdrop-blur-sm border border-gray-800/80 rounded-2xl overflow-hidden shadow-xl p-3.5 space-y-3">
+          {/* Header */}
+          <div className="flex items-center justify-between pb-2 border-b border-gray-800/70 shrink-0">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-bold text-gray-200 uppercase tracking-wider">
+                Parts ({chunks.length})
+              </span>
+            </div>
+            <span className="px-2 py-0.5 bg-purple-950/70 text-purple-300 border border-purple-800/50 rounded-lg text-[10px] font-mono font-bold">
+              {totalTranscribedPartsCount}/{chunks.length} Selesai
             </span>
-            <span className="text-[10px] text-purple-400 font-mono font-bold">Audio Group & Transcript</span>
           </div>
 
+          {/* Progress Bar in Sidebar */}
+          {chunks.length > 0 && (
+            <div className="w-full bg-gray-800/60 h-1.5 rounded-full overflow-hidden shrink-0">
+              <div
+                className="h-full bg-gradient-to-r from-purple-500 to-emerald-400 transition-all duration-500"
+                style={{ width: `${(totalTranscribedPartsCount / (chunks.length || 1)) * 100}%` }}
+              />
+            </div>
+          )}
+
+          {/* List of Part Groups */}
           {partGroups.length > 0 ? (
-            <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-0.5">
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-0.5 custom-scrollbar">
               {partGroups.map((group) => {
                 const isGroupActive = group.parts.includes(activePart);
                 const isMulti = group.parts.length > 1;
+                const hasAudio = !!(group.audio && group.audio.filePath);
 
                 return (
                   <div
                     key={group.id}
-                    className={`rounded-2xl transition-all border overflow-hidden ${
+                    className={`rounded-xl transition-all border overflow-hidden ${
                       isGroupActive
-                        ? 'bg-purple-950/40 border-purple-500/80 shadow-lg shadow-purple-600/20'
+                        ? 'bg-purple-950/40 border-purple-500/80 shadow-lg shadow-purple-600/15 ring-1 ring-purple-500/30'
                         : group.isDone
-                        ? 'bg-purple-950/20 border-purple-800/40'
-                        : 'bg-gray-950/80 border-gray-800'
+                        ? 'bg-gray-900/80 border-emerald-900/40 hover:border-emerald-700/50'
+                        : hasAudio
+                        ? 'bg-gray-900/60 border-gray-800 hover:border-purple-800/60'
+                        : 'bg-gray-950/70 border-gray-800/60 opacity-80'
                     }`}
                   >
                     <button
                       onClick={() => setActivePart(group.primaryPart)}
-                      className={`w-full px-3.5 py-2.5 text-left font-mono transition-all flex flex-col gap-1 ${
+                      className={`w-full px-3.5 py-2.5 text-left font-mono transition-all flex flex-col gap-1.5 ${
                         isGroupActive
-                          ? 'bg-purple-600 text-white'
-                          : 'hover:bg-gray-900 text-gray-300'
+                          ? 'bg-purple-600 text-white shadow'
+                          : 'hover:bg-gray-800/50 text-gray-300'
                       }`}
                     >
                       <div className="flex items-center justify-between w-full">
-                        <span className="text-xs font-bold">{group.label}</span>
-                        <span className="text-xs">{group.isDone ? '✓' : group.hasSomeDone ? '◐' : '○'}</span>
+                        <span className="text-xs font-bold tracking-tight">{group.label}</span>
+                        {group.isDone ? (
+                          <span className="px-1.5 py-0.5 bg-emerald-950/90 text-emerald-300 border border-emerald-700/60 rounded text-[9px] font-bold">
+                            ✓ Transkrip
+                          </span>
+                        ) : hasAudio ? (
+                          <span className="px-1.5 py-0.5 bg-indigo-950/80 text-indigo-300 border border-indigo-700/50 rounded text-[9px]">
+                            🎙️ Audio Siap
+                          </span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 bg-gray-800/80 text-gray-400 rounded text-[9px]">
+                            ○ No Audio
+                          </span>
+                        )}
                       </div>
 
-                      {isMulti ? (
-                        <div className="flex items-center justify-between text-[10px] opacity-90 font-normal">
-                          <span>🎙️ {group.parts.length} Parts (1 Audio)</span>
-                          <span>{group.audio ? `${(group.audio.size / 1024 / 1024).toFixed(1)} MB` : ''}</span>
-                        </div>
-                      ) : group.audio ? (
-                        <span className="text-[9px] opacity-80 font-normal truncate">
-                          🎙️ Voiceover Audio Uploaded
+                      <div className="flex items-center justify-between text-[10px] opacity-80 font-normal">
+                        <span>
+                          {isMulti ? `🎙️ ${group.parts.length} Parts (1 File)` : (group.audio?.name ? '🎙️ 1 File Audio' : 'Belum ada audio')}
                         </span>
-                      ) : null}
+                        <span>
+                          {group.audio ? `${(group.audio.size / 1024 / 1024).toFixed(1)} MB` : ''}
+                        </span>
+                      </div>
                     </button>
 
-                    {/* Sub-Part Tabs & Group Action Buttons inside Sidebar Group */}
+                    {/* Sub-Part Tabs & Fast Actions for Multi-Part Groups */}
                     {isMulti && (
-                      <div className="p-1.5 bg-gray-950/90 border-t border-purple-800/30 flex flex-col gap-1.5">
+                      <div className="p-2 bg-gray-950/80 border-t border-purple-800/30 flex flex-col gap-2">
                         <div className="grid grid-cols-4 gap-1">
                           {group.parts.map((pt) => {
                             const isPartActive = activePart === pt;
@@ -596,40 +841,16 @@ const AlurfilmTranscriptStep: React.FC = () => {
                                   isPartActive
                                     ? 'bg-purple-600 border-purple-400 text-white shadow'
                                     : isPartDone
-                                    ? 'bg-purple-950/60 border-purple-800 text-purple-300 hover:bg-purple-900'
+                                    ? 'bg-emerald-950/60 border-emerald-800/60 text-emerald-300 hover:bg-emerald-900/60'
                                     : 'bg-gray-900 border-gray-800 text-gray-400 hover:text-white'
                                 }`}
                               >
                                 <span>#{pt}</span>
-                                <span className="text-[9px]">{isPartDone ? '✓' : ''}</span>
+                                {isPartDone && <span className="text-[9px]">✓</span>}
                               </button>
                             );
                           })}
                         </div>
-
-                        {/* Inline Group Actions */}
-                        {isGroupActive && (
-                          <div className="flex items-center gap-1 pt-1 border-t border-gray-800">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleCopyPromptForPart(activePart);
-                              }}
-                              className="flex-1 py-1 px-1.5 bg-purple-900/60 hover:bg-purple-600 text-purple-200 hover:text-white rounded-lg text-[10px] font-bold font-mono transition-all flex items-center justify-center gap-1"
-                            >
-                              <span>📋</span> Copy Prompt
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleOpenImportModal();
-                              }}
-                              className="flex-1 py-1 px-1.5 bg-indigo-900/60 hover:bg-indigo-600 text-indigo-200 hover:text-white rounded-lg text-[10px] font-bold font-mono transition-all flex items-center justify-center gap-1"
-                            >
-                              <span>📥</span> Paste JSON
-                            </button>
-                          </div>
-                        )}
                       </div>
                     )}
                   </div>
@@ -637,56 +858,83 @@ const AlurfilmTranscriptStep: React.FC = () => {
               })}
             </div>
           ) : (
-            <div className="text-[11px] text-amber-400 p-2 text-center">
-              Belum ada part split.
+            <div className="text-xs text-amber-400/90 p-4 text-center bg-gray-950/60 border border-gray-800 rounded-xl">
+              Belum ada part split. Silakan buat split video di Step 1.
             </div>
           )}
         </div>
 
-        {/* CENTER PANEL: Media Preview Player & Prompt (Col 4) */}
-        <div className="lg:col-span-4 flex flex-col bg-gray-900/60 border border-gray-800 rounded-2xl overflow-hidden shadow-xl p-5 space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-gray-800">
+        {/* CENTER COLUMN: Media Player, Toolbar & Studio Telemetry (Col 4) */}
+        <div className="lg:col-span-4 flex flex-col bg-gray-900/50 backdrop-blur-sm border border-gray-800/80 rounded-2xl overflow-hidden shadow-xl p-4 space-y-3.5">
+          {/* Section Header */}
+          <div className="flex items-center justify-between pb-3 border-b border-gray-800/70 shrink-0">
             <div>
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <span>🤖</span> {activeGroup.parts.length > 1 ? `Group Parts #${activeGroup.parts[0]}-#${activeGroup.parts[activeGroup.parts.length - 1]}` : `Part #${activePart}`} Studio
-              </h3>
+              <div className="flex items-center gap-2">
+                <span className="text-base">🤖</span>
+                <h3 className="text-sm font-bold text-white tracking-tight">
+                  {activeGroup.parts.length > 1
+                    ? `Group Parts #${activeGroup.parts[0]} - #${activeGroup.parts[activeGroup.parts.length - 1]}`
+                    : `Part #${activePart}`} Studio
+                </h3>
+              </div>
               <p className="text-[11px] text-gray-400 mt-0.5">
-                AI Input Prompt & Output JSON Sync
+                Faster-Whisper Voiceover & Visual Script Sync
               </p>
             </div>
 
-            {/* AI Group Action Buttons inside Center Panel */}
-            <div className="flex items-center gap-1.5 shrink-0">
-              <button
-                onClick={handleRunWhisperXAlignment}
-                disabled={isAligning}
-                className="px-3 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold shadow-lg transition-all flex items-center gap-1.5 border border-emerald-400/40 disabled:opacity-50"
-                title="Run automatic Faster-Whisper alignment on voiceover audio"
-              >
-                <span>⚡</span> {isAligning ? 'Aligning...' : 'Auto-Align (Faster-Whisper)'}
-              </button>
+            <div className="flex items-center gap-1.5">
+              {currentEntries && currentEntries.length > 0 ? (
+                <span className="px-2 py-0.5 bg-emerald-950/70 border border-emerald-800/60 text-emerald-300 rounded-lg text-[10px] font-mono font-bold">
+                  ✓ {currentEntries.length} Lines
+                </span>
+              ) : (
+                <span className="px-2 py-0.5 bg-amber-950/70 border border-amber-800/60 text-amber-300 rounded-lg text-[10px] font-mono font-bold">
+                  Belum Ada Transkrip
+                </span>
+              )}
+            </div>
+          </div>
 
+          {/* DEDICATED ACTION TOOLBAR (Spaced out, no crowding!) */}
+          <div className="flex flex-col gap-2 shrink-0">
+            {/* Primary Action Button */}
+            <button
+              onClick={handleRunWhisperXAlignment}
+              disabled={isAligning || isBatchRunning || !currentAudio}
+              className={`w-full py-2 px-3 rounded-xl text-xs font-bold shadow-md transition-all flex items-center justify-center gap-2 border ${
+                !currentAudio
+                  ? 'bg-gray-800/60 text-gray-500 border-gray-700/50 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white border-emerald-400/40 shadow-emerald-600/20 hover:scale-[1.01] active:scale-[0.99]'
+              }`}
+              title="Jalankan otomatis Faster-Whisper alignment pada audio Part ini"
+            >
+              <span>⚡</span>
+              <span>{isAligning ? 'Sedang Menyelaraskan...' : 'Auto-Align Part Ini (Faster-Whisper)'}</span>
+            </button>
+
+            {/* Secondary Action Buttons */}
+            <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={() => handleCopyPromptForPart(activePart)}
-                className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold shadow transition-all flex items-center gap-1"
-                title="Copy AI Transcript Prompt for this group"
+                className="py-1.5 px-3 bg-purple-900/50 hover:bg-purple-600 text-purple-200 hover:text-white rounded-xl text-xs font-bold border border-purple-700/50 shadow-sm transition-all flex items-center justify-center gap-1.5"
+                title="Copy AI Prompt naskah untuk Google AI Studio jika ingin transkrip manual"
               >
                 <span>📋</span> Copy Prompt
               </button>
 
               <button
                 onClick={handleOpenImportModal}
-                className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1 shadow"
-                title="Import or Edit Output JSON"
+                className="py-1.5 px-3 bg-indigo-900/50 hover:bg-indigo-600 text-indigo-200 hover:text-white rounded-xl text-xs font-bold border border-indigo-700/50 transition-all flex items-center justify-center gap-1.5 shadow-sm"
+                title="Paste atau edit output format SRT Subtitle / JSON"
               >
-                <span>📥</span> Paste JSON
+                <span>📥</span> Paste JSON / SRT
               </button>
             </div>
           </div>
 
-          {/* Audio Grouping Banner Badge */}
+          {/* Audio Grouping Banner Badge (if multi-part) */}
           {currentAudio?.parts && currentAudio.parts.length > 1 && (
-            <div className="p-2.5 bg-purple-950/50 border border-purple-800/60 rounded-xl flex items-center justify-between text-xs text-purple-200">
+            <div className="p-2.5 bg-purple-950/40 border border-purple-800/50 rounded-xl flex items-center justify-between text-xs text-purple-200 shrink-0">
               <span className="font-semibold flex items-center gap-1.5 text-[11px]">
                 <span>🎙️</span> Multi-Part Voiceover Audio:
               </span>
@@ -697,44 +945,77 @@ const AlurfilmTranscriptStep: React.FC = () => {
           )}
 
           {/* Player Mode Switcher: Audio vs Video */}
-          <div className="flex items-center gap-2 bg-gray-950 p-1 rounded-xl border border-gray-800">
+          <div className="flex items-center gap-1.5 bg-gray-950/80 p-1 rounded-xl border border-gray-800/80 shrink-0">
             <button
               onClick={() => setMediaMode('audio')}
-              className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                mediaMode === 'audio' ? 'bg-purple-600 text-white shadow' : 'text-gray-400 hover:text-white'
+              className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                mediaMode === 'audio'
+                  ? 'bg-purple-600 text-white shadow'
+                  : 'text-gray-400 hover:text-white'
               }`}
             >
-              🎙️ Voiceover Audio
+              <span>🎙️</span> Voiceover Audio
             </button>
             <button
               onClick={() => setMediaMode('video')}
-              className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                mediaMode === 'video' ? 'bg-purple-600 text-white shadow' : 'text-gray-400 hover:text-white'
+              className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                mediaMode === 'video'
+                  ? 'bg-purple-600 text-white shadow'
+                  : 'text-gray-400 hover:text-white'
               }`}
             >
-              📹 Video Chunk
+              <span>📹</span> Video Chunk
             </button>
           </div>
 
-          {/* Media Player Box */}
-          <div className="bg-black rounded-xl p-3 border border-gray-800 flex flex-col items-center justify-center min-h-[160px] shadow-inner">
+          {/* Sleek Media Player Container */}
+          <div className="bg-black/80 rounded-xl p-3 border border-gray-800/80 flex flex-col justify-center min-h-[145px] shadow-inner shrink-0">
             {mediaMode === 'audio' ? (
               currentAudio ? (
-                <div className="w-full space-y-3">
-                  <div className="flex items-center gap-3">
-                    <span className="p-2 bg-purple-600/20 text-purple-400 rounded-lg text-lg">🎙️</span>
-                    <span className="text-xs font-mono font-bold text-white truncate">{currentAudio.name}</span>
+                <div className="w-full space-y-2.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2 truncate pr-2">
+                      <span className="p-1.5 bg-purple-600/20 text-purple-400 rounded-lg text-sm">🎙️</span>
+                      <span className="font-mono font-bold text-gray-200 truncate text-[11px]">{currentAudio.name}</span>
+                    </div>
+                    {/* Quick Seek buttons */}
+                    <div className="flex items-center gap-1 shrink-0 font-mono text-[10px]">
+                      <button
+                        onClick={() => handleSeekOffset(-5)}
+                        className="px-1.5 py-0.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded"
+                        title="Mundur 5 detik"
+                      >
+                        -5s
+                      </button>
+                      <button
+                        onClick={() => handleSeekOffset(5)}
+                        className="px-1.5 py-0.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded"
+                        title="Maju 5 detik"
+                      >
+                        +5s
+                      </button>
+                    </div>
                   </div>
+
                   <audio
                     ref={mediaRef as React.RefObject<HTMLAudioElement>}
                     src={currentAudio.mediaUrl || currentAudio.url}
                     controls
                     onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
-                    className="w-full h-10 rounded-lg"
+                    className="w-full h-9 rounded-lg"
                   />
+
+                  <div className="flex items-center justify-between text-[10px] font-mono text-gray-400 px-1">
+                    <span>Posisi: {currentTime.toFixed(1)}s ({formatMinute(currentTime)})</span>
+                    <span>Total: {currentAudioDuration ? `${currentAudioDuration.toFixed(1)}s (${formatMinute(currentAudioDuration)})` : 'Unknown'}</span>
+                  </div>
                 </div>
               ) : (
-                <p className="text-xs text-gray-500">No Audio uploaded for Part #{activePart}</p>
+                <div className="text-center py-4 space-y-1">
+                  <span className="text-2xl opacity-40">🎙️</span>
+                  <p className="text-xs text-gray-500 font-medium">No Audio uploaded for Part #{activePart}</p>
+                  <p className="text-[10px] text-gray-600">Upload voiceover audio di Step 3 untuk mengaktifkan player</p>
+                </div>
               )
             ) : (
               currentChunk ? (
@@ -743,38 +1024,84 @@ const AlurfilmTranscriptStep: React.FC = () => {
                   src={currentChunk.mediaUrl || currentChunk.url}
                   controls
                   onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
-                  className="w-full h-44 object-contain rounded-lg"
+                  className="w-full h-40 object-contain rounded-lg bg-black"
                 />
               ) : (
-                <p className="text-xs text-gray-500">No Video Chunk for Part #{activePart}</p>
+                <div className="text-center py-4 space-y-1">
+                  <span className="text-2xl opacity-40">📹</span>
+                  <p className="text-xs text-gray-500 font-medium">No Video Chunk for Part #{activePart}</p>
+                </div>
               )
             )}
           </div>
 
-          <div className="flex-1 bg-gray-950 p-4 rounded-xl border border-gray-800 overflow-y-auto space-y-2 font-mono text-xs text-gray-300 leading-relaxed min-h-0">
-            <p className="text-purple-400 font-bold">// Transcript Instructions</p>
-            <p>- Selected Part: {activePart} of {chunks.length || 1}</p>
-            <p>- Audio Parts Coverage: {currentAudio?.parts ? `Parts #${currentAudio.parts.join(', #')}` : `Part #${activePart}`}</p>
-            <p>- Audio Duration: {currentAudioDuration ? `${currentAudioDuration.toFixed(1)}s (${formatMinute(currentAudioDuration)})` : 'Unknown'}</p>
-            <p>- Step 2 Reference Script: Included in Prompt</p>
+          {/* TELEMETRY & STUDIO OVERVIEW (Replaces old raw monospace code block) */}
+          <div className="flex-1 bg-gray-950/70 border border-gray-800/80 rounded-xl p-3 flex flex-col justify-between overflow-hidden min-h-0 space-y-2.5">
+            <div className="text-[11px] font-bold text-gray-300 uppercase tracking-wider flex items-center justify-between border-b border-gray-800/60 pb-1.5">
+              <span className="flex items-center gap-1 text-purple-400">
+                <span>📊</span> Studio Telemetry
+              </span>
+              <span className="text-[10px] text-gray-500 font-mono">Part #{activePart} of {chunks.length || 1}</span>
+            </div>
+
+            {/* 4 Telemetry Metrics Grid */}
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="p-2 bg-gray-900/60 border border-gray-800/60 rounded-lg space-y-0.5">
+                <span className="text-[10px] text-gray-400 block font-medium">🎙️ File Audio</span>
+                <span className="text-white font-mono text-[11px] truncate block font-bold" title={currentAudio?.name}>
+                  {currentAudio ? currentAudio.name : 'Belum diunggah'}
+                </span>
+              </div>
+
+              <div className="p-2 bg-gray-900/60 border border-gray-800/60 rounded-lg space-y-0.5">
+                <span className="text-[10px] text-gray-400 block font-medium">⏱️ Durasi Audio</span>
+                <span className="text-purple-300 font-mono text-[11px] block font-bold">
+                  {currentAudioDuration ? `${currentAudioDuration.toFixed(1)}s (${formatMinute(currentAudioDuration)})` : '00:00'}
+                </span>
+              </div>
+
+              <div className="p-2 bg-gray-900/60 border border-gray-800/60 rounded-lg space-y-0.5">
+                <span className="text-[10px] text-gray-400 block font-medium">💬 Total Transkrip</span>
+                <span className="text-emerald-400 font-mono text-[11px] block font-bold">
+                  {currentEntries ? `${currentEntries.length} Kalimat (${totalTranscriptDuration.toFixed(1)}s)` : '0 Kalimat'}
+                </span>
+              </div>
+
+              <div className="p-2 bg-gray-900/60 border border-gray-800/60 rounded-lg space-y-0.5">
+                <span className="text-[10px] text-gray-400 block font-medium">⚙️ Mesin Alignment</span>
+                <span className="text-cyan-300 font-mono text-[10px] block font-semibold truncate">
+                  Faster-Whisper (VAD)
+                </span>
+              </div>
+            </div>
+
+            {/* Quick Tips */}
+            <div className="p-2 bg-purple-950/30 border border-purple-900/40 rounded-lg text-[10px] text-purple-300 leading-relaxed">
+              💡 <strong>Tip Cepat:</strong> Klik kalimat di kolom kanan untuk lompat ke audio. Jika audio mencakup banyak part, Faster-Whisper otomatis membaginya.
+            </div>
           </div>
 
           {error && (
-            <div className="p-3 bg-red-950/40 border border-red-800/50 rounded-xl text-xs text-red-400">
-              {error}
+            <div className="p-3 bg-red-950/50 border border-red-800/60 rounded-xl text-xs text-red-300 flex items-center gap-2">
+              <span>⚠️</span>
+              <span className="flex-1 text-[11px]">{error}</span>
             </div>
           )}
         </div>
 
-        {/* RIGHT PANEL: Transcript Table with Interactive Seek (Col 5) */}
-        <div className="lg:col-span-5 flex flex-col bg-gray-900/60 border border-gray-800 rounded-2xl overflow-hidden shadow-xl p-5 space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-gray-800 shrink-0">
+        {/* RIGHT COLUMN: Interactive Speech Lines & Timestamp Table (Col 5) */}
+        <div className="lg:col-span-5 flex flex-col bg-gray-900/50 backdrop-blur-sm border border-gray-800/80 rounded-2xl overflow-hidden shadow-xl p-4 space-y-3">
+          {/* Header */}
+          <div className="flex items-center justify-between pb-2.5 border-b border-gray-800/70 shrink-0">
             <div>
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <span>💬</span> Speech Lines ({filteredEntries.length})
-              </h3>
+              <div className="flex items-center gap-2">
+                <span className="text-base">💬</span>
+                <h3 className="text-sm font-bold text-white tracking-tight">
+                  Speech Lines ({filteredEntries.length})
+                </h3>
+              </div>
               <p className="text-[11px] text-gray-400 mt-0.5">
-                Click lines to seek playback.
+                Klik baris kalimat untuk seek & preview audio playback real-time.
               </p>
             </div>
 
@@ -786,56 +1113,68 @@ const AlurfilmTranscriptStep: React.FC = () => {
                     showToast(`📋 Copied JSON Transcript for Part #${activePart}!`);
                   }
                 }}
-                className="px-3 py-1 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg text-xs font-medium transition-all"
+                className="px-2.5 py-1 bg-gray-800/80 hover:bg-gray-700 text-gray-200 rounded-lg text-xs font-medium transition-all flex items-center gap-1 border border-gray-700/50"
+                title="Copy seluruh transkrip JSON Part ini ke clipboard"
               >
-                📋 Copy JSON
+                <span>📋</span> Copy JSON
               </button>
             )}
           </div>
 
           {currentEntries && currentEntries.length > 0 ? (
-            <div className="flex-1 flex flex-col min-h-0 space-y-3">
-              {/* Stats & Search */}
-              <div className="flex items-center justify-between gap-3 bg-gray-950 p-3 rounded-xl border border-gray-800">
-                <span className="text-xs text-gray-400">
-                  Total: <strong className="text-purple-400 font-mono">{currentEntries.length} items</strong>
-                </span>
-                <input
-                  type="text"
-                  value={searchFilter}
-                  onChange={(e) => setSearchFilter(e.target.value)}
-                  placeholder="Search text..."
-                  className="bg-gray-900 text-gray-200 text-xs rounded-lg px-3 py-1 border border-gray-800 focus:border-purple-500 focus:outline-none w-32"
-                />
+            <div className="flex-1 flex flex-col min-h-0 space-y-2.5">
+              {/* Filter Search Bar */}
+              <div className="flex items-center justify-between gap-3 bg-gray-950/80 px-3 py-2 rounded-xl border border-gray-800/80 shrink-0">
+                <div className="flex items-center gap-2 text-xs text-gray-400">
+                  <span>🔍</span>
+                  <span className="text-[11px]">
+                    Total: <strong className="text-purple-400 font-mono">{currentEntries.length} baris</strong>
+                  </span>
+                </div>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={searchFilter}
+                    onChange={(e) => setSearchFilter(e.target.value)}
+                    placeholder="Cari teks naskah..."
+                    className="bg-gray-900 text-gray-200 text-xs rounded-lg pl-2.5 pr-6 py-1 border border-gray-800 focus:border-purple-500 focus:outline-none w-36 transition-all"
+                  />
+                  {searchFilter && (
+                    <button
+                      onClick={() => setSearchFilter('')}
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white text-xs"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
               </div>
 
-              {/* Validation Report Banner */}
+              {/* Validation Report Banner (Auto-Fix) */}
               {currentReport.issues.length > 0 && (
                 <div
-                  className={`p-3 rounded-xl border flex items-center justify-between gap-3 text-xs font-medium ${
+                  className={`p-2.5 rounded-xl border flex items-center justify-between gap-3 text-xs font-medium shrink-0 ${
                     currentReport.status === 'ERROR'
                       ? 'bg-rose-950/40 border-rose-800/50 text-rose-300'
                       : 'bg-amber-950/40 border-amber-800/50 text-amber-300'
                   }`}
                 >
-                  <div className="space-y-0.5">
-                    <div className="flex items-center gap-1.5 font-bold">
-                      <span>{currentReport.status === 'ERROR' ? '🔴' : '⚠️'}</span>
-                      <span>{currentReport.summaryText}</span>
-                    </div>
+                  <div className="flex items-center gap-1.5 font-semibold text-[11px]">
+                    <span>{currentReport.status === 'ERROR' ? '🔴' : '⚠️'}</span>
+                    <span>{currentReport.summaryText}</span>
                   </div>
 
                   <button
                     onClick={handleAutoFixCurrentPart}
-                    className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold shadow transition-all shrink-0 flex items-center gap-1"
+                    className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-[11px] font-bold shadow transition-all shrink-0 flex items-center gap-1"
                   >
                     <span>⚡</span> Auto-Fix
                   </button>
                 </div>
               )}
 
-              {/* Click-to-Seek Transcript List */}
-              <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1">
+              {/* Interactive Speech Lines List */}
+              <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
                 {filteredEntries.map((e, idx) => {
                   const isActive = (e.id || idx + 1) === activeEntryId;
                   const isVisualOnly = (e as any).type === 'visual_only' || e.text?.includes('VISUAL_ONLY') || (e.speaker && e.speaker.toLowerCase().includes('visual'));
@@ -850,8 +1189,8 @@ const AlurfilmTranscriptStep: React.FC = () => {
                             ? 'bg-amber-950/70 border-amber-500 shadow-lg shadow-amber-600/30 scale-[1.01]'
                             : 'bg-amber-950/30 hover:bg-amber-950/50 border-amber-800/60 hover:border-amber-600'
                           : isActive
-                            ? 'bg-purple-900/50 border-purple-500 shadow-lg shadow-purple-600/30 scale-[1.01]'
-                            : 'bg-gray-950 hover:bg-purple-950/40 border-gray-800 hover:border-purple-600/50'
+                            ? 'bg-purple-900/50 border-purple-500 shadow-lg shadow-purple-600/30 scale-[1.01] ring-1 ring-purple-400/40'
+                            : 'bg-gray-950/70 hover:bg-purple-950/30 border-gray-800/80 hover:border-purple-600/50'
                       }`}
                     >
                       <div className="flex items-center justify-between">
@@ -860,28 +1199,29 @@ const AlurfilmTranscriptStep: React.FC = () => {
                             #{e.id || idx + 1}
                           </span>
                           <span
-                            className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold transition-all border ${
+                            className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition-all border ${
                               isVisualOnly
                                 ? 'bg-amber-900/80 text-amber-200 border-amber-600/60'
                                 : isActive
                                   ? 'bg-purple-600 text-white border-purple-400 shadow animate-pulse flex items-center gap-1'
-                                  : 'bg-purple-950 text-purple-300 border-purple-800/50 group-hover:bg-purple-600 group-hover:text-white'
+                                  : 'bg-purple-950/60 text-purple-300 border-purple-800/50 group-hover:bg-purple-600 group-hover:text-white'
                             }`}
                           >
                             {isVisualOnly ? '🎥 VISUAL ONLY | ' : isActive ? '🔊 PLAYING | ' : '▶️ '}{e.timestamp_minute}
                           </span>
                         </div>
-                        <span className={`text-[11px] font-mono ${isVisualOnly ? 'text-amber-300 font-bold' : isActive ? 'text-purple-300 font-bold' : 'text-gray-500'}`}>
+                        <span className={`text-[10px] font-mono ${isVisualOnly ? 'text-amber-300 font-bold' : isActive ? 'text-purple-300 font-bold' : 'text-gray-500'}`}>
                           {(typeof e.start_seconds === 'number' && !isNaN(e.start_seconds) ? e.start_seconds : 0).toFixed(1)}s - {(typeof e.end_seconds === 'number' && !isNaN(e.end_seconds) ? e.end_seconds : 0).toFixed(1)}s
                         </span>
                       </div>
+
                       <p
                         className={`text-xs leading-relaxed font-normal p-2.5 rounded-lg border transition-all ${
                           isVisualOnly
                             ? 'bg-amber-950/50 text-amber-200 font-mono border-amber-800/60'
                             : isActive
                               ? 'bg-purple-950/80 text-white font-medium border-purple-500/60 shadow-inner'
-                              : 'text-gray-200 bg-gray-900 border-gray-800 group-hover:border-purple-500/30'
+                              : 'text-gray-200 bg-gray-900/80 border-gray-800/70 group-hover:border-purple-500/30'
                         }`}
                       >
                         {isVisualOnly ? `🎥 ${e.text}` : `"${e.text}"`}
@@ -892,38 +1232,52 @@ const AlurfilmTranscriptStep: React.FC = () => {
               </div>
             </div>
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center text-center p-6 border border-dashed border-gray-800 rounded-2xl space-y-3">
-              <div className="w-12 h-12 bg-gray-900 text-gray-600 rounded-xl flex items-center justify-center text-xl">
+            /* Redesigned Clean Empty State */
+            <div className="flex-1 flex flex-col items-center justify-center text-center p-6 border border-dashed border-gray-800 rounded-2xl space-y-4">
+              <div className="w-14 h-14 bg-gradient-to-br from-purple-900/40 to-gray-900 text-purple-400 rounded-2xl flex items-center justify-center text-2xl border border-purple-800/40 shadow-inner">
                 📝
               </div>
               <div className="space-y-1.5 max-w-sm">
-                <h4 className="text-xs font-bold text-gray-300">Belum Ada Transkrip Part #{activePart}</h4>
-                {currentAudio?.parts && currentAudio.parts.length > 1 ? (
-                  <div className="p-3 bg-purple-950/40 border border-purple-800/50 rounded-xl text-left space-y-1">
-                    <p className="text-[11px] font-semibold text-purple-200 flex items-center gap-1">
-                      <span>🎙️</span> Audio Parts #{currentAudio.parts.join(', #')}
-                    </p>
-                    <p className="text-[11px] text-gray-400 leading-relaxed">
-                      Klik <strong>"Copy Prompt #{activePart}"</strong> di sebelah kiri, buat transkrip di AI Studio, lalu tempel hasilnya via <strong>"Paste Transcript JSON"</strong>.
-                    </p>
-                    <p className="text-[10px] text-purple-400 font-mono pt-0.5">
-                      ⚡ Grouped JSON otomatis membagi transkrip ke semua Part sekaligus!
-                    </p>
+                <h4 className="text-xs font-bold text-gray-200">
+                  Belum Ada Transkrip Part #{activePart}
+                </h4>
+                <p className="text-[11px] text-gray-400 leading-relaxed">
+                  Pilih salah satu metode di bawah untuk menghasilkan transkrip kalimat & sinkronisasi audio:
+                </p>
+              </div>
+
+              {/* 2 Clear Action Choices */}
+              <div className="grid grid-cols-1 gap-2 w-full max-w-sm text-left">
+                <div
+                  onClick={handleRunWhisperXAlignment}
+                  className="p-3 bg-emerald-950/30 hover:bg-emerald-950/50 border border-emerald-800/50 rounded-xl cursor-pointer transition-all flex items-center gap-3 group"
+                >
+                  <span className="p-2 bg-emerald-500/20 text-emerald-400 rounded-lg text-lg group-hover:scale-110 transition-all">⚡</span>
+                  <div>
+                    <span className="text-xs font-bold text-emerald-300 block">Metode 1: Auto-Align (Otomatis)</span>
+                    <span className="text-[10px] text-gray-400 block">Jalankan Faster-Whisper langsung dari audio voiceover lokal.</span>
                   </div>
-                ) : (
-                  <p className="text-[11px] text-gray-500 leading-relaxed">
-                    Copy prompt di tengah, jalankan di AI Studio dengan voiceover audio, lalu paste hasilnya ke sini.
-                  </p>
-                )}
+                </div>
+
+                <div
+                  onClick={() => handleCopyPromptForPart(activePart)}
+                  className="p-3 bg-purple-950/30 hover:bg-purple-950/50 border border-purple-800/50 rounded-xl cursor-pointer transition-all flex items-center gap-3 group"
+                >
+                  <span className="p-2 bg-purple-500/20 text-purple-400 rounded-lg text-lg group-hover:scale-110 transition-all">📋</span>
+                  <div>
+                    <span className="text-xs font-bold text-purple-300 block">Metode 2: AI Studio (Manual)</span>
+                    <span className="text-[10px] text-gray-400 block">Copy Prompt, proses di Google AI Studio, lalu Paste JSON.</span>
+                  </div>
+                </div>
               </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* Import Modal */}
+      {/* Paste / Edit SRT or JSON Modal */}
       {showImportModal && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-gray-900 border border-gray-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
               <span>📋</span> Paste / Edit Transcript Subtitle SRT / JSON (Part #{activePart})
@@ -954,24 +1308,30 @@ const AlurfilmTranscriptStep: React.FC = () => {
         </div>
       )}
 
-      {/* Real-time WhisperX Log & Progress Modal Overlay */}
+      {/* Real-time Faster-Whisper Log & Sequential Batch Progress Modal Overlay */}
       {showAlignModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
             {/* Modal Header */}
             <div className="px-5 py-4 bg-gray-950 border-b border-gray-800 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="p-1.5 bg-emerald-500/20 text-emerald-400 rounded-lg text-lg">⚡</span>
+              <div className="flex items-center gap-3">
+                <span className="p-2 bg-emerald-500/20 text-emerald-400 rounded-xl text-lg">⚡</span>
                 <div>
-                  <h3 className="text-sm font-bold text-white">WhisperX Voiceover Alignment Studio</h3>
-                  <p className="text-[11px] text-gray-400">Automatic Audio Sync & Multi-Part Script Mapping</p>
+                  <h3 className="text-sm font-bold text-white">
+                    {isBatchRunning ? 'Sequential Batch Faster-Whisper Alignment' : 'Faster-Whisper Voiceover Alignment'}
+                  </h3>
+                  <p className="text-[11px] text-gray-400">
+                    {isBatchRunning
+                      ? `Memproses antrean Part ${batchCurrentIndex} dari ${batchTotalCount} (${batchCurrentLabel})`
+                      : 'Automatic Audio Sync & Multi-Part Script Mapping'}
+                  </p>
                 </div>
               </div>
 
               {!isAligning && (
                 <button
                   onClick={() => setShowAlignModal(false)}
-                  className="px-3 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-xs font-semibold"
+                  className="px-3 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-xs font-semibold transition-all"
                 >
                   Tutup
                 </button>
@@ -980,16 +1340,38 @@ const AlurfilmTranscriptStep: React.FC = () => {
 
             {/* Modal Body */}
             <div className="p-5 flex flex-col space-y-4 flex-1 overflow-hidden">
+              {/* Batch Queue Progress Bar (if batch) */}
+              {isBatchRunning && (
+                <div className="p-3 bg-gray-950 border border-emerald-900/40 rounded-xl space-y-1.5">
+                  <div className="flex items-center justify-between text-xs font-mono">
+                    <span className="text-emerald-400 font-bold flex items-center gap-1.5">
+                      <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                      Antrean: {batchCurrentLabel}
+                    </span>
+                    <span className="text-gray-300 font-bold">
+                      {batchCurrentIndex} / {batchTotalCount} Audio Group
+                    </span>
+                  </div>
+                  <div className="w-full bg-gray-800 h-2 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-emerald-500 to-cyan-400 transition-all duration-300"
+                      style={{ width: `${(batchCurrentIndex / (batchTotalCount || 1)) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
               {/* Progress Section */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-semibold text-emerald-400 capitalize">
-                    {alignStage === 'preparing' && '⚙️ Stage 1: Preparing Script & Audio'}
-                    {alignStage === 'loading_model' && '🧠 Stage 2: Loading Wav2Vec2 Model'}
-                    {alignStage === 'aligning' && '🎙️ Stage 3: Aligning Voiceover Audio'}
-                    {alignStage === 'mapping' && '🧩 Stage 4: Mapping Parts & Saving JSON'}
-                    {alignStage === 'done' && '🎉 Stage 5: Completed Successfully!'}
-                    {alignStage === 'error' && '❌ Alignment Failed'}
+                    {alignStage === 'preparing' && '⚙️ Stage 1: Mempersiapkan Script & Audio'}
+                    {alignStage === 'loading_model' && '🧠 Stage 2: Memuat Model Faster-Whisper & Silero VAD'}
+                    {alignStage === 'aligning' && '🎙️ Stage 3: Menyelaraskan Audio Voiceover'}
+                    {alignStage === 'transcribing' && '🎙️ Stage 3: Faster-Whisper VAD & Speech Recognition'}
+                    {alignStage === 'mapping' && '🧩 Stage 4: Pemetaan Part & Simpan JSON'}
+                    {alignStage === 'done' && '🎉 Stage 5: Selesai Berhasil!'}
+                    {alignStage === 'error' && '❌ Alignment Terkendala'}
                   </span>
                   <span className="font-mono text-gray-300 font-bold">{alignProgress}%</span>
                 </div>
@@ -1008,46 +1390,59 @@ const AlurfilmTranscriptStep: React.FC = () => {
                 </div>
               </div>
 
-              {/* Terminal Logs */}
+              {/* Live Terminal Logs */}
               <div className="flex-1 min-h-[220px] flex flex-col bg-gray-950 border border-gray-800 rounded-xl p-3 font-mono text-xs overflow-hidden">
                 <div className="flex items-center justify-between pb-2 border-b border-gray-800 mb-2 text-[10px] text-gray-400">
                   <span className="flex items-center gap-1.5">
                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" /> Live Alignment Terminal
                   </span>
-                  <span>Parts #{activeGroup.parts.join(', #')}</span>
+                  <span>{isBatchRunning ? `Batch Queue (${batchCurrentIndex}/${batchTotalCount})` : `Parts #${activeGroup.parts.join(', #')}`}</span>
                 </div>
 
-                <div ref={logContainerRef} className="flex-1 overflow-y-auto space-y-1 text-gray-300 text-[11px] leading-relaxed">
+                <div ref={logContainerRef} className="flex-1 overflow-y-auto space-y-1 text-gray-300 text-[11px] leading-relaxed custom-scrollbar">
                   {alignLogs.map((log, i) => (
-                    <div key={i} className={log.includes('ERROR') ? 'text-red-400 font-bold' : log.includes('Selesai') || log.includes('Successfully') ? 'text-emerald-400 font-bold' : ''}>
+                    <div key={i} className={log.includes('ERROR') || log.includes('❌') ? 'text-red-400 font-bold' : log.includes('Selesai') || log.includes('✅') || log.includes('MEMULAI') ? 'text-emerald-400 font-bold' : ''}>
                       {log}
                     </div>
                   ))}
                   {isAligning && (
-                    <div className="text-gray-500 animate-pulse">... processing ...</div>
+                    <div className="text-gray-500 animate-pulse">... memproses Faster-Whisper audio alignment ...</div>
                   )}
                 </div>
               </div>
             </div>
 
             {/* Modal Footer */}
-            <div className="px-5 py-3 bg-gray-950 border-t border-gray-800 flex items-center justify-end">
-              {isAligning ? (
-                <span className="text-xs text-gray-400 flex items-center gap-2">
-                  <svg className="animate-spin h-4 w-4 text-emerald-400" viewBox="0 0 24 24" fill="none">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  Processing alignment... Please wait
-                </span>
-              ) : (
-                <button
-                  onClick={() => setShowAlignModal(false)}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow transition-all"
-                >
-                  Selesai
-                </button>
-              )}
+            <div className="px-5 py-3 bg-gray-950 border-t border-gray-800 flex items-center justify-between">
+              <div>
+                {isBatchRunning && (
+                  <button
+                    onClick={handleCancelBatch}
+                    className="px-3 py-1.5 bg-rose-950/80 hover:bg-rose-600 text-rose-200 hover:text-white rounded-lg text-xs font-bold border border-rose-800/60 transition-all flex items-center gap-1"
+                  >
+                    <span>⏹️</span> Hentikan Sisa Antrean
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-3">
+                {isAligning ? (
+                  <span className="text-xs text-gray-400 flex items-center gap-2">
+                    <svg className="animate-spin h-4 w-4 text-emerald-400" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Memproses... Mohon tunggu
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setShowAlignModal(false)}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow transition-all"
+                  >
+                    Selesai
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
