@@ -1,6 +1,7 @@
 // dashboard/src/components/longform/AlurfilmSplitterStep.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import type { SourceInfo, AlurfilmChunk } from '../../electron-api';
+import { syncChunksToSupabase, getSyncedChunks } from '../../lib/supabaseSync';
 
 const api = window.electronAPI;
 
@@ -53,6 +54,9 @@ const AlurfilmSplitterStep: React.FC = () => {
   const [chunks, setChunks] = useState<AlurfilmChunk[]>([]);
   const [error, setError] = useState<string | null>(null);
   
+  const [syncingSupabase, setSyncingSupabase] = useState<boolean>(false);
+  const [syncedParts, setSyncedParts] = useState<number[]>([]);
+
   const [toast, setToast] = useState<string | null>(null);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
@@ -74,10 +78,65 @@ const AlurfilmSplitterStep: React.FC = () => {
           if (existingChunks && existingChunks.length > 0) {
             setChunks(existingChunks);
           }
+          try {
+            const synced = await getSyncedChunks(id);
+            setSyncedParts(synced.map((s) => s.part_number));
+          } catch {}
         }
       } catch {}
     })();
   }, []);
+
+  const handleSyncToSupabase = async () => {
+    if (!contentId || chunks.length === 0) return;
+    setSyncingSupabase(true);
+    setError(null);
+    try {
+      const res = await syncChunksToSupabase({
+        contentId,
+        chunks,
+        getPromptFn: async (partNum, total) => {
+          if (api.getAlurfilmPrompt) {
+            try {
+              return await api.getAlurfilmPrompt(partNum, total);
+            } catch {}
+          }
+          return '';
+        },
+      });
+      setSyncedParts(chunks.map((c) => c.part));
+      showToast(`☁️ Berhasil menyimpan ${res.count} part ke Supabase (schema: autocontent) untuk AI Studio!`);
+    } catch (err: any) {
+      setError(`Gagal menyimpan ke Supabase: ${err.message}`);
+    } finally {
+      setSyncingSupabase(false);
+    }
+  };
+
+  const handleSyncSingleChunk = async (chunk: AlurfilmChunk) => {
+    if (!contentId) return;
+    setSyncingSupabase(true);
+    try {
+      await syncChunksToSupabase({
+        contentId,
+        chunks: [chunk],
+        getPromptFn: async (partNum, total) => {
+          if (api.getAlurfilmPrompt) {
+            try {
+              return await api.getAlurfilmPrompt(partNum, total);
+            } catch {}
+          }
+          return '';
+        },
+      });
+      setSyncedParts((prev) => Array.from(new Set([...prev, chunk.part])));
+      showToast(`☁️ Part #${chunk.part} berhasil disimpan ke Supabase!`);
+    } catch (err: any) {
+      setError(`Gagal menyimpan Part #${chunk.part} ke Supabase: ${err.message}`);
+    } finally {
+      setSyncingSupabase(false);
+    }
+  };
 
   const handleSelectMaster = async () => {
     try {
@@ -433,6 +492,27 @@ const AlurfilmSplitterStep: React.FC = () => {
                 Setiap part dipotong presisi dari {startTime} sampai {endTime}.
               </p>
             </div>
+            {chunks.length > 0 && (
+              <button
+                onClick={handleSyncToSupabase}
+                disabled={syncingSupabase}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold shadow-lg transition-all flex items-center gap-1.5 border ${
+                  syncedParts.length === chunks.length && chunks.length > 0
+                    ? 'bg-emerald-950/60 hover:bg-emerald-900/70 border-emerald-700/60 text-emerald-300'
+                    : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 border-emerald-500/50 text-white shadow-emerald-600/30'
+                }`}
+                title="Simpan daftar part video ke Supabase (schema: autocontent) untuk diproses ekstensi AI Studio"
+              >
+                <span>{syncingSupabase ? '⏳' : syncedParts.length === chunks.length ? '✓' : '☁️'}</span>
+                <span>
+                  {syncingSupabase
+                    ? 'Menyimpan...'
+                    : syncedParts.length === chunks.length
+                    ? `Tersinkron (${syncedParts.length} Part)`
+                    : 'Simpan ke Supabase'}
+                </span>
+              </button>
+            )}
           </div>
 
           {chunks.length > 0 || (splitting && splitProgress) ? (
@@ -466,11 +546,31 @@ const AlurfilmSplitterStep: React.FC = () => {
                             &gt; 400MB
                           </span>
                         ) : null}
+                        {syncedParts.includes(chunk.part) ? (
+                          <span className="text-[10px] bg-sky-950/80 text-sky-400 border border-sky-800/60 px-1.5 py-0.5 rounded-md font-bold flex items-center gap-1">
+                            <span>☁️</span> Supabase
+                          </span>
+                        ) : null}
                       </p>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSyncSingleChunk(chunk);
+                      }}
+                      disabled={syncingSupabase}
+                      className={`px-2 py-1 text-[11px] font-mono rounded-lg border transition-all flex items-center gap-1 ${
+                        syncedParts.includes(chunk.part)
+                          ? 'bg-sky-950/40 hover:bg-sky-900/80 text-sky-300 border-sky-800/60'
+                          : 'bg-gray-900 hover:bg-gray-800 text-gray-400 hover:text-emerald-300 border-gray-800'
+                      }`}
+                      title="Simpan part ini ke Supabase"
+                    >
+                      <span>{syncedParts.includes(chunk.part) ? '✓ DB' : '☁️ DB'}</span>
+                    </button>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
