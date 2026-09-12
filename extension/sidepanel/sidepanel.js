@@ -22,6 +22,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   const bulkProgressBar = document.getElementById('bulkProgressBar');
   const bulkStatusText = document.getElementById('bulkStatusText');
 
+  // Script generator elements
+  const btnRunScript = document.getElementById('btnRunScript');
+  const scriptSpinner = document.getElementById('scriptSpinner');
+  const scriptBtnText = document.getElementById('scriptBtnText');
+  const btnAutoProgress = document.getElementById('btnAutoProgress');
+  const autoProgressText = document.getElementById('autoProgressText');
+  const autoProgressIcon = document.getElementById('autoProgressIcon');
+  const scriptLiveStatus = document.getElementById('scriptLiveStatus');
+  const scriptStepLog = document.getElementById('scriptStepLog');
+  const scriptTargetBadge = document.getElementById('scriptTargetBadge');
+  let isRunningScript = false;
+  let isAutoProgressActive = false;
+
   let activeSessions = [];
   let currentChunks = [];
   let isValidatingAny = false;
@@ -67,7 +80,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
       try {
         return await chrome.storage.local.get(keys);
-      } catch (e) {}
+      } catch (e) { }
     }
     const res = {};
     keys.forEach(k => { res[k] = localStorage.getItem(k); });
@@ -78,7 +91,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
       try {
         return await chrome.storage.local.set(obj);
-      } catch (e) {}
+      } catch (e) { }
     }
     Object.keys(obj).forEach(k => { localStorage.setItem(k, obj[k]); });
   }
@@ -153,6 +166,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         bulkUploadText.textContent = `🔍 Validasi Semua Part (${pendingCount} Pending)`;
       }
 
+      // Update status target script generator
+      const targetScriptPart = currentChunks.find(c => c.script_status !== 'done' && c.script_status !== 'completed');
+      if (scriptTargetBadge && btnRunScript) {
+        if (targetScriptPart) {
+          scriptTargetBadge.textContent = `Part ${targetScriptPart.part_number}`;
+          scriptBtnText.textContent = `🚀 Kirim & Pantau Output (Part ${targetScriptPart.part_number})`;
+          btnRunScript.disabled = isRunningScript;
+        } else {
+          scriptTargetBadge.textContent = 'Selesai';
+          scriptBtnText.textContent = '✓ Semua Script Part Selesai';
+          btnRunScript.disabled = true;
+        }
+      }
+
       renderChunksList();
     } catch (err) {
       console.error('[SidePanel] Load chunks error:', err);
@@ -165,10 +192,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     currentChunks.forEach((chunk) => {
       const isDone = chunk.upload_status === 'done' || chunk.upload_status === 'uploaded';
       const isChecking = chunk._isChecking;
+      const isScriptDone = chunk.script_status === 'done' || chunk.script_status === 'completed';
 
       let statusClass = 'pending';
       let statusLabel = 'Pending';
-      if (isDone) {
+      if (isScriptDone) {
+        statusClass = 'uploaded';
+        statusLabel = '✓ Script OK';
+      } else if (isDone) {
         statusClass = 'uploaded';
         statusLabel = 'Di Drive';
       } else if (isChecking) {
@@ -193,12 +224,14 @@ document.addEventListener('DOMContentLoaded', async () => {
           <span class="status-tag ${statusClass}" id="tag-${chunk.part_number}">${statusLabel}</span>
         </div>
         <div class="chunk-details">
-          <span>⏱️ ${durMin} • 📦 ${sizeStr}</span>
+          <span>⏱️ ${durMin} • 📦 ${sizeStr} ${isScriptDone ? '• 📄 Script Done' : ''}</span>
           <div class="chunk-actions">
-            <button class="btn-copy btn-copy-name" data-filename="${chunk.filename}" title="Salin nama file untuk upload manual">📋 Nama</button>
-            <button class="btn-copy btn-copy-path" data-path="${chunk.video_path}" title="Salin path video lokal">📋 Path</button>
+            <button class="btn-copy btn-copy-name" data-filename="${chunk.filename}" title="Salin nama file">📋 Nama</button>
             <button class="btn-upload-chunk btn-check-drive" id="btn-check-${chunk.part_number}" ${isChecking || isValidatingAny ? 'disabled' : ''}>
-              ${isDone ? '🔍 Cek Ulang' : isChecking ? '⏳ Mengecek...' : '🔍 Cek Drive'}
+              ${isDone ? '🔍 Cek' : isChecking ? '⏳ ...' : '🔍 Drive'}
+            </button>
+            <button class="btn-generate-chunk" id="btn-run-${chunk.part_number}" ${isRunningScript ? 'disabled' : ''}>
+              ${isScriptDone ? '📋 JSON' : '🚀 Kirim'}
             </button>
             <button class="btn-toggle-done" id="btn-toggle-${chunk.part_number}" title="${isDone ? 'Tandai Pending' : 'Tandai Selesai Manual'}">
               ${isDone ? '↩️' : '✓'}
@@ -209,37 +242,59 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       // Event Copy Nama File
       const btnCopyName = card.querySelector('.btn-copy-name');
-      btnCopyName.addEventListener('click', async () => {
-        await navigator.clipboard.writeText(chunk.filename);
-        btnCopyName.textContent = '✓ Copied';
-        setTimeout(() => { btnCopyName.textContent = '📋 Nama'; }, 1500);
-      });
+      if (btnCopyName) {
+        btnCopyName.addEventListener('click', async () => {
+          await navigator.clipboard.writeText(chunk.filename);
+          btnCopyName.textContent = '✓ Copied';
+          setTimeout(() => { btnCopyName.textContent = '📋 Nama'; }, 1500);
+        });
+      }
 
       // Event Copy Path Video
       const btnCopyPath = card.querySelector('.btn-copy-path');
-      btnCopyPath.addEventListener('click', async () => {
-        await navigator.clipboard.writeText(chunk.video_path);
-        btnCopyPath.textContent = '✓ Copied';
-        setTimeout(() => { btnCopyPath.textContent = '📋 Path'; }, 1500);
-      });
+      if (btnCopyPath) {
+        btnCopyPath.addEventListener('click', async () => {
+          await navigator.clipboard.writeText(chunk.video_path || chunk.filename);
+          btnCopyPath.textContent = '✓ Copied';
+          setTimeout(() => { btnCopyPath.textContent = '📋 Path'; }, 1500);
+        });
+      }
 
       // Event Validasi / Cek di Drive
       const btnCheck = card.querySelector('.btn-check-drive');
-      btnCheck.addEventListener('click', async () => {
-        await validateSingleChunk(chunk);
-      });
+      if (btnCheck) {
+        btnCheck.addEventListener('click', async () => {
+          await validateSingleChunk(chunk);
+        });
+      }
 
       // Event Toggle Manual Done / Pending
       const btnToggle = card.querySelector('.btn-toggle-done');
-      btnToggle.addEventListener('click', async () => {
-        const nextStatus = isDone ? 'pending' : 'done';
-        chunk.upload_status = nextStatus;
-        await window.SupabaseBridge.updatePart(chunk.id, {
-          upload_status: nextStatus,
-          uploaded_at: nextStatus === 'done' ? new Date().toISOString() : null
-        }).catch((e) => console.warn('Supabase toggle error:', e));
-        await loadChunks(sessionSelect.value);
-      });
+      if (btnToggle) {
+        btnToggle.addEventListener('click', async () => {
+          const nextStatus = isDone ? 'pending' : 'done';
+          chunk.upload_status = nextStatus;
+          await window.SupabaseBridge.updatePart(chunk.id, {
+            upload_status: nextStatus,
+            uploaded_at: nextStatus === 'done' ? new Date().toISOString() : null
+          }).catch((e) => console.warn('Supabase toggle error:', e));
+          await loadChunks(sessionSelect.value);
+        });
+      }
+
+      // Event Run / View Script JSON
+      const btnRun = card.querySelector('.btn-generate-chunk');
+      if (btnRun) {
+        btnRun.addEventListener('click', async () => {
+          if (isScriptDone && chunk.script_output) {
+            await navigator.clipboard.writeText(JSON.stringify(chunk.script_output, null, 2));
+            btnRun.textContent = '✓ Copied';
+            setTimeout(() => { btnRun.textContent = '📋 JSON'; }, 1500);
+          } else {
+            await runScriptGeneration(chunk);
+          }
+        });
+      }
 
       chunksList.appendChild(card);
     });
@@ -256,6 +311,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         await chrome.tabs.update(allAiTabs[0].id, { active: true });
         return allAiTabs[0];
       }
+      // Buka otomatis tab New Chat jika belum ada tab AI Studio sama sekali
+      const newTab = await chrome.tabs.create({ url: 'https://aistudio.google.com/prompts/new_chat' });
+      await new Promise((r) => setTimeout(r, 4500));
+      return newTab;
     } catch (e) {
       console.warn('[SidePanel] Query tabs error:', e);
     }
@@ -275,38 +334,34 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
       const targetTab = await getAIStudioTab();
       if (!targetTab || !targetTab.id) {
-        throw new Error('Tab Google AI Studio tidak ditemukan. Buka https://aistudio.google.com/prompts/new_chat.');
+        throw new Error('Tab Google AI Studio tidak ditemukan.');
       }
 
       const res = await chrome.runtime.sendMessage({
-        module: 'chunkValidator',
         action: 'VALIDATE_DRIVE_FILE',
         tabId: targetTab.id,
         filename: chunk.filename
       });
 
-      if (!res || !res.success) {
-        throw new Error(res?.error || 'Gagal memvalidasi file di Google Drive Picker.');
-      }
-
-      if (res.found) {
+      if (res && res.success && res.found) {
         chunk.upload_status = 'done';
         await window.SupabaseBridge.updatePart(chunk.id, {
           upload_status: 'done',
           uploaded_at: new Date().toISOString()
-        }).catch((e) => console.warn('Supabase update warning:', e));
+        }).catch((e) => console.warn('Supabase update error:', e));
 
-        bulkStatusText.innerHTML = `<span style="color: #10b981;">🎉 Part #${chunk.part_number} (${chunk.filename}) DITEMUKAN di Drive & ditandai Selesai!</span>`;
+        bulkStatusText.innerHTML = `<span style="color: #10b981;">✓ File "${baseName}" ditemukan di Drive & status disimpan!</span>`;
+      } else if (res && !res.success) {
+        bulkStatusText.innerHTML = `<span style="color: #ef4444;">❌ Gagal validasi: ${res.error}</span>`;
       } else {
-        bulkStatusText.innerHTML = `<span style="color: #f59e0b;">ℹ️ Part #${chunk.part_number} ("${baseName}") BELUM ditemukan di Drive. Silakan upload file terlebih dahulu.</span>`;
+        bulkStatusText.innerHTML = `<span style="color: #f59e0b;">⚠️ File "${baseName}" TIDAK ditemukan di Google Drive. Silakan upload terlebih dahulu.</span>`;
       }
     } catch (err) {
-      console.error('[SidePanel] Validate chunk error:', err);
-      bulkStatusText.innerHTML = `<span style="color: #ef4444;">❌ Part #${chunk.part_number} gagal dicek: ${err.message}</span>`;
+      console.error('Error single validation:', err);
+      bulkStatusText.innerHTML = `<span style="color: #ef4444;">❌ Error: ${err.message}</span>`;
     } finally {
       chunk._isChecking = false;
       isValidatingAny = false;
-      renderChunksList();
       await loadChunks(sessionSelect.value);
     }
   }
@@ -315,15 +370,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   btnUploadAll.addEventListener('click', async () => {
     if (isValidatingAny) return;
 
-    const pendingChunks = currentChunks.filter(c => c.upload_status !== 'done' && c.upload_status !== 'uploaded');
-    if (pendingChunks.length === 0) {
-      bulkStatusText.textContent = 'Semua part sudah selesai divalidasi.';
+    const targetTab = await getAIStudioTab();
+    if (!targetTab || !targetTab.id) {
+      alert('Buka tab Google AI Studio (https://aistudio.google.com/prompts/new_chat) terlebih dahulu!');
       return;
     }
 
-    const targetTab = await getAIStudioTab();
-    if (!targetTab || !targetTab.id) {
-      bulkStatusText.innerHTML = `<span style="color: #ef4444;">⚠️ Buka tab Google AI Studio (https://aistudio.google.com/prompts/new_chat) terlebih dahulu.</span>`;
+    const pendingChunks = currentChunks.filter((c) => c.upload_status !== 'done');
+    if (pendingChunks.length === 0) {
+      alert('Semua chunk sudah berstatus "done" di Google Drive!');
       return;
     }
 
@@ -332,8 +387,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     bulkSpinner.classList.remove('hidden');
     bulkProgressBarContainer.classList.remove('hidden');
     bulkProgressBar.style.width = '0%';
-
     let foundCount = 0;
+
     const total = pendingChunks.length;
 
     for (let i = 0; i < total; i++) {
@@ -359,7 +414,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           await window.SupabaseBridge.updatePart(chunk.id, {
             upload_status: 'done',
             uploaded_at: new Date().toISOString()
-          }).catch(() => {});
+          }).catch(() => { });
           foundCount++;
         } else if (res && !res.success) {
           console.warn(`[SidePanel] Part ${chunk.part_number} validation error:`, res.error);
@@ -390,6 +445,483 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     await loadChunks(sessionSelect.value);
   });
+
+  // Action: Kirim & Pantau Output Script via Ekstensi (100% Otomatis End-to-End)
+  async function runScriptGeneration(targetChunk) {
+    if (isRunningScript) return;
+    if (!targetChunk) {
+      targetChunk = currentChunks.find((c) => c.script_status !== 'done' && c.script_status !== 'completed');
+    }
+    if (!targetChunk) {
+      alert('Semua part sudah selesai dibuatkan naskah.');
+      return;
+    }
+
+    isRunningScript = true;
+    if (btnRunScript) btnRunScript.disabled = true;
+    if (scriptSpinner) scriptSpinner.classList.remove('hidden');
+    if (scriptLiveStatus) scriptLiveStatus.classList.remove('hidden');
+    if (scriptStepLog) {
+      scriptStepLog.className = 'script-step-log';
+      scriptStepLog.textContent = `[Part #${targetChunk.part_number}] Menghubungkan ke tab Google AI Studio...`;
+    }
+
+    try {
+      const tab = await getAIStudioTab();
+      if (!tab || !tab.id) {
+        throw new Error('Tab Google AI Studio tidak ditemukan. Buka https://aistudio.google.com/prompts/new_chat terlebih dahulu.');
+      }
+
+      // Pastikan prompt tersedia atau auto-generate jika belum ada di database
+      if (!targetChunk.prompt) {
+        const freshParts = await window.SupabaseBridge.getParts(sessionSelect.value);
+        const freshTarget = freshParts.find((p) => Number(p.part_number) === Number(targetChunk.part_number));
+        if (freshTarget?.prompt) {
+          targetChunk = freshTarget;
+        } else if (window.PromptGenerator) {
+          const currentSession = activeSessions.find((s) => s.id === sessionSelect.value);
+          const finishedParts = freshParts.filter(
+            (p) => Number(p.part_number) < Number(targetChunk.part_number) && p.script_output
+          );
+          const genPrompt = window.PromptGenerator.generatePrompt({
+            partNumber: targetChunk.part_number,
+            totalParts: currentChunks.length,
+            movieTitle: currentSession?.title || sessionSelect.value,
+            movieYear: currentSession?.year || '',
+            durationSec: targetChunk.duration_sec || 1200,
+            previousParts: finishedParts,
+          });
+          targetChunk.prompt = genPrompt;
+          await window.SupabaseBridge.updatePart(targetChunk.id, { prompt: genPrompt }).catch(() => {});
+        }
+      }
+
+      // STEP 1: Cek apakah video chunk sudah terpasang di AI Studio
+      if (scriptStepLog) {
+        scriptStepLog.textContent = `[Part #${targetChunk.part_number}] Memeriksa video chunk di prompt editor...`;
+      }
+
+      let prepRes = null;
+      try {
+        prepRes = await chrome.tabs.sendMessage(tab.id, {
+          module: 'scriptGenerator',
+          action: 'SCRIPT_CHECK_PREPARED',
+          payload: { filename: targetChunk.filename },
+        });
+      } catch (connErr) {
+        // Coba reinjeksi content scripts jika tab belum siap
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ['lib/supabase.js', 'lib/prompt-generator.js', 'content.js', 'modules/chunk-validator.js', 'modules/script-generator.js'],
+        }).catch(() => {});
+        await new Promise((r) => setTimeout(r, 600));
+        prepRes = await chrome.tabs.sendMessage(tab.id, {
+          module: 'scriptGenerator',
+          action: 'SCRIPT_CHECK_PREPARED',
+          payload: { filename: targetChunk.filename },
+        }).catch(() => null);
+      }
+
+      // Cek apakah halaman saat ini sudah memiliki output yang SUDAH SELESAI di-generate
+      const existingStatus = await chrome.tabs.sendMessage(tab.id, {
+        module: 'scriptGenerator',
+        action: 'SCRIPT_CHECK_STATUS',
+      }).catch(() => null);
+
+      if (existingStatus?.status === 'completed' && existingStatus?.parsedJson) {
+        const parsedPart = Number(existingStatus.parsedJson.chunk_part);
+        const currentTargetPart = Number(targetChunk.part_number);
+
+        if (parsedPart === currentTargetPart || !parsedPart) {
+          console.log(`[SidePanel] 🎯 Terdeteksi output Part #${currentTargetPart} sudah selesai di halaman ini! Langsung simpan...`);
+          if (scriptStepLog) {
+            scriptStepLog.textContent = `[Part #${targetChunk.part_number}] 🎯 Output selesai terdeteksi di halaman saat ini! Menyimpan ke database...`;
+          }
+
+          const currentSession = activeSessions.find((s) => s.id === sessionSelect.value);
+          const movieTitle = currentSession?.title || sessionSelect.value;
+
+          const saveRes = await chrome.tabs.sendMessage(tab.id, {
+            module: 'scriptGenerator',
+            action: 'SCRIPT_SAVE_AND_CHAIN',
+            payload: {
+              contentId: sessionSelect.value,
+              partNumber: targetChunk.part_number,
+              totalParts: currentChunks.length,
+              parsedJson: existingStatus.parsedJson,
+              movieTitle: movieTitle,
+            },
+          });
+
+          if (scriptStepLog) {
+            scriptStepLog.className = 'script-step-log success';
+            if (saveRes?.chainedNext) {
+              scriptStepLog.innerHTML = `🎉 <b>Part #${targetChunk.part_number} SUKSES!</b> Raw JSON tersimpan di database & Prompt Part #${saveRes.nextPartNumber} berhasil di-generate (${saveRes.nextPromptLength} karakter)!`;
+            } else {
+              scriptStepLog.innerHTML = `🎉 <b>Part #${targetChunk.part_number} SUKSES!</b> Full Raw JSON berhasil disimpan di database!`;
+            }
+          }
+
+          // Requirement 1: Jika sudah tersimpan, buka new chat untuk part berikutnya jika ada part lanjutan
+          if (saveRes?.chainedNext) {
+            console.log('[SidePanel] 🔄 Membuka New Chat bersih untuk part selanjutnya...');
+            if (scriptStepLog) {
+              scriptStepLog.innerHTML += `<br><span style="color: #38bdf8;">🔄 Membuka New Chat bersih untuk Part #${saveRes.nextPartNumber}...</span>`;
+            }
+            await chrome.tabs.update(tab.id, { url: 'https://aistudio.google.com/prompts/new_chat' });
+            await new Promise((r) => setTimeout(r, 4000));
+          }
+
+          await loadChunks(sessionSelect.value);
+          return;
+        }
+      }
+
+      // Cek apakah halaman sudah memiliki turn percakapan sebelumnya
+      let turnsRes = await chrome.tabs.sendMessage(tab.id, {
+        module: 'scriptGenerator',
+        action: 'SCRIPT_CHECK_TURNS',
+      }).catch(() => null);
+
+      // Jika ada chat turn sebelumnya atau bukan di new_chat, buka new chat bersih
+      if (turnsRes?.hasTurns || (!tab.url.includes('/prompts/new_chat') && !prepRes?.hasMedia)) {
+        if (scriptStepLog) {
+          scriptStepLog.textContent = `[Part #${targetChunk.part_number}] Membuka halaman New Chat bersih di Google AI Studio...`;
+        }
+        if (tab.url.includes('/prompts/new_chat')) {
+          await chrome.tabs.reload(tab.id);
+        } else {
+          await chrome.tabs.update(tab.id, { url: 'https://aistudio.google.com/prompts/new_chat' });
+        }
+        await new Promise((r) => setTimeout(r, 4500));
+        prepRes = null;
+      }
+
+      // Jika belum ada media chunk terpasang, sisipkan otomatis dari Drive!
+      if (!prepRes?.hasMedia) {
+        if (scriptStepLog) {
+          scriptStepLog.textContent = `[Part #${targetChunk.part_number}] 🎬 Membuka Drive Picker & menyisipkan "${targetChunk.filename}"...`;
+        }
+
+        const insertRes = await chrome.runtime.sendMessage({
+          action: 'SELECT_DRIVE_FILE',
+          tabId: tab.id,
+          filename: targetChunk.filename,
+        });
+
+        if (!insertRes || !insertRes.success) {
+          throw new Error(insertRes?.error || `Gagal menyisipkan "${targetChunk.filename}" dari Google Drive.`);
+        }
+
+        // Tunggu hingga kartu video chunk terpasang di editor (polling hingga 25 detik)
+        if (scriptStepLog) {
+          scriptStepLog.textContent = `[Part #${targetChunk.part_number}] ⏳ Menunggu kartu video chunk terpasang di prompt editor...`;
+        }
+
+        let attached = false;
+        for (let i = 0; i < 25; i++) {
+          await new Promise((r) => setTimeout(r, 1000));
+          const check = await chrome.tabs.sendMessage(tab.id, {
+            module: 'scriptGenerator',
+            action: 'SCRIPT_CHECK_PREPARED',
+            payload: { filename: targetChunk.filename },
+          }).catch(() => null);
+          if (check?.hasMedia) {
+            attached = true;
+            break;
+          }
+        }
+
+        if (!attached) {
+          throw new Error(`Timeout: Video chunk "${targetChunk.filename}" tidak kunjung terpasang di prompt editor.`);
+        }
+      }
+
+      // Tunggu hingga token video selesai dihitung (badge tokens muncul & loading selesai)
+      if (scriptStepLog) {
+        scriptStepLog.textContent = `[Part #${targetChunk.part_number}] ⏳ Menunggu perhitungan token video selesai di AI Studio...`;
+      }
+      for (let w = 0; w < 30; w++) {
+        const readyCheck = await chrome.tabs.sendMessage(tab.id, {
+          module: 'scriptGenerator',
+          action: 'SCRIPT_CHECK_PREPARED',
+          payload: { filename: targetChunk.filename },
+        }).catch(() => null);
+        if (readyCheck?.mediaReady) {
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+
+      // STEP 2: Masukkan teks prompt Part ini ke dalam editor
+      if (scriptStepLog) {
+        scriptStepLog.textContent = `[Part #${targetChunk.part_number}] ✍️ Memasukkan prompt (${targetChunk.prompt?.length || 0} karakter) ke editor...`;
+      }
+
+      await chrome.tabs.sendMessage(tab.id, {
+        module: 'scriptGenerator',
+        action: 'SCRIPT_FILL_PROMPT',
+        payload: {
+          promptText: targetChunk.prompt,
+        },
+      });
+      await new Promise((r) => setTimeout(r, 800));
+
+      // STEP 3: Menunggu token media dihitung & klik Run secara native
+      if (scriptStepLog) {
+        scriptStepLog.textContent = `[Part #${targetChunk.part_number}] ⏳ Menunggu perhitungan token media selesai & mengklik tombol Run...`;
+      }
+
+      const clickRes = await chrome.tabs.sendMessage(tab.id, {
+        module: 'scriptGenerator',
+        action: 'SCRIPT_CLICK_RUN',
+        payload: {
+          promptText: targetChunk.prompt,
+          filename: targetChunk.filename,
+        },
+      });
+
+      if (!clickRes || !clickRes.success) {
+        throw new Error(clickRes?.error || 'Gagal mengeklik tombol Run di AI Studio.');
+      }
+
+      // STEP 4: Memantau proses generasi output AI Studio
+      if (scriptStepLog) {
+        scriptStepLog.textContent = `[Part #${targetChunk.part_number}] 🚀 Model mulai memproses! Memantau hasil output...`;
+      }
+
+      let pollRes = null;
+      const pollStart = Date.now();
+      const maxPollSec = 360;
+
+      while ((Date.now() - pollStart) / 1000 < maxPollSec) {
+        await new Promise((r) => setTimeout(r, 4000));
+        const elapsedSec = Math.round((Date.now() - pollStart) / 1000);
+
+        try {
+          const statusRes = await chrome.tabs.sendMessage(tab.id, {
+            module: 'scriptGenerator',
+            action: 'SCRIPT_CHECK_STATUS',
+          });
+
+          if (statusRes?.status === 'error') {
+            pollRes = { hasError: true, errorMessage: statusRes.errorMessage };
+            break;
+          }
+
+          if (statusRes?.status === 'completed') {
+            pollRes = {
+              hasError: false,
+              rawText: statusRes.rawText,
+              cleanedJson: statusRes.cleanedJson,
+              parsedJson: statusRes.parsedJson,
+              elapsedSec,
+            };
+            break;
+          }
+
+          if (scriptStepLog) {
+            scriptStepLog.textContent = `[Part #${targetChunk.part_number}] ⏳ Sedang men-generate naskah... (Detik ke-${elapsedSec})`;
+          }
+        } catch (tabErr) {
+          // Abaikan micro context switch saat AI Studio redirect URL
+        }
+      }
+
+      if (!pollRes) {
+        throw new Error('Timeout: Pemantauan naskah melebihi 6 menit.');
+      }
+
+      if (pollRes.hasError) {
+        if (scriptStepLog) {
+          scriptStepLog.className = 'script-step-log error';
+          scriptStepLog.innerHTML = `⚠️ <b>Error AI Studio:</b> "${pollRes.errorMessage}".<br><span style="color: #94a3b8;">Merefresh dan membuka New Chat bersih...</span>`;
+        }
+
+        // Requirement 3: Jika terdeteksi error, refresh dan buka New Chat
+        try {
+          await chrome.tabs.update(tab.id, { url: 'https://aistudio.google.com/prompts/new_chat' });
+          await new Promise((r) => setTimeout(r, 4000));
+        } catch {}
+
+        throw new Error(`AI Studio error: "${pollRes.errorMessage}". Halaman telah di-reset ke New Chat.`);
+      }
+
+      // STEP 5: Simpan ke Supabase & Auto-generate prompt Part berikutnya
+      if (scriptStepLog) {
+        scriptStepLog.textContent = `[Part #${targetChunk.part_number}] 🎉 Output valid diterima! Menyimpan Full Raw JSON ke Supabase...`;
+      }
+
+      const currentSession = activeSessions.find((s) => s.id === sessionSelect.value);
+      const movieTitle = currentSession?.title || sessionSelect.value;
+
+      const saveRes = await chrome.tabs.sendMessage(tab.id, {
+        module: 'scriptGenerator',
+        action: 'SCRIPT_SAVE_AND_CHAIN',
+        payload: {
+          contentId: sessionSelect.value,
+          partNumber: targetChunk.part_number,
+          totalParts: currentChunks.length,
+          parsedJson: pollRes.parsedJson,
+          movieTitle: movieTitle,
+        },
+      });
+
+      if (scriptStepLog) {
+        scriptStepLog.className = 'script-step-log success';
+        if (saveRes?.chainedNext) {
+          scriptStepLog.innerHTML = `🎉 <b>Part #${targetChunk.part_number} SUKSES!</b> Raw JSON tersimpan di database & Prompt Part #${saveRes.nextPartNumber} berhasil di-generate (${saveRes.nextPromptLength} karakter)!`;
+        } else {
+          scriptStepLog.innerHTML = `🎉 <b>Part #${targetChunk.part_number} SUKSES!</b> Full Raw JSON berhasil disimpan di database!`;
+        }
+      }
+
+      // Requirement 1: Jika sudah tersimpan, buka new chat untuk part berikutnya jika ada part lanjutan
+      if (saveRes?.chainedNext) {
+        console.log('[SidePanel] 🔄 Membuka New Chat bersih untuk part selanjutnya...');
+        if (scriptStepLog) {
+          scriptStepLog.innerHTML += `<br><span style="color: #38bdf8;">🔄 Membuka New Chat bersih untuk Part #${saveRes.nextPartNumber}...</span>`;
+        }
+        await chrome.tabs.update(tab.id, { url: 'https://aistudio.google.com/prompts/new_chat' });
+        await new Promise((r) => setTimeout(r, 4000));
+      }
+
+      await loadChunks(sessionSelect.value);
+    } catch (err) {
+      console.error('[SidePanel] Script generation error:', err);
+      if (scriptStepLog) {
+        scriptStepLog.className = 'script-step-log error';
+        scriptStepLog.textContent = `❌ Gagal: ${err.message}`;
+      }
+
+      // Requirement 3: Jika error eksekusi atau AI Studio, pastikan tab di-reset ke New Chat
+      try {
+        const [curTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (curTab && curTab.id) {
+          await chrome.tabs.update(curTab.id, { url: 'https://aistudio.google.com/prompts/new_chat' }).catch(() => {});
+        }
+      } catch {}
+
+      throw err;
+    } finally {
+      isRunningScript = false;
+      if (btnRunScript) btnRunScript.disabled = isAutoProgressActive;
+      if (scriptSpinner) scriptSpinner.classList.add('hidden');
+      await loadChunks(sessionSelect.value);
+    }
+  }
+
+  // Update tampilan tombol Auto Progress
+  function updateAutoProgressUI() {
+    if (!btnAutoProgress) return;
+    if (isAutoProgressActive) {
+      btnAutoProgress.classList.add('active');
+      if (autoProgressIcon) autoProgressIcon.textContent = '⏹️';
+      if (autoProgressText) autoProgressText.textContent = 'Hentikan Auto Progress';
+      if (btnRunScript) btnRunScript.disabled = true;
+    } else {
+      btnAutoProgress.classList.remove('active');
+      if (autoProgressIcon) autoProgressIcon.textContent = '⚡';
+      if (autoProgressText) autoProgressText.textContent = 'Auto Progress (Jalankan Semua Part Otomatis)';
+      if (btnRunScript) btnRunScript.disabled = isRunningScript;
+    }
+  }
+
+  // Action: Auto Progress - Menjalankan semua part satu per satu secara otomatis
+  async function toggleAutoProgress() {
+    if (isAutoProgressActive) {
+      isAutoProgressActive = false;
+      updateAutoProgressUI();
+      if (scriptStepLog) {
+        scriptStepLog.className = 'script-step-log warn';
+        scriptStepLog.textContent = '⏸️ Auto Progress dihentikan oleh pengguna.';
+      }
+      return;
+    }
+
+    if (isRunningScript) {
+      alert('Proses pembuatan naskah saat ini sedang berjalan.');
+      return;
+    }
+
+    if (!sessionSelect.value) {
+      alert('Silakan pilih Active Session terlebih dahulu.');
+      return;
+    }
+
+    isAutoProgressActive = true;
+    updateAutoProgressUI();
+    if (scriptLiveStatus) scriptLiveStatus.classList.remove('hidden');
+
+    console.log('[AutoProgress] ⚡ Memulai loop Auto Progress untuk session:', sessionSelect.value);
+
+    while (isAutoProgressActive) {
+      // 1. Refresh list part dari Supabase
+      const parts = await window.SupabaseBridge.getParts(sessionSelect.value);
+      currentChunks = (parts || []).sort((a, b) => Number(a.part_number) - Number(b.part_number));
+      renderChunksList();
+
+      // 2. Cari part pertama yang belum selesai (script_status !== 'done')
+      const nextPending = currentChunks.find((p) => p.script_status !== 'done' && p.script_status !== 'completed');
+      if (!nextPending) {
+        if (scriptStepLog) {
+          scriptStepLog.className = 'script-step-log success';
+          scriptStepLog.innerHTML = `🎉 <b>SELURUH PART SELESAI!</b> Semua naskah (${currentChunks.length} part) telah selesai di-generate & tersimpan di database.`;
+        }
+        isAutoProgressActive = false;
+        updateAutoProgressUI();
+        break;
+      }
+
+      console.log(`[AutoProgress] 🚀 Memulai Part #${nextPending.part_number}...`);
+      if (scriptStepLog) {
+        scriptStepLog.className = 'script-step-log';
+        scriptStepLog.textContent = `[Auto Progress] 🚀 Menjalankan Part #${nextPending.part_number} (${nextPending.filename})...`;
+      }
+
+      let succeeded = false;
+      try {
+        await runScriptGeneration(nextPending);
+        succeeded = true;
+      } catch (err) {
+        console.error(`[AutoProgress] ⚠️ Kendala di Part #${nextPending.part_number}:`, err);
+        if (scriptStepLog) {
+          scriptStepLog.className = 'script-step-log warn';
+          scriptStepLog.innerHTML = `⚠️ <b>Kendala di Part #${nextPending.part_number}:</b> ${err.message}.<br><span style="color: #94a3b8;">Halaman di-reset ke New Chat, mencoba ulang dalam 6 detik...</span>`;
+        }
+        // Requirement 3: Refresh & New Chat jika error
+        try {
+          const tab = await getAIStudioTab();
+          if (tab && tab.id) {
+            await chrome.tabs.update(tab.id, { url: 'https://aistudio.google.com/prompts/new_chat' });
+          }
+        } catch {}
+        await new Promise((r) => setTimeout(r, 6000));
+      }
+
+      if (!isAutoProgressActive) break;
+
+      // Jeda antar-part (3.5 detik) agar tab siap
+      if (succeeded) {
+        await new Promise((r) => setTimeout(r, 3500));
+      }
+    }
+
+    isAutoProgressActive = false;
+    updateAutoProgressUI();
+  }
+
+  if (btnRunScript) {
+    btnRunScript.addEventListener('click', async () => {
+      await runScriptGeneration();
+    });
+  }
+
+  if (btnAutoProgress) {
+    btnAutoProgress.addEventListener('click', async () => {
+      await toggleAutoProgress();
+    });
+  }
 
   sessionSelect.addEventListener('change', (e) => {
     onSessionChanged(e.target.value);

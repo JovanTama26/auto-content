@@ -68,4 +68,40 @@
 
     return true; // async
   });
+
+  // Window PostMessage Bridge (Untuk komunikasi antara runner test & modul ekstensi)
+  window.addEventListener('message', async (event) => {
+    if (!event.data || event.data.source !== 'CONTENT_AUTO_RUNNER') return;
+    const { action, module, payload, requestId } = event.data;
+    console.log(`[Content Auto Bridge] Runner message:`, action, module);
+
+    let result = null;
+    let error = null;
+
+    try {
+      if (module && window.ContentAuto.modules[module]) {
+        result = await window.ContentAuto.modules[module].handleMessage({ action, payload, ...(payload || {}) });
+      } else {
+        for (const mod of Object.values(window.ContentAuto.modules)) {
+          if (typeof mod.handleMessage === 'function') {
+            result = await mod.handleMessage({ action, payload, ...(payload || {}) });
+            if (result !== null && result !== undefined) break;
+          }
+        }
+      }
+    } catch (err) {
+      error = err.message;
+    }
+
+    window.postMessage(
+      {
+        source: 'CONTENT_AUTO_REPLY',
+        requestId,
+        success: !error && result?.success !== false,
+        result,
+        error: error || result?.error || result?.errorMessage,
+      },
+      '*'
+    );
+  });
 })();

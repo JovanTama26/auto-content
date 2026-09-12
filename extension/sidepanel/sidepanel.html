@@ -61,6 +61,27 @@
       <div id="bulkStatusText" class="bulk-status-text"></div>
     </section>
 
+    <!-- Script Generator Action Section -->
+    <section class="section script-section">
+      <div class="section-title">
+        <span>🤖 AI Script Generator</span>
+        <span id="scriptTargetBadge" class="count-pill" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa;">Part 1</span>
+      </div>
+      <div class="script-buttons-container">
+        <button id="btnRunScript" class="btn-run-script">
+          <span class="btn-icon-spin hidden" id="scriptSpinner">🔄</span>
+          <span id="scriptBtnText">🚀 Kirim & Pantau Output (Part 1)</span>
+        </button>
+        <button id="btnAutoProgress" class="btn-auto-progress">
+          <span class="btn-icon" id="autoProgressIcon">⚡</span>
+          <span id="autoProgressText">Auto Progress (Jalankan Semua Part Otomatis)</span>
+        </button>
+      </div>
+      <div id="scriptLiveStatus" class="script-status-box hidden">
+        <div id="scriptStepLog" class="script-step-log">Menunggu eksekusi...</div>
+      </div>
+    </section>
+
     <!-- Chunks Queue List (Full Height Scrollable) -->
     <section class="section flex-1">
       <div class="section-title">
@@ -83,6 +104,7 @@
   </div>
 
   <script src="../lib/supabase.js"></script>
+  <script src="../lib/prompt-generator.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>

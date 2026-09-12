@@ -29,6 +29,7 @@
   "host_permissions": [
     "https://aistudio.google.com/*",
     "https://docs.google.com/*",
+    "https://drive.google.com/*",
     "https://supabase.riztama.my.id/*",
     "http://127.0.0.1:*/*",
     "http://localhost:*/*"
@@ -40,8 +41,10 @@
       ],
       "js": [
         "lib/supabase.js",
+        "lib/prompt-generator.js",
         "content.js",
-        "modules/chunk-validator.js"
+        "modules/chunk-validator.js",
+        "modules/script-generator.js"
       ],
       "css": [
         "content.css"
@@ -50,7 +53,8 @@
     },
     {
       "matches": [
-        "https://docs.google.com/*"
+        "https://docs.google.com/*",
+        "https://drive.google.com/*"
       ],
       "all_frames": true,
       "js": [

@@ -164,7 +164,13 @@
         this.simulateClick(driveItem);
       } else {
         console.log('[ChunkValidator] Membuka menu attachment (+)...');
-        const attachBtn = this.findAttachButton();
+        let attachBtn = null;
+        for (let attempt = 0; attempt < 12; attempt++) {
+          attachBtn = this.findAttachButton();
+          if (attachBtn) break;
+          await sleep(500);
+        }
+
         if (!attachBtn) {
           throw new Error(
             'Tombol attachment (+) tidak ditemukan di Google AI Studio. Pastikan Anda berada di halaman prompt.'

@@ -475,3 +475,120 @@ html, body {
   display: inline-block;
   animation: spin 1s linear infinite;
 }
+
+/* Script Generator Section */
+.script-section {
+  background: rgba(30, 41, 59, 0.4);
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.script-buttons-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.btn-run-script {
+  width: 100%;
+  padding: 10px 12px;
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  border: none;
+  border-radius: 6px;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25);
+  transition: all 0.2s;
+}
+.btn-run-script:hover:not(:disabled) {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+.btn-run-script:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-auto-progress {
+  width: 100%;
+  padding: 8px 12px;
+  background: rgba(30, 41, 59, 0.8);
+  border: 1px solid #334155;
+  border-radius: 6px;
+  color: #cbd5e1;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.2s;
+}
+.btn-auto-progress:hover:not(:disabled) {
+  background: #334155;
+  border-color: #475569;
+  color: #f8fafc;
+}
+.btn-auto-progress.active {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: #f59e0b;
+  color: #fbbf24;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.25);
+}
+.btn-auto-progress:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.script-status-box {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 6px;
+  font-size: 11px;
+  color: #94a3b8;
+  line-height: 1.4;
+}
+
+.script-step-log {
+  word-break: break-word;
+}
+.script-step-log.success {
+  color: #34d399;
+}
+.script-step-log.error {
+  color: #f87171;
+}
+.script-step-log.warn {
+  color: #fbbf24;
+}
+
+.btn-generate-chunk {
+  background: #2563eb;
+  border: 1px solid #3b82f6;
+  color: #ffffff;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-generate-chunk:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+.btn-generate-chunk:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+

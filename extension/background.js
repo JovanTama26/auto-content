@@ -20,5 +20,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // async
   }
 
+  if (message.action === 'SELECT_DRIVE_FILE') {
+    self.ChunkValidatorBackground.selectAndInsertFileInDrive(message.tabId, message.filename)
+      .then((res) => sendResponse({ success: true, ...res }))
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true; // async
+  }
+
   // Modul otomatisasi lain di masa depan akan didaftarkan di sini secara independen
 });

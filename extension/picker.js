@@ -20,44 +20,63 @@
 
   function isElementVisible(el) {
     if (!el) return false;
-    const style = window.getComputedStyle(el);
-    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+    if (el.disabled || el.getAttribute('aria-hidden') === 'true') {
       return false;
     }
+    try {
+      const style = window.getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden') {
+        return false;
+      }
+    } catch {}
     const rect = el.getBoundingClientRect();
-    return (rect.width > 20 || el.offsetWidth > 20) && (rect.height > 10 || el.offsetHeight > 10);
+    const isSearchInput =
+      (el.getAttribute('placeholder') || '').toLowerCase().includes('search') ||
+      (el.getAttribute('placeholder') || '').toLowerCase().includes('paste url') ||
+      (el.getAttribute('aria-label') || '').toLowerCase().includes('search') ||
+      (el.className || '').includes('search');
+    return rect.width > 0 || el.offsetWidth > 0 || isSearchInput;
   }
 
   /**
    * Cari elemen input search di Google Drive Picker
    */
-  async function findSearchInput(maxWaitMs = 6000) {
+  async function findSearchInput(maxWaitMs = 10000) {
     const startTime = Date.now();
     const selectors = [
       'input[placeholder*="Search in Drive" i]',
-      'input[aria-label*="Search in Drive" i]',
-      'input[placeholder*="Telusuri di Drive" i]',
-      'input[aria-label*="Telusuri di Drive" i]',
+      'input[placeholder*="paste URL" i]',
       'input[placeholder*="Search" i]',
+      'input[aria-label*="Search in Drive" i]',
       'input[aria-label*="Search" i]',
+      'input[role="combobox"]',
+      'input.Ax4B8',
+      'input[jsname="dSO9oc"]',
       'input[placeholder*="Telusuri" i]',
       'input[aria-label*="Telusuri" i]',
+      'input[type="search"]',
       'input.picker-search-input',
+      'input[type="text"]:not([disabled]):not([aria-hidden="true"])',
+      'input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]):not([disabled])',
     ];
 
     while (Date.now() - startTime < maxWaitMs) {
       for (const sel of selectors) {
-        const els = Array.from(document.querySelectorAll(sel));
-        for (const el of els) {
-          if (isElementVisible(el)) {
-            return el;
+        try {
+          const els = Array.from(document.querySelectorAll(sel));
+          for (const el of els) {
+            if (isElementVisible(el)) {
+              return el;
+            }
           }
-        }
+        } catch {}
       }
-      await sleep(250);
+      await sleep(300);
     }
     return null;
   }
+
+  let lastFoundElement = null;
 
   /**
    * Mengetik kata kunci pencarian tanpa ekstensi, memicu submit/Enter,
@@ -65,6 +84,7 @@
    * Tidak akan pernah menandai valid jika input kosong atau pencarian belum dieksekusi.
    */
   async function searchFilename(rawFilename) {
+    lastFoundElement = null;
     const baseName = rawFilename.replace(/\.[^/.]+$/, '').trim();
     console.log(`[Content Auto Picker] Memulai pencarian di Drive: "${baseName}" (asal: "${rawFilename}")...`);
 
@@ -160,7 +180,7 @@
       // Di Google Drive Picker modern, item hasil pencarian memiliki [role="option"][data-target="doc"] atau data-id!
       const candidateRows = Array.from(
         document.querySelectorAll(
-          '[role="option"][data-target="doc"], [role="option"][data-id], [role="row"][data-id], .picker-dataview-item'
+          '[role="option"][data-target="doc"], [role="option"][data-id], [role="row"][data-id], .picker-dataview-item, [role="option"].picker-grid-item'
         )
       );
 
@@ -188,6 +208,7 @@
           const isGoogleFolder = txt.toLowerCase().includes('google ai studio') && !txt.includes(baseName);
           if (!isGoogleFolder) {
             foundElement = row;
+            lastFoundElement = row;
             found = true;
             break;
           }
@@ -237,6 +258,67 @@
         .catch((err) => {
           console.error('[Content Auto Picker] searchFilename error:', err);
           sendResponse({ handled: true, found: false, error: err.message });
+        });
+      return true; // async
+    }
+
+    if (message.action === 'PICKER_SELECT_AND_INSERT_FILE') {
+      searchFilename(message.filename)
+        .then(async (res) => {
+          const targetEl = lastFoundElement;
+          if (res.found && targetEl) {
+            console.log('[Content Auto Picker] Memilih item dan menekan Insert/Select...');
+            targetEl.focus?.();
+            targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            
+            const mouseOpts = { bubbles: true, cancelable: true, view: window };
+            ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach((evt) => {
+              targetEl.dispatchEvent(new MouseEvent(evt, mouseOpts));
+            });
+
+            await sleep(600);
+
+            // Cari tombol Insert / Select
+            const candidateButtons = Array.from(
+              document.querySelectorAll('button, [role="button"], input[type="button"], div[role="button"]')
+            );
+            const insertBtn = candidateButtons.find((b) => {
+              const t = (b.textContent || b.getAttribute('value') || b.getAttribute('aria-label') || '').trim().toLowerCase();
+              const name = (b.getAttribute('name') || '').toLowerCase();
+              return (
+                (t === 'insert' || t === 'select' || t === 'sisipkan' || t === 'pilih' || name === 'insert' || name === 'select') &&
+                isElementVisible(b) &&
+                !b.disabled &&
+                b.getAttribute('aria-disabled') !== 'true'
+              );
+            });
+
+            if (insertBtn) {
+              console.log('[Content Auto Picker] ✅ Tombol Insert ditemukan, mengeklik...');
+              insertBtn.focus?.();
+              ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach((evt) => {
+                insertBtn.dispatchEvent(new MouseEvent(evt, mouseOpts));
+              });
+            } else {
+              console.log('[Content Auto Picker] Tombol Insert tidak ditemukan langsung, double click item...');
+              ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click', 'dblclick'].forEach((evt) => {
+                targetEl.dispatchEvent(new MouseEvent(evt, mouseOpts));
+              });
+            }
+
+            await sleep(1000);
+            sendResponse({ handled: true, success: true, inserted: true, filename: message.filename });
+          } else {
+            sendResponse({
+              handled: true,
+              success: false,
+              error: `File "${message.filename}" tidak ditemukan di Google Drive.`,
+            });
+          }
+        })
+        .catch((err) => {
+          console.error('[Content Auto Picker] PICKER_SELECT_AND_INSERT_FILE error:', err);
+          sendResponse({ handled: true, success: false, error: err.message });
         });
       return true; // async
     }
