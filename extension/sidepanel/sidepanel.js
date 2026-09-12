@@ -35,6 +35,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   let isRunningScript = false;
   let isAutoProgressActive = false;
 
+  // Video Mapping generator elements
+  const btnRunMapping = document.getElementById('btnRunMapping');
+  const mappingSpinner = document.getElementById('mappingSpinner');
+  const mappingBtnText = document.getElementById('mappingBtnText');
+  const btnAutoProgressMapping = document.getElementById('btnAutoProgressMapping');
+  const autoProgressMappingText = document.getElementById('autoProgressMappingText');
+  const autoProgressMappingIcon = document.getElementById('autoProgressMappingIcon');
+  const mappingLiveStatus = document.getElementById('mappingLiveStatus');
+  const mappingStepLog = document.getElementById('mappingStepLog');
+  const mappingTargetBadge = document.getElementById('mappingTargetBadge');
+  let isRunningMapping = false;
+  let isAutoProgressMappingActive = false;
+
   let activeSessions = [];
   let currentChunks = [];
   let isValidatingAny = false;
@@ -172,11 +185,25 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (targetScriptPart) {
           scriptTargetBadge.textContent = `Part ${targetScriptPart.part_number}`;
           scriptBtnText.textContent = `🚀 Kirim & Pantau Output (Part ${targetScriptPart.part_number})`;
-          btnRunScript.disabled = isRunningScript;
+          btnRunScript.disabled = isRunningScript || isAutoProgressActive;
         } else {
           scriptTargetBadge.textContent = 'Selesai';
           scriptBtnText.textContent = '✓ Semua Script Part Selesai';
           btnRunScript.disabled = true;
+        }
+      }
+
+      // Update status target video mapping generator
+      const targetMappingPart = currentChunks.find(c => c.mapping_status !== 'done' && c.mapping_status !== 'completed');
+      if (mappingTargetBadge && btnRunMapping) {
+        if (targetMappingPart) {
+          mappingTargetBadge.textContent = `Part ${targetMappingPart.part_number}`;
+          mappingBtnText.textContent = `🚀 Kirim & Pantau Mapping (Part ${targetMappingPart.part_number})`;
+          btnRunMapping.disabled = isRunningMapping || isAutoProgressMappingActive;
+        } else {
+          mappingTargetBadge.textContent = 'Selesai';
+          mappingBtnText.textContent = '✓ Semua Video Mapping Selesai';
+          btnRunMapping.disabled = true;
         }
       }
 
@@ -193,10 +220,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       const isDone = chunk.upload_status === 'done' || chunk.upload_status === 'uploaded';
       const isChecking = chunk._isChecking;
       const isScriptDone = chunk.script_status === 'done' || chunk.script_status === 'completed';
+      const isMappingDone = chunk.mapping_status === 'done' || chunk.mapping_status === 'completed';
 
       let statusClass = 'pending';
       let statusLabel = 'Pending';
-      if (isScriptDone) {
+      if (isMappingDone) {
+        statusClass = 'uploaded';
+        statusLabel = '✓ Map OK';
+      } else if (isScriptDone) {
         statusClass = 'uploaded';
         statusLabel = '✓ Script OK';
       } else if (isDone) {
@@ -224,14 +255,17 @@ document.addEventListener('DOMContentLoaded', async () => {
           <span class="status-tag ${statusClass}" id="tag-${chunk.part_number}">${statusLabel}</span>
         </div>
         <div class="chunk-details">
-          <span>⏱️ ${durMin} • 📦 ${sizeStr} ${isScriptDone ? '• 📄 Script Done' : ''}</span>
+          <span>⏱️ ${durMin} • 📦 ${sizeStr} ${isScriptDone ? '• 📄 Script' : ''} ${isMappingDone ? '• 🎯 Map' : ''}</span>
           <div class="chunk-actions">
             <button class="btn-copy btn-copy-name" data-filename="${chunk.filename}" title="Salin nama file">📋 Nama</button>
             <button class="btn-upload-chunk btn-check-drive" id="btn-check-${chunk.part_number}" ${isChecking || isValidatingAny ? 'disabled' : ''}>
               ${isDone ? '🔍 Cek' : isChecking ? '⏳ ...' : '🔍 Drive'}
             </button>
-            <button class="btn-generate-chunk" id="btn-run-${chunk.part_number}" ${isRunningScript ? 'disabled' : ''}>
-              ${isScriptDone ? '📋 JSON' : '🚀 Kirim'}
+            <button class="btn-generate-chunk" id="btn-run-${chunk.part_number}" ${isRunningScript || isAutoProgressActive ? 'disabled' : ''} title="AI Script Generator">
+              ${isScriptDone ? '📋 Script' : '🚀 Script'}
+            </button>
+            <button class="btn-map-chunk ${isMappingDone ? 'done' : ''}" id="btn-map-${chunk.part_number}" ${isRunningMapping || isAutoProgressMappingActive ? 'disabled' : ''} title="AI Video Mapping">
+              ${isMappingDone ? '📋 Map' : '🎯 Map'}
             </button>
             <button class="btn-toggle-done" id="btn-toggle-${chunk.part_number}" title="${isDone ? 'Tandai Pending' : 'Tandai Selesai Manual'}">
               ${isDone ? '↩️' : '✓'}
@@ -289,9 +323,23 @@ document.addEventListener('DOMContentLoaded', async () => {
           if (isScriptDone && chunk.script_output) {
             await navigator.clipboard.writeText(JSON.stringify(chunk.script_output, null, 2));
             btnRun.textContent = '✓ Copied';
-            setTimeout(() => { btnRun.textContent = '📋 JSON'; }, 1500);
+            setTimeout(() => { btnRun.textContent = '📋 Script'; }, 1500);
           } else {
             await runScriptGeneration(chunk);
+          }
+        });
+      }
+
+      // Event Run / View Mapping JSON
+      const btnMap = card.querySelector('.btn-map-chunk');
+      if (btnMap) {
+        btnMap.addEventListener('click', async () => {
+          if (isMappingDone && chunk.mapping_output) {
+            await navigator.clipboard.writeText(JSON.stringify(chunk.mapping_output, null, 2));
+            btnMap.textContent = '✓ Copied';
+            setTimeout(() => { btnMap.textContent = '📋 Map'; }, 1500);
+          } else {
+            await runMappingGeneration(chunk);
           }
         });
       }
@@ -512,7 +560,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Coba reinjeksi content scripts jika tab belum siap
         await chrome.scripting.executeScript({
           target: { tabId: tab.id },
-          files: ['lib/supabase.js', 'lib/prompt-generator.js', 'content.js', 'modules/chunk-validator.js', 'modules/script-generator.js'],
+          files: [
+            'lib/supabase.js',
+            'lib/prompt-generator.js',
+            'content.js',
+            'modules/chunk-validator.js',
+            'modules/script-generator.js',
+            'modules/mapping-generator.js',
+          ],
         }).catch(() => {});
         await new Promise((r) => setTimeout(r, 600));
         prepRes = await chrome.tabs.sendMessage(tab.id, {
@@ -920,6 +975,454 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (btnAutoProgress) {
     btnAutoProgress.addEventListener('click', async () => {
       await toggleAutoProgress();
+    });
+  }
+
+  // ==========================================
+  // Video Mapping Automation Controller
+  // ==========================================
+
+  // Action: Kirim & Pantau Output Video Mapping via Ekstensi (100% Otomatis)
+  async function runMappingGeneration(targetChunk) {
+    if (isRunningMapping) return;
+    if (!targetChunk) {
+      targetChunk = currentChunks.find((c) => c.mapping_status !== 'done' && c.mapping_status !== 'completed');
+    }
+    if (!targetChunk) {
+      alert('Semua part sudah selesai dibuatkan video mapping.');
+      return;
+    }
+
+    isRunningMapping = true;
+    if (btnRunMapping) btnRunMapping.disabled = true;
+    if (mappingSpinner) mappingSpinner.classList.remove('hidden');
+    if (mappingLiveStatus) mappingLiveStatus.classList.remove('hidden');
+    if (mappingStepLog) {
+      mappingStepLog.className = 'mapping-step-log';
+      mappingStepLog.textContent = `[Part #${targetChunk.part_number}] Menghubungkan ke tab Google AI Studio...`;
+    }
+
+    try {
+      const tab = await getAIStudioTab();
+      if (!tab || !tab.id) {
+        throw new Error('Tab Google AI Studio tidak ditemukan. Buka https://aistudio.google.com/prompts/new_chat terlebih dahulu.');
+      }
+
+      // Pastikan video mapping prompt tersedia
+      let mappingPrompt = targetChunk.mapping_prompt || targetChunk.prompt;
+      if (!mappingPrompt) {
+        const freshParts = await window.SupabaseBridge.getParts(sessionSelect.value);
+        const freshTarget = freshParts.find((p) => Number(p.part_number) === Number(targetChunk.part_number));
+        if (freshTarget?.mapping_prompt || freshTarget?.prompt) {
+          targetChunk = freshTarget;
+          mappingPrompt = freshTarget.mapping_prompt || freshTarget.prompt;
+        }
+      }
+
+      if (!mappingPrompt) {
+        throw new Error(
+          `Prompt Video Mapping Part #${targetChunk.part_number} belum ada di Supabase database. Silakan klik tombol "Generate & Simpan Prompt Mapping" di Dashboard Step 5 terlebih dahulu.`
+        );
+      }
+
+      // STEP 1: Cek apakah video chunk sudah terpasang di AI Studio
+      if (mappingStepLog) {
+        mappingStepLog.textContent = `[Part #${targetChunk.part_number}] Memeriksa video chunk di prompt editor...`;
+      }
+
+      let prepRes = null;
+      try {
+        prepRes = await chrome.tabs.sendMessage(tab.id, {
+          module: 'mappingGenerator',
+          action: 'MAPPING_CHECK_PREPARED',
+          payload: { filename: targetChunk.filename },
+        });
+      } catch (connErr) {
+        // Coba reinjeksi content scripts jika tab belum siap
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: [
+            'lib/supabase.js',
+            'lib/prompt-generator.js',
+            'content.js',
+            'modules/chunk-validator.js',
+            'modules/script-generator.js',
+            'modules/mapping-generator.js',
+          ],
+        }).catch(() => {});
+        await new Promise((r) => setTimeout(r, 600));
+        prepRes = await chrome.tabs.sendMessage(tab.id, {
+          module: 'mappingGenerator',
+          action: 'MAPPING_CHECK_PREPARED',
+          payload: { filename: targetChunk.filename },
+        }).catch(() => null);
+      }
+
+      // Cek apakah halaman saat ini sudah memiliki output mapping yang SUDAH SELESAI di-generate
+      const existingStatus = await chrome.tabs.sendMessage(tab.id, {
+        module: 'mappingGenerator',
+        action: 'MAPPING_CHECK_STATUS',
+      }).catch(() => null);
+
+      if (existingStatus?.status === 'completed' && existingStatus?.parsedJson) {
+        const parsedPart = Number(existingStatus.parsedJson.chunk_part);
+        const currentTargetPart = Number(targetChunk.part_number);
+
+        if (parsedPart === currentTargetPart || !parsedPart) {
+          console.log(`[SidePanel] 🎯 Terdeteksi output Video Mapping Part #${currentTargetPart} sudah selesai di halaman ini! Langsung simpan...`);
+          if (mappingStepLog) {
+            mappingStepLog.textContent = `[Part #${targetChunk.part_number}] 🎯 Output mapping selesai terdeteksi di halaman saat ini! Menyimpan ke database...`;
+          }
+
+          const saveRes = await chrome.tabs.sendMessage(tab.id, {
+            module: 'mappingGenerator',
+            action: 'MAPPING_SAVE_OUTPUT',
+            payload: {
+              contentId: sessionSelect.value,
+              partNumber: targetChunk.part_number,
+              parsedJson: existingStatus.parsedJson,
+            },
+          });
+
+          if (mappingStepLog) {
+            mappingStepLog.className = 'mapping-step-log success';
+            mappingStepLog.innerHTML = `🎉 <b>Video Mapping Part #${targetChunk.part_number} SUKSES!</b> ${saveRes?.itemCount || 0} visual mapping tersimpan di Supabase!`;
+          }
+
+          // Buka new chat bersih untuk part berikutnya
+          console.log('[SidePanel] 🔄 Membuka New Chat bersih untuk part selanjutnya...');
+          await chrome.tabs.update(tab.id, { url: 'https://aistudio.google.com/prompts/new_chat' });
+          await new Promise((r) => setTimeout(r, 4000));
+
+          await loadChunks(sessionSelect.value);
+          return;
+        }
+      }
+
+      // Cek apakah halaman sudah memiliki turn percakapan sebelumnya
+      let turnsRes = await chrome.tabs.sendMessage(tab.id, {
+        module: 'mappingGenerator',
+        action: 'MAPPING_CHECK_TURNS',
+      }).catch(() => null);
+
+      // Jika ada chat turn sebelumnya atau bukan di new_chat, buka new chat bersih
+      if (turnsRes?.hasTurns || (!tab.url.includes('/prompts/new_chat') && !prepRes?.hasMedia)) {
+        if (mappingStepLog) {
+          mappingStepLog.textContent = `[Part #${targetChunk.part_number}] Membuka halaman New Chat bersih di Google AI Studio...`;
+        }
+        if (tab.url.includes('/prompts/new_chat')) {
+          await chrome.tabs.reload(tab.id);
+        } else {
+          await chrome.tabs.update(tab.id, { url: 'https://aistudio.google.com/prompts/new_chat' });
+        }
+        await new Promise((r) => setTimeout(r, 4500));
+        prepRes = null;
+      }
+
+      // Jika belum ada media chunk terpasang, sisipkan otomatis dari Drive!
+      if (!prepRes?.hasMedia) {
+        if (mappingStepLog) {
+          mappingStepLog.textContent = `[Part #${targetChunk.part_number}] 🎬 Membuka Drive Picker & menyisipkan "${targetChunk.filename}"...`;
+        }
+
+        const insertRes = await chrome.runtime.sendMessage({
+          action: 'SELECT_DRIVE_FILE',
+          tabId: tab.id,
+          filename: targetChunk.filename,
+        });
+
+        if (!insertRes || !insertRes.success) {
+          throw new Error(insertRes?.error || `Gagal menyisipkan "${targetChunk.filename}" dari Google Drive.`);
+        }
+
+        if (mappingStepLog) {
+          mappingStepLog.textContent = `[Part #${targetChunk.part_number}] ⏳ Menunggu kartu video chunk terpasang di prompt editor...`;
+        }
+
+        let attached = false;
+        for (let i = 0; i < 25; i++) {
+          await new Promise((r) => setTimeout(r, 1000));
+          const check = await chrome.tabs.sendMessage(tab.id, {
+            module: 'mappingGenerator',
+            action: 'MAPPING_CHECK_PREPARED',
+            payload: { filename: targetChunk.filename },
+          }).catch(() => null);
+          if (check?.hasMedia) {
+            attached = true;
+            break;
+          }
+        }
+
+        if (!attached) {
+          throw new Error(`Timeout: Video chunk "${targetChunk.filename}" tidak kunjung terpasang di prompt editor.`);
+        }
+      }
+
+      // Tunggu hingga token video selesai dihitung (badge tokens muncul & loading selesai)
+      if (mappingStepLog) {
+        mappingStepLog.textContent = `[Part #${targetChunk.part_number}] ⏳ Menunggu perhitungan token video selesai di AI Studio...`;
+      }
+      for (let w = 0; w < 30; w++) {
+        const readyCheck = await chrome.tabs.sendMessage(tab.id, {
+          module: 'mappingGenerator',
+          action: 'MAPPING_CHECK_PREPARED',
+          payload: { filename: targetChunk.filename },
+        }).catch(() => null);
+        if (readyCheck?.mediaReady) {
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+
+      // STEP 2: Masukkan teks Video Mapping Prompt ke dalam editor
+      if (mappingStepLog) {
+        mappingStepLog.textContent = `[Part #${targetChunk.part_number}] ✍️ Memasukkan Video Mapping prompt (${mappingPrompt.length} karakter) ke editor...`;
+      }
+
+      await chrome.tabs.sendMessage(tab.id, {
+        module: 'mappingGenerator',
+        action: 'MAPPING_FILL_PROMPT',
+        payload: {
+          promptText: mappingPrompt,
+        },
+      });
+      await new Promise((r) => setTimeout(r, 800));
+
+      // STEP 3: Menunggu token media dihitung & klik Run secara native
+      if (mappingStepLog) {
+        mappingStepLog.textContent = `[Part #${targetChunk.part_number}] ⏳ Menunggu tombol Run & mengklik tombol Run...`;
+      }
+
+      const clickRes = await chrome.tabs.sendMessage(tab.id, {
+        module: 'mappingGenerator',
+        action: 'MAPPING_CLICK_RUN',
+        payload: {
+          promptText: mappingPrompt,
+          filename: targetChunk.filename,
+        },
+      });
+
+      if (!clickRes || !clickRes.success) {
+        throw new Error(clickRes?.error || 'Gagal mengeklik tombol Run di AI Studio.');
+      }
+
+      // STEP 4: Memantau proses generasi output Video Mapping AI Studio
+      if (mappingStepLog) {
+        mappingStepLog.textContent = `[Part #${targetChunk.part_number}] 🚀 Model mulai memproses Video Mapping! Memantau hasil output...`;
+      }
+
+      let pollRes = null;
+      const pollStart = Date.now();
+      const maxPollSec = 360;
+
+      while ((Date.now() - pollStart) / 1000 < maxPollSec) {
+        await new Promise((r) => setTimeout(r, 4000));
+        const elapsedSec = Math.round((Date.now() - pollStart) / 1000);
+
+        try {
+          const statusRes = await chrome.tabs.sendMessage(tab.id, {
+            module: 'mappingGenerator',
+            action: 'MAPPING_CHECK_STATUS',
+          });
+
+          if (statusRes?.status === 'error') {
+            pollRes = { hasError: true, errorMessage: statusRes.errorMessage };
+            break;
+          }
+
+          if (statusRes?.status === 'completed') {
+            pollRes = {
+              hasError: false,
+              rawText: statusRes.rawText,
+              cleanedJson: statusRes.cleanedJson,
+              parsedJson: statusRes.parsedJson,
+              elapsedSec,
+            };
+            break;
+          }
+
+          if (mappingStepLog) {
+            mappingStepLog.textContent = `[Part #${targetChunk.part_number}] ⏳ Sedang menganalisa & memetakan adegan video... (Detik ke-${elapsedSec})`;
+          }
+        } catch (tabErr) {
+          // Abaikan micro context switch
+        }
+      }
+
+      if (!pollRes) {
+        throw new Error('Timeout: Pemantauan video mapping melebihi 6 menit.');
+      }
+
+      if (pollRes.hasError) {
+        if (mappingStepLog) {
+          mappingStepLog.className = 'mapping-step-log error';
+          mappingStepLog.innerHTML = `⚠️ <b>Error AI Studio:</b> "${pollRes.errorMessage}".<br><span style="color: #94a3b8;">Merefresh dan membuka New Chat bersih...</span>`;
+        }
+
+        try {
+          await chrome.tabs.update(tab.id, { url: 'https://aistudio.google.com/prompts/new_chat' });
+          await new Promise((r) => setTimeout(r, 4000));
+        } catch {}
+
+        throw new Error(`AI Studio error: "${pollRes.errorMessage}". Halaman telah di-reset ke New Chat.`);
+      }
+
+      // STEP 5: Simpan ke Supabase
+      if (mappingStepLog) {
+        mappingStepLog.textContent = `[Part #${targetChunk.part_number}] 🎉 Output mapping valid! Menyimpan ke Supabase...`;
+      }
+
+      const saveRes = await chrome.tabs.sendMessage(tab.id, {
+        module: 'mappingGenerator',
+        action: 'MAPPING_SAVE_OUTPUT',
+        payload: {
+          contentId: sessionSelect.value,
+          partNumber: targetChunk.part_number,
+          parsedJson: pollRes.parsedJson,
+        },
+      });
+
+      if (mappingStepLog) {
+        mappingStepLog.className = 'mapping-step-log success';
+        mappingStepLog.innerHTML = `🎉 <b>Video Mapping Part #${targetChunk.part_number} SUKSES!</b> ${saveRes?.itemCount || 0} visual mapping tersimpan di Supabase!`;
+      }
+
+      // Reset tab ke New Chat untuk part berikutnya
+      try {
+        console.log('[SidePanel] 🔄 Membuka New Chat bersih untuk mapping selanjutnya...');
+        await chrome.tabs.update(tab.id, { url: 'https://aistudio.google.com/prompts/new_chat' });
+        await new Promise((r) => setTimeout(r, 4000));
+      } catch {}
+
+      await loadChunks(sessionSelect.value);
+    } catch (err) {
+      console.error('[SidePanel] Video mapping generation error:', err);
+      if (mappingStepLog) {
+        mappingStepLog.className = 'mapping-step-log error';
+        mappingStepLog.textContent = `❌ Gagal: ${err.message}`;
+      }
+
+      try {
+        const [curTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (curTab && curTab.id) {
+          await chrome.tabs.update(curTab.id, { url: 'https://aistudio.google.com/prompts/new_chat' }).catch(() => {});
+        }
+      } catch {}
+
+      throw err;
+    } finally {
+      isRunningMapping = false;
+      if (btnRunMapping) btnRunMapping.disabled = isAutoProgressMappingActive;
+      if (mappingSpinner) mappingSpinner.classList.add('hidden');
+      await loadChunks(sessionSelect.value);
+    }
+  }
+
+  // Update tampilan tombol Auto Progress Video Mapping
+  function updateAutoProgressMappingUI() {
+    if (!btnAutoProgressMapping) return;
+    if (isAutoProgressMappingActive) {
+      btnAutoProgressMapping.classList.add('active');
+      if (autoProgressMappingIcon) autoProgressMappingIcon.textContent = '⏹️';
+      if (autoProgressMappingText) autoProgressMappingText.textContent = 'Hentikan Auto Progress Mapping';
+      if (btnRunMapping) btnRunMapping.disabled = true;
+    } else {
+      btnAutoProgressMapping.classList.remove('active');
+      if (autoProgressMappingIcon) autoProgressMappingIcon.textContent = '⚡';
+      if (autoProgressMappingText) autoProgressMappingText.textContent = 'Auto Progress Mapping (Semua Part)';
+      if (btnRunMapping) btnRunMapping.disabled = isRunningMapping;
+    }
+  }
+
+  // Action: Auto Progress Video Mapping (Jalankan semua part secara berurutan)
+  async function toggleAutoProgressMapping() {
+    if (isAutoProgressMappingActive) {
+      isAutoProgressMappingActive = false;
+      updateAutoProgressMappingUI();
+      if (mappingStepLog) {
+        mappingStepLog.className = 'mapping-step-log warn';
+        mappingStepLog.textContent = '⏸️ Auto Progress Video Mapping dihentikan pengguna.';
+      }
+      return;
+    }
+
+    if (isRunningMapping) {
+      alert('Proses Video Mapping saat ini sedang berjalan.');
+      return;
+    }
+
+    if (!sessionSelect.value) {
+      alert('Silakan pilih Active Session terlebih dahulu.');
+      return;
+    }
+
+    isAutoProgressMappingActive = true;
+    updateAutoProgressMappingUI();
+    if (mappingLiveStatus) mappingLiveStatus.classList.remove('hidden');
+
+    console.log('[AutoProgressMapping] ⚡ Memulai loop Auto Progress Video Mapping:', sessionSelect.value);
+
+    while (isAutoProgressMappingActive) {
+      const parts = await window.SupabaseBridge.getParts(sessionSelect.value);
+      currentChunks = (parts || []).sort((a, b) => Number(a.part_number) - Number(b.part_number));
+      renderChunksList();
+
+      const nextPending = currentChunks.find((p) => p.mapping_status !== 'done' && p.mapping_status !== 'completed');
+      if (!nextPending) {
+        if (mappingStepLog) {
+          mappingStepLog.className = 'mapping-step-log success';
+          mappingStepLog.innerHTML = `🎉 <b>SELURUH VIDEO MAPPING SELESAI!</b> Semua part (${currentChunks.length} part) telah selesai dipetakan & tersimpan di database.`;
+        }
+        isAutoProgressMappingActive = false;
+        updateAutoProgressMappingUI();
+        break;
+      }
+
+      console.log(`[AutoProgressMapping] 🚀 Memulai Part #${nextPending.part_number}...`);
+      if (mappingStepLog) {
+        mappingStepLog.className = 'mapping-step-log';
+        mappingStepLog.textContent = `[Auto Progress Mapping] 🚀 Menjalankan Part #${nextPending.part_number} (${nextPending.filename})...`;
+      }
+
+      let succeeded = false;
+      try {
+        await runMappingGeneration(nextPending);
+        succeeded = true;
+      } catch (err) {
+        console.error(`[AutoProgressMapping] ⚠️ Kendala di Part #${nextPending.part_number}:`, err);
+        if (mappingStepLog) {
+          mappingStepLog.className = 'mapping-step-log warn';
+          mappingStepLog.innerHTML = `⚠️ <b>Kendala di Part #${nextPending.part_number}:</b> ${err.message}.<br><span style="color: #94a3b8;">Halaman di-reset ke New Chat, mencoba ulang dalam 6 detik...</span>`;
+        }
+        try {
+          const tab = await getAIStudioTab();
+          if (tab && tab.id) {
+            await chrome.tabs.update(tab.id, { url: 'https://aistudio.google.com/prompts/new_chat' });
+          }
+        } catch {}
+        await new Promise((r) => setTimeout(r, 6000));
+      }
+
+      if (!isAutoProgressMappingActive) break;
+
+      if (succeeded) {
+        await new Promise((r) => setTimeout(r, 3500));
+      }
+    }
+
+    isAutoProgressMappingActive = false;
+    updateAutoProgressMappingUI();
+  }
+
+  if (btnRunMapping) {
+    btnRunMapping.addEventListener('click', async () => {
+      await runMappingGeneration();
+    });
+  }
+
+  if (btnAutoProgressMapping) {
+    btnAutoProgressMapping.addEventListener('click', async () => {
+      await toggleAutoProgressMapping();
     });
   }
 

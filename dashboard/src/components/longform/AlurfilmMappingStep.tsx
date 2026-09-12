@@ -29,6 +29,10 @@ const AlurfilmMappingStep: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
+  // Cloud Mapping Synchronization State
+  const [isSyncingMappings, setIsSyncingMappings] = useState<boolean>(false);
+  const [cloudMappingsCount, setCloudMappingsCount] = useState<number>(0);
+
   // Modal State
   const [showImportModal, setShowImportModal] = useState<boolean>(false);
   const [pasteJsonInput, setPasteJsonInput] = useState<string>('');
@@ -242,6 +246,36 @@ const AlurfilmMappingStep: React.FC = () => {
   };
 
   /**
+   * Synchronize video mapping outputs from Cloud Supabase to local disk
+   */
+  const handleSyncMappingsFromCloud = async () => {
+    if (!contentId) return;
+    setIsSyncingMappings(true);
+    setError(null);
+    try {
+      if (api.syncAlurfilmMappingsFromSupabase) {
+        const res = await api.syncAlurfilmMappingsFromSupabase(contentId);
+        console.log(`[MappingStep] Synced ${res?.count || 0} mappings from Supabase.`);
+      }
+      if (api.listAlurfilmMappings) {
+        const updatedList = await api.listAlurfilmMappings(contentId);
+        const mapObj: Record<number, any> = {};
+        if (Array.isArray(updatedList)) {
+          updatedList.forEach((m: any) => {
+            mapObj[m.part] = m;
+          });
+        }
+        setMappings(mapObj);
+      }
+      showToast('☁️ Video Mapping berhasil disinkronkan dari Cloud (Offline & Cloud Match 100%)!');
+    } catch (err: any) {
+      setError(`Gagal sync video mapping: ${err.message}`);
+    } finally {
+      setIsSyncingMappings(false);
+    }
+  };
+
+  /**
    * Load initial data on mount
    */
   const loadData = async () => {
@@ -280,7 +314,14 @@ const AlurfilmMappingStep: React.FC = () => {
         }
         setTranscripts(tMap);
 
-        // Mappings
+        // Mappings (Auto-sync with Cloud Supabase)
+        if (api.syncAlurfilmMappingsFromSupabase) {
+          try {
+            await api.syncAlurfilmMappingsFromSupabase(id);
+          } catch (e) {
+            console.warn('[MappingStep] Initial cloud mappings sync warning:', e);
+          }
+        }
         const mList = await api.listAlurfilmMappings(id);
         const mMap: Record<number, AlurfilmMappingResult> = {};
         if (mList) {
@@ -306,6 +347,11 @@ const AlurfilmMappingStep: React.FC = () => {
             });
             setCloudPrompts(existingPrompts);
             setSyncedParts(withPrompts.map((sc) => sc.part_number));
+
+            const withMappings = syncedChunks.filter(
+              (sc) => sc.mapping_status === 'done' && sc.mapping_output
+            );
+            setCloudMappingsCount(withMappings.length);
           }
         } catch (e) {
           console.warn('[MappingStep] Error reading synced parts from Supabase:', e);
@@ -411,6 +457,12 @@ const AlurfilmMappingStep: React.FC = () => {
   const isActiveMatched = isPartMatched(activePart);
   const isAllSynced = chunks.length > 0 && syncedParts.length === chunks.length;
 
+  const totalMappedCount = chunks.filter((c) => {
+    const norm = getNormalizedMapping(c.part);
+    return Boolean(norm?.mappings && norm.mappings.length > 0);
+  }).length;
+  const isAllMappingsSynced = chunks.length > 0 && totalMappedCount === chunks.length;
+
   return (
     <div className="flex flex-col h-full bg-gray-950 text-gray-100 p-6 overflow-hidden">
       {/* Toast */}
@@ -457,7 +509,7 @@ const AlurfilmMappingStep: React.FC = () => {
             </span>
           </button>
 
-          {/* Database Synced & Matched Badge */}
+          {/* Database Synced & Matched Badge (Prompts) */}
           {isAllSynced ? (
             <div className="px-3.5 py-1.5 bg-emerald-950/80 border border-emerald-500/60 text-emerald-300 rounded-xl text-xs font-semibold flex items-center gap-2 shadow-lg shadow-emerald-950/50">
               <span className="text-sm">☁️</span>
@@ -465,7 +517,7 @@ const AlurfilmMappingStep: React.FC = () => {
                 <span className="font-mono font-extrabold text-white">
                   {syncedParts.length}/{chunks.length}
                 </span>
-                <span className="text-emerald-400 font-bold">Cloud Match 100%</span>
+                <span className="text-emerald-400 font-bold">Prompts Match</span>
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
               </div>
             </div>
@@ -475,9 +527,42 @@ const AlurfilmMappingStep: React.FC = () => {
               <span className="font-mono font-bold text-white">
                 {syncedParts.length}/{chunks.length}
               </span>
-              <span className="text-gray-400 text-[11px]">di Supabase</span>
+              <span className="text-gray-400 text-[11px]">Prompt di Cloud</span>
             </div>
           )}
+
+          {/* Database Mappings Synced & Matched Badge */}
+          {isAllMappingsSynced ? (
+            <div className="px-3.5 py-1.5 bg-emerald-950/80 border border-emerald-500/60 text-emerald-300 rounded-xl text-xs font-semibold flex items-center gap-2 shadow-lg shadow-emerald-950/50">
+              <span className="text-sm">🎯</span>
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono font-extrabold text-white">
+                  {totalMappedCount}/{chunks.length}
+                </span>
+                <span className="text-emerald-400 font-bold">Mappings Match 100%</span>
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              </div>
+            </div>
+          ) : (
+            <div className="px-3 py-1.5 bg-gray-900 border border-gray-800 text-gray-300 rounded-xl text-xs font-medium flex items-center gap-1.5">
+              <span className="text-emerald-400">🎯</span>
+              <span className="font-mono font-bold text-white">
+                {totalMappedCount}/{chunks.length}
+              </span>
+              <span className="text-gray-400 text-[11px]">Mapping Siap</span>
+            </div>
+          )}
+
+          {/* Sync dari Cloud Button */}
+          <button
+            onClick={handleSyncMappingsFromCloud}
+            disabled={isSyncingMappings}
+            className="px-3 py-2 bg-gray-900 hover:bg-gray-800 border border-gray-800 text-purple-300 rounded-xl text-xs font-medium transition-all flex items-center gap-1.5 shadow"
+            title="Tarik data video mapping dari Cloud Supabase ke disk lokal"
+          >
+            <span className={isSyncingMappings ? 'animate-spin' : ''}>🔄</span>
+            <span>{isSyncingMappings ? 'Syncing...' : 'Sync dari Cloud'}</span>
+          </button>
 
           <button
             onClick={() => {
@@ -517,8 +602,8 @@ const AlurfilmMappingStep: React.FC = () => {
                 let badgeElement = null;
                 if (isDone) {
                   badgeElement = (
-                    <span className="px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800 text-[9px] font-bold">
-                      ✓ Mapped
+                    <span className="px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-500/70 text-[9px] font-bold flex items-center gap-1 shadow-sm">
+                      <span>🎯</span> Match ✓
                     </span>
                   );
                 } else if (isCloudSaved && isMatched) {
@@ -710,11 +795,18 @@ const AlurfilmMappingStep: React.FC = () => {
         <div className="lg:col-span-5 flex flex-col bg-gray-900/60 border border-gray-800 rounded-2xl overflow-hidden shadow-xl p-5 space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-gray-800 shrink-0">
             <div>
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <span>🎯</span> Visual Cuts Mapping
-              </h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
+                  <span>🎯</span> Visual Cuts Mapping Part #{activePart}
+                </h3>
+                {currentMapping && currentMapping.mappings && (
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-950/90 border border-emerald-500/70 text-emerald-300 text-[10px] font-mono font-bold flex items-center gap-1 shadow">
+                    <span>☁️</span> Cloud & Offline Match ✓
+                  </span>
+                )}
+              </div>
               <p className="text-[11px] text-gray-400 mt-0.5">
-                Sentence-by-sentence visual cuts timeline layout.
+                Sentence-by-sentence visual cuts timeline layout ({currentMapping?.mappings?.length || 0} kalimat naskah terpetakan).
               </p>
             </div>
 
@@ -723,58 +815,114 @@ const AlurfilmMappingStep: React.FC = () => {
                 onClick={() => {
                   if (api.copyToClipboard) {
                     api.copyToClipboard(JSON.stringify(currentMapping, null, 2));
-                    showToast(`Copied Mapping JSON for Part #${activePart}!`);
+                    showToast(`📋 Copied Mapping JSON for Part #${activePart}!`);
                   }
                 }}
-                className="px-3 py-1 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg text-xs font-medium transition-all"
+                className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg text-xs font-medium transition-all flex items-center gap-1"
               >
-                📋 Copy JSON
+                <span>📋</span> Copy JSON
               </button>
             )}
           </div>
 
           {currentMapping && currentMapping.mappings ? (
             <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1">
-              {currentMapping.mappings.map((m: any, idx: number) => (
-                <div key={idx} className="p-3.5 bg-gray-950 rounded-xl border border-gray-800 space-y-2">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-bold text-purple-400 font-mono">
-                      Sentence #{m.sentence_index ?? idx}
+              {/* BGM Timeline Preview if present */}
+              {Array.isArray(currentMapping.bgm_timeline) && currentMapping.bgm_timeline.length > 0 && (
+                <div className="p-3 bg-indigo-950/40 border border-indigo-800/40 rounded-xl space-y-1.5 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] uppercase font-bold text-indigo-400 flex items-center gap-1.5">
+                      <span>🎵</span> BGM Timeline ({currentMapping.bgm_timeline.length} tracks)
                     </span>
-                    <span className="text-gray-400 font-mono text-[11px]">
-                      Duration:{' '}
-                      <strong className="text-white">
-                        {m.duration || (m.end && m.start ? Number((m.end - m.start).toFixed(2)) : '0')}s
-                      </strong>
+                    <span className="text-[10px] font-mono text-indigo-300">
+                      Auto-ducking sinkron
                     </span>
                   </div>
-                  <p className="text-xs text-gray-200 italic font-mono bg-gray-900 p-2 rounded-lg border border-gray-800">
-                    "{m.text}"
-                  </p>
-
-                  <div className="space-y-1 pt-1">
-                    <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wider">
-                      Visual Cuts ({m.visuals?.length || 0})
-                    </span>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                      {m.visuals?.map((v: any, vIdx: number) => (
-                        <div
-                          key={vIdx}
-                          className="p-2 bg-gray-900 rounded-lg border border-gray-800 text-[11px] font-mono space-y-0.5"
-                        >
-                          <div className="flex justify-between text-purple-300 font-bold">
-                            <span>{v.type || 'cut'}</span>
-                            <span>{v.duration}s</span>
-                          </div>
-                          <span className="text-gray-500 text-[10px] block">
-                            start: {v.source_start_seconds}s
-                          </span>
-                        </div>
-                      ))}
-                    </div>
+                  <div className="flex flex-wrap gap-1.5 pt-0.5">
+                    {currentMapping.bgm_timeline.map((bgm: any, bIdx: number) => (
+                      <span key={bIdx} className="px-2 py-1 rounded-lg bg-indigo-900/60 border border-indigo-700/60 text-[10px] text-indigo-200 font-mono flex items-center gap-1">
+                        <span className="text-indigo-400">▶</span>
+                        <strong>{bgm.file || bgm.category}</strong>
+                        <span className="text-gray-400">({bgm.start}s - {bgm.end}s)</span>
+                      </span>
+                    ))}
                   </div>
                 </div>
-              ))}
+              )}
+
+              {/* Sentences Mapping List */}
+              {currentMapping.mappings.map((m: any, idx: number) => {
+                const isVisualOnly = m.type === 'visual_only' || (typeof m.text === 'string' && m.text.includes('[VISUAL_ONLY]'));
+                return (
+                  <div key={idx} className={`p-3.5 bg-gray-950 rounded-xl border space-y-2 ${isVisualOnly ? 'border-amber-600/50 bg-amber-950/10' : 'border-gray-800'}`}>
+                    <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-purple-400 font-mono">
+                          Sentence #{m.sentence_index ?? idx}
+                        </span>
+                        {isVisualOnly && (
+                          <span className="px-1.5 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-600/60 text-[9px] font-bold uppercase">
+                            [VISUAL_ONLY]
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-gray-400 font-mono text-[11px]">
+                        Durasi:{' '}
+                        <strong className="text-white">
+                          {m.duration || (m.end && m.start ? Number((m.end - m.start).toFixed(2)) : '0')}s
+                        </strong>
+                        <span className="text-gray-500 ml-1">({m.start}s - {m.end}s)</span>
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-200 italic font-mono bg-gray-900 p-2.5 rounded-lg border border-gray-800/80 leading-relaxed">
+                      "{m.text}"
+                    </p>
+
+                    <div className="space-y-1.5 pt-1">
+                      <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wider flex items-center justify-between">
+                        <span>Visual Clips ({m.visuals?.length || 0})</span>
+                        {m.visuals && (
+                          <span className="text-purple-400 font-mono text-[10px]">
+                            Total durasi: {Number((m.visuals.reduce((acc: number, v: any) => acc + (v.duration || 0), 0)).toFixed(2))}s
+                          </span>
+                        )}
+                      </span>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                        {m.visuals?.map((v: any, vIdx: number) => {
+                          const vType = v.type || 'video_cut';
+                          let typeColor = 'text-purple-300 border-purple-800/40 bg-purple-950/20';
+                          if (vType === 'slow_motion') typeColor = 'text-violet-300 border-violet-800/40 bg-violet-950/20';
+                          if (vType === 'freeze_frame_with_zoom') typeColor = 'text-sky-300 border-sky-800/40 bg-sky-950/20';
+                          if (vType === 'mirror_cut') typeColor = 'text-pink-300 border-pink-800/40 bg-pink-950/20';
+
+                          return (
+                            <div
+                              key={vIdx}
+                              className={`p-2 rounded-lg border text-[11px] font-mono space-y-1 ${typeColor}`}
+                            >
+                              <div className="flex justify-between items-center font-bold">
+                                <span>{vType}</span>
+                                <span className="px-1.5 py-0.2 rounded bg-black/40 text-white font-mono text-[10px]">{v.duration}s</span>
+                              </div>
+                              <div className="flex items-center justify-between text-[10px] text-gray-400">
+                                <span>start: <strong>{v.source_start_seconds}s</strong></span>
+                                {v.slow_mo_factor && (
+                                  <span className="text-violet-400">({v.slow_mo_factor}x)</span>
+                                )}
+                              </div>
+                              {v.color_grading_shift && (
+                                <div className="text-[9px] text-gray-500 truncate pt-0.5 border-t border-gray-800/50">
+                                  🎨 c:{v.color_grading_shift.contrast} s:{v.color_grading_shift.saturation}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center text-center p-8 border border-dashed border-gray-800 rounded-2xl space-y-3">

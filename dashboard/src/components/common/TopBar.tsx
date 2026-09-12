@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 
 import type { ContentMode } from './Sidebar';
+import { clearAllCloudData } from '../../lib/supabaseSync';
 
 interface TopBarProps {
   onResetProject?: () => void;
@@ -37,6 +38,10 @@ const TopBar: React.FC<TopBarProps> = ({ onResetProject, contentMode }) => {
   const handleConfirmReset = async () => {
     setResetting(true);
     try {
+      // 1. Bersihkan data di Cloud Supabase terlebih dahulu
+      await clearAllCloudData(contentId);
+
+      // 2. Reset workspace lokal & generate ID baru via backend Electron
       if (window.electronAPI?.resetProject) {
         const res = await window.electronAPI.resetProject(contentMode);
         if (res?.content_id) {
@@ -125,9 +130,9 @@ const TopBar: React.FC<TopBarProps> = ({ onResetProject, contentMode }) => {
               ⚠️
             </div>
             <div>
-              <h3 className="text-base font-bold text-white">Reset Workspace & Content ID?</h3>
+              <h3 className="text-base font-bold text-white">Reset Workspace & Hapus Data Cloud?</h3>
               <p className="text-xs text-gray-400 mt-1 leading-relaxed">
-                Tindakan ini akan membuat Content ID baru untuk kategori <strong className="text-white uppercase">Alur Cerita Film</strong> dan membersihkan data temporer proyek.
+                Tindakan ini akan membuat Content ID baru untuk <strong className="text-white uppercase">Alur Cerita Film</strong>, membersihkan file lokal workspace, serta <strong className="text-red-400 font-semibold">menghapus seluruh data sesi & parts di Cloud (Supabase)</strong>.
               </p>
             </div>
             <div className="flex items-center justify-end gap-3 pt-2">
@@ -141,9 +146,19 @@ const TopBar: React.FC<TopBarProps> = ({ onResetProject, contentMode }) => {
               <button
                 onClick={handleConfirmReset}
                 disabled={resetting}
-                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-semibold transition-all shadow-lg shadow-red-600/30 flex items-center gap-1.5"
+                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-semibold transition-all shadow-lg shadow-red-600/30 flex items-center gap-2"
               >
-                {resetting ? 'Resetting...' : 'Ya, Generate Content ID Baru'}
+                {resetting ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                    <span>Menghapus Cloud & Resetting...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>🗑️</span>
+                    <span>Ya, Reset & Hapus Data Cloud</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

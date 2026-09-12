@@ -78,6 +78,7 @@ export interface RenderFileInfo {
 export interface AlurfilmChunk {
   part: number;
   name: string;
+  fileName?: string;
   size: number;
   startSec?: number;
   durationSec?: number;
@@ -108,9 +109,13 @@ export interface AlurfilmMetadataTitle {
 }
 
 export interface AlurfilmMetadataResult {
+  contentId: string;
   titles: AlurfilmMetadataTitle[];
   description: string;
   tags: string[];
+  hashtags: string[];
+  createdAt: string;
+  pinnedComment?: string;
   selectedTitle?: string;
   selectedThumbnailText?: string;
   selectedThumbnailPrompt?: string;
@@ -201,6 +206,7 @@ export interface AlurfilmVisualClip {
 export interface AlurfilmSentenceMapping {
   sentence_index: number;
   text: string;
+  type?: string;
   start: number;
   end: number;
   duration: number;
@@ -208,7 +214,13 @@ export interface AlurfilmSentenceMapping {
 }
 
 export interface AlurfilmMappingData {
-  scene_id: string;
+  scene_id?: string;
+  bgm_timeline?: Array<{
+    start: number;
+    end: number;
+    file: string;
+    category?: string;
+  }>;
   mappings: AlurfilmSentenceMapping[];
   status: string;
 }
@@ -298,6 +310,7 @@ export interface ElectronAPI {
   ) => Promise<{ success: boolean; count: number; error?: string }>;
   saveAlurfilmMapping: (contentIdOrPart: string | number, partOrData?: number | any, jsonTextOrPart?: any) => Promise<AlurfilmMappingResult>;
   listAlurfilmMappings: (modeContentId?: string) => Promise<AlurfilmMappingResult[]>;
+  syncAlurfilmMappingsFromSupabase?: (modeContentId?: string) => Promise<{ count: number; mappings: any[] }>;
   listAlurfilmRenders: (modeContentId?: string) => Promise<AlurfilmRenderResult[]>;
   renderAlurfilmPart: (
     part: number,

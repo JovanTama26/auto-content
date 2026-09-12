@@ -44,7 +44,8 @@
         "lib/prompt-generator.js",
         "content.js",
         "modules/chunk-validator.js",
-        "modules/script-generator.js"
+        "modules/script-generator.js",
+        "modules/mapping-generator.js"
       ],
       "css": [
         "content.css"

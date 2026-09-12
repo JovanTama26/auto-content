@@ -176,6 +176,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   listAlurfilmMappings: (modeContentId) =>
     ipcRenderer.invoke('list-alurfilm-mappings', modeContentId),
+  syncAlurfilmMappingsFromSupabase: (modeContentId) =>
+    ipcRenderer.invoke('sync-alurfilm-mappings-from-supabase', modeContentId),
   listAlurfilmRenders: (modeContentId) =>
     ipcRenderer.invoke('list-alurfilm-renders', modeContentId),
   renderAlurfilmPart: (part, videoPath, audioPath, mappingData, opts = {}) =>

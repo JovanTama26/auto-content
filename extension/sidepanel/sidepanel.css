@@ -592,3 +592,135 @@ html, body {
   cursor: not-allowed;
 }
 
+/* Video Mapping Generator Section */
+.mapping-section {
+  background: rgba(30, 27, 75, 0.4);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.mapping-badge {
+  background: rgba(139, 92, 246, 0.2) !important;
+  color: #c4b5fd !important;
+  border: 1px solid rgba(139, 92, 246, 0.4);
+}
+
+.mapping-buttons-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.btn-run-mapping {
+  width: 100%;
+  padding: 10px 12px;
+  background: linear-gradient(135deg, #7c3aed, #4f46e5);
+  border: 1px solid rgba(167, 139, 250, 0.4);
+  border-radius: 6px;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.25);
+  transition: all 0.2s;
+}
+.btn-run-mapping:hover:not(:disabled) {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(124, 58, 237, 0.35);
+}
+.btn-run-mapping:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-auto-progress-mapping {
+  width: 100%;
+  padding: 8px 12px;
+  background: rgba(30, 27, 75, 0.8);
+  border: 1px solid #6366f1;
+  border-radius: 6px;
+  color: #c7d2fe;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.2s;
+}
+.btn-auto-progress-mapping:hover:not(:disabled) {
+  background: #4338ca;
+  border-color: #818cf8;
+  color: #ffffff;
+}
+.btn-auto-progress-mapping.active {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: #f59e0b;
+  color: #fbbf24;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.25);
+}
+.btn-auto-progress-mapping:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.mapping-status-box {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: #0f172a;
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: 6px;
+  font-size: 11px;
+  color: #94a3b8;
+  line-height: 1.4;
+}
+
+.mapping-step-log {
+  word-break: break-word;
+}
+.mapping-step-log.success {
+  color: #34d399;
+}
+.mapping-step-log.error {
+  color: #f87171;
+}
+.mapping-step-log.warn {
+  color: #fbbf24;
+}
+
+.btn-map-chunk {
+  background: #6366f1;
+  border: 1px solid #818cf8;
+  color: #ffffff;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-map-chunk:hover:not(:disabled) {
+  background: #4f46e5;
+}
+.btn-map-chunk:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn-map-chunk.done {
+  background: rgba(16, 185, 129, 0.15);
+  border-color: rgba(16, 185, 129, 0.4);
+  color: #34d399;
+}
+.btn-map-chunk.done:hover {
+  background: rgba(16, 185, 129, 0.25);
+}
+
+

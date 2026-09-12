@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const { parseSrtToEntries } = require('../shared/subtitle-utils.cjs');
-const { syncAnalysesFromSupabase, syncMappingPromptsToSupabase } = require('../shared/supabaseClient.cjs');
+const { syncAnalysesFromSupabase, syncMappingsFromSupabase, syncMappingPromptsToSupabase, supabase } = require('../shared/supabaseClient.cjs');
 
 
 function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
@@ -2761,13 +2761,39 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
       targetResult = { part: pNum, name: outputName, filePath: destPath, data: normalizedData };
     }
 
+    if (supabase && contentId && targetResult) {
+      supabase
+        .from('content_parts')
+        .update({
+          mapping_output: targetResult.data,
+          mapping_status: 'done',
+          mapping_done_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('content_id', contentId)
+        .eq('part_number', targetResult.part)
+        .then(() => console.log(`[SupabaseSync] Mapping Part #${targetResult.part} synced to Supabase.`))
+        .catch(e => console.warn('[SupabaseSync] Warning syncing mapping to Supabase:', e.message));
+    }
+
     return targetResult;
   });
 
   // ─── List Alurfilm Mappings ────────────────────────────
   ipcMain.handle('list-alurfilm-mappings', async (_event, modeContentId) => {
     const contentId = modeContentId || p.getOrGenerateContentId('longform');
-    if (!fs.existsSync(p.ALURFILM_DIR)) return [];
+    if (!fs.existsSync(p.ALURFILM_DIR)) {
+      fs.mkdirSync(p.ALURFILM_DIR, { recursive: true });
+    }
+
+    // Auto-sync missing or updated mappings from Supabase
+    if (contentId) {
+      try {
+        await syncMappingsFromSupabase(contentId, p.ALURFILM_DIR);
+      } catch (err) {
+        console.warn('[list-alurfilm-mappings] Supabase sync warning:', err.message);
+      }
+    }
 
     const files = fs.readdirSync(p.ALURFILM_DIR);
     const mappings = files
@@ -2786,6 +2812,17 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
       .sort((a, b) => a.part - b.part);
 
     return mappings;
+  });
+
+  // ─── Sync Alurfilm Mappings From Supabase ───────────────
+  ipcMain.handle('sync-alurfilm-mappings-from-supabase', async (_event, modeContentId) => {
+    const contentId = modeContentId || p.getOrGenerateContentId('longform');
+    if (!contentId) return { count: 0, mappings: [] };
+    if (!fs.existsSync(p.ALURFILM_DIR)) {
+      fs.mkdirSync(p.ALURFILM_DIR, { recursive: true });
+    }
+    const results = await syncMappingsFromSupabase(contentId, p.ALURFILM_DIR, { force: true });
+    return { count: results.length, mappings: results };
   });
 
   // ─── Get Alurfilm Image Only Ready Prompt ─────────
@@ -3027,6 +3064,16 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
       const outputDir = path.join(p.PROJECT_ROOT, 'output');
       if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
 
+      // Clean up previous intro files for this contentId
+      try {
+        const existingFiles = fs.readdirSync(outputDir);
+        for (const f of existingFiles) {
+          if (f.startsWith(`alurfilm_${contentId}_intro_`) && f.endsWith('.mp4')) {
+            try { fs.unlinkSync(path.join(outputDir, f)); } catch { }
+          }
+        }
+      } catch { }
+
       const finalOpts = {
         outputPath: path.join(outputDir, `alurfilm_${contentId}_intro_${Date.now()}.mp4`),
         ...(options || {}),
@@ -3109,21 +3156,17 @@ import { renderIntroVideo } from '${enginePath}';
     if (!fs.existsSync(outputDir)) return null;
 
     const files = fs.readdirSync(outputDir);
-    const matches = files.filter((f) => (f.includes(`alurfilm_${contentId}_intro`) || f.includes('alurfilm_intro_test')) && f.endsWith('.mp4')).sort().reverse();
+    const matches = files
+      .filter((f) => f.startsWith(`alurfilm_${contentId}_intro_`) && f.endsWith('.mp4'))
+      .sort((a, b) => {
+        const statA = fs.statSync(path.join(outputDir, a)).mtimeMs;
+        const statB = fs.statSync(path.join(outputDir, b)).mtimeMs;
+        return statB - statA;
+      });
+
     if (matches.length > 0) {
       const filePath = path.join(outputDir, matches[0]);
       return { filePath, mediaUrl: media.mediaUrl(filePath), fileName: matches[0] };
-    }
-
-    const anyIntro = files.filter((f) => f.includes('intro') && f.endsWith('.mp4')).sort().reverse();
-    if (anyIntro.length > 0) {
-      const filePath = path.join(outputDir, anyIntro[0]);
-      return { filePath, mediaUrl: media.mediaUrl(filePath), fileName: anyIntro[0] };
-    }
-
-    const testIntro = path.join(outputDir, 'testing', 'intro_test.mp4');
-    if (fs.existsSync(testIntro)) {
-      return { filePath: testIntro, mediaUrl: media.mediaUrl(testIntro), fileName: 'intro_test.mp4' };
     }
 
     return null;

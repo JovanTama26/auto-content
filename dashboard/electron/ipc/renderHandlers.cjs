@@ -273,8 +273,8 @@ import { renderIntroVideo } from '${enginePath}';
         introFilePath = explicitIntroPath;
         console.log(`🎬 [Concat Final Video] Using provided intro video: ${path.basename(introFilePath)}`);
       } else {
-        // 2. Check existing rendered intro in outputDir
-        const existingIntroMatches = files.filter((f) => (f.startsWith(`alurfilm_${contentId}_intro_`) || f.includes('alurfilm_intro_test')) && f.endsWith('.mp4'));
+        // 2. Check existing rendered intro in outputDir specifically for this contentId
+        const existingIntroMatches = files.filter((f) => f.startsWith(`alurfilm_${contentId}_intro_`) && f.endsWith('.mp4'));
         if (existingIntroMatches.length > 0) {
           existingIntroMatches.sort((a, b) => {
             const statA = fs.statSync(path.join(outputDir, a)).mtimeMs;
@@ -282,14 +282,7 @@ import { renderIntroVideo } from '${enginePath}';
             return statB - statA;
           });
           introFilePath = path.join(outputDir, existingIntroMatches[0]);
-          console.log(`🎬 [Concat Final Video] Reusing existing intro video: ${path.basename(introFilePath)}`);
-        } else {
-          // Check output/testing fallback
-          const testIntroPath = path.join(outputDir, 'testing', 'intro_test.mp4');
-          if (fs.existsSync(testIntroPath)) {
-            introFilePath = testIntroPath;
-            console.log(`🎬 [Concat Final Video] Reusing test intro video: ${testIntroPath}`);
-          }
+          console.log(`🎬 [Concat Final Video] Using existing intro video: ${path.basename(introFilePath)}`);
         }
       }
 
@@ -642,6 +635,38 @@ import { renderIntroVideo } from '${enginePath}';
         resolve({ error: errMsg });
       });
     });
+  });
+
+  // ─── List Alurfilm Renders ─────────────────────────────
+  ipcMain.handle('list-alurfilm-renders', async (_event, modeContentId) => {
+    const contentId = modeContentId || p.getOrGenerateContentId('longform');
+    const outputDir = path.join(p.PROJECT_ROOT, 'output');
+    try {
+      if (!fs.existsSync(outputDir)) return [];
+      const files = fs.readdirSync(outputDir)
+        .filter((f) => /\.(mp4|webm|mkv|mov)$/i.test(f))
+        .filter((f) => !contentId || f.includes(contentId) || f.startsWith('alurfilm_'))
+        .map((f) => {
+          const fp = path.join(outputDir, f);
+          const stat = fs.statSync(fp);
+          const partMatch = f.match(/part_(\d+)/i) || f.match(/P(\d+)/i);
+          const part = partMatch ? parseInt(partMatch[1], 10) : (f.toLowerCase().includes('intro') ? 0 : null);
+          return {
+            name: f,
+            part,
+            size: stat.size,
+            createdAt: stat.mtime.toISOString(),
+            filePath: path.join('output', f),
+            fullPath: fp,
+            mediaUrl: media.mediaUrl(fp),
+          };
+        })
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+      return files;
+    } catch {
+      return [];
+    }
   });
 }
 

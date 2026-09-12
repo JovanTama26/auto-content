@@ -526,7 +526,6 @@ program
             // For VISUAL_ONLY clips, extract original movie video (0:v:0) and original audio (0:a:0?) explicitly with strict audio PTS reset & trimming
             ffmpegArgs.push(
               '-y',
-              '-ss', String(clip.sourceStart),
               '-ss', String(safeSourceStart),
               '-t', inputReadDur,
               '-i', resolvedVideo,
@@ -544,7 +543,6 @@ program
             // For narration clips, use silent stereo audio (anullsrc) to prevent movie audio from clashing with narrator voiceover
             ffmpegArgs.push(
               '-y',
-              '-ss', String(clip.sourceStart),
               '-ss', String(safeSourceStart),
               '-t', inputReadDur,
               '-i', resolvedVideo,

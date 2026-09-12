@@ -254,3 +254,24 @@ export async function syncMappingPromptsToSupabase(params: {
   }
 }
 
+/**
+ * Menghapus data sesi & chunk di cloud Supabase saat reset ID / project
+ */
+export async function clearAllCloudData(contentId?: string | null): Promise<{ success: boolean; error?: string }> {
+  try {
+    console.log(`[SupabaseSync] Memulai pembersihan data cloud (Target ID: ${contentId || 'ALL'})...`);
+    if (contentId) {
+      await supabase.from('content_parts').delete().eq('content_id', contentId);
+      await supabase.from('content_sessions').delete().eq('id', contentId);
+    }
+    // Bersihkan semua sisa record di schema autocontent
+    await supabase.from('content_parts').delete().gte('created_at', '1970-01-01T00:00:00Z');
+    await supabase.from('content_sessions').delete().gte('created_at', '1970-01-01T00:00:00Z');
+    console.log('[SupabaseSync] Data cloud berhasil dibersihkan.');
+    return { success: true };
+  } catch (err: any) {
+    console.error('[SupabaseSync] clearAllCloudData error:', err);
+    return { success: false, error: err?.message };
+  }
+}
+

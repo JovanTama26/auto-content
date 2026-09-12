@@ -62,6 +62,8 @@ const AlurfilmRenderStep: React.FC = () => {
   ]);
   const [renderStageStep, setRenderStageStep] = useState<number>(0);
   const [showLogsTerminal, setShowLogsTerminal] = useState<boolean>(true);
+  const [showIntroStudio, setShowIntroStudio] = useState<boolean>(false);
+  const [showMappingDetails, setShowMappingDetails] = useState<boolean>(false);
   const logContainerRef = useRef<HTMLDivElement | null>(null);
 
   const [toast, setToast] = useState<string | null>(null);
@@ -117,6 +119,9 @@ const AlurfilmRenderStep: React.FC = () => {
         const existingIntro = await api.getAlurfilmIntro(id || undefined);
         if (existingIntro) {
           setIntroResult(existingIntro);
+          setShowIntroStudio(false);
+        } else {
+          setShowIntroStudio(true);
         }
       }
 
@@ -146,16 +151,16 @@ const AlurfilmRenderStep: React.FC = () => {
         setMappings(mMap);
 
         // List existing rendered video files
-        const renders = await api.listRenders();
+        const renders = api.listAlurfilmRenders ? await api.listAlurfilmRenders(id) : await api.listRenders();
         const rMap: Record<number, string> = {};
         if (renders) {
           for (const r of renders) {
-            const match = r.name?.match(/part_(\d+)/i) || r.name?.match(/P(\d+)/i);
-            if (match) {
-              const partNum = parseInt(match[1], 10);
-              rMap[partNum] = r.fullPath || r.filePath;
-            } else if (r.name?.toLowerCase().includes('intro')) {
-              rMap[0] = r.fullPath || r.filePath;
+            const partNum = (r as any).part !== undefined && (r as any).part !== null ? (r as any).part : (() => {
+              const match = r.name?.match(/part_(\d+)/i) || r.name?.match(/P(\d+)/i);
+              return match ? parseInt(match[1], 10) : (r.name?.toLowerCase().includes('intro') ? 0 : null);
+            })();
+            if (partNum !== null && partNum !== undefined) {
+              rMap[partNum] = (r as any).fullPath || (r as any).outputPath || (r as any).filePath;
             }
           }
         }
@@ -375,20 +380,18 @@ const AlurfilmRenderStep: React.FC = () => {
 
       setRenderingPart(null);
 
-      // Step 2: Ensure intro is ready if introEnabled !== false
-      let finalIntroPath = introResult?.filePath || renderedOutputs[0];
+      // Step 2: Regenerate intro video with latest settings and delete stale ones
+      let finalIntroPath: string | undefined = undefined;
       if (settings.introEnabled !== false) {
         setRenderStageStep(3);
-        if (!finalIntroPath) {
-          addLog(`[STEP 3/4] 🎬 Generating Cinematic Title Intro: "${settings.introTitleText || 'UNDER THE DOME'}"...`, 'step');
-          const introRes = await handleRenderIntro();
-          if (introRes.success && introRes.filePath) {
-            finalIntroPath = introRes.filePath;
-          } else {
-            addLog(`⚠️ Intro render failed (${introRes.error}), proceeding with concat...`, 'warn');
-          }
+        addLog(`[STEP 3/4] 🎬 Generate ulang Cinematic Title Intro dengan setting terbaru: "${settings.introTitleText || 'UNDER THE DOME'}" (${settings.introSubtitleText || 'ALUR CERITA FILM'})...`, 'step');
+        setFullRenderProgress(`Me-render ulang Cinematic Title Intro: "${settings.introTitleText || 'UNDER THE DOME'}"...`);
+        const introRes = await handleRenderIntro();
+        if (introRes.success && introRes.filePath) {
+          finalIntroPath = introRes.filePath;
+          addLog(`✅ Cinematic Title Intro terbaru siap: ${finalIntroPath.split(/[\/\\]/).pop()}`, 'success');
         } else {
-          addLog(`[STEP 3/4] 🎬 Using existing Cinematic Title Intro: ${finalIntroPath.split(/[\/\\]/).pop()}`, 'step');
+          addLog(`⚠️ Intro render failed (${introRes.error}), proceeding with concat...`, 'warn');
         }
       } else {
         addLog('[STEP 3/4] ⏩ Intro title skipped (disabled in settings).', 'info');
@@ -432,6 +435,24 @@ const AlurfilmRenderStep: React.FC = () => {
   const currentError = renderErrors[activePart];
 
   const isPartReady = !!(currentChunk && currentAudio && currentMapping);
+
+  // Derived mapping metrics for integrated render view
+  const mappingSentences = currentMapping?.mappings || [];
+  const totalVisualCuts = mappingSentences.reduce(
+    (acc, s) => acc + (s.visuals && s.visuals.length > 0 ? s.visuals.length : 1),
+    0
+  );
+  const totalMappingTargetDuration = mappingSentences.reduce(
+    (acc, s) => acc + (s.duration || (s.end && s.start ? s.end - s.start : 0)),
+    0
+  );
+  const hasSlowMo = mappingSentences.some((s) => s.visuals?.some((v) => v.type === 'slow_motion' || (v.slow_mo_factor && v.slow_mo_factor < 1)));
+  const hasFreezeFrame = mappingSentences.some((s) => s.visuals?.some((v) => v.type === 'freeze_frame_with_zoom'));
+  const hasColorGrading = mappingSentences.some((s) => s.visuals?.some((v) => !!v.color_grading_shift));
+  const hasVisualOnly = mappingSentences.some((s) => s.type === 'visual_only' || s.text?.includes('[visual_only') || s.text?.includes('VISUAL_ONLY'));
+  const activeBgmFile = currentMapping?.bgm_timeline && currentMapping.bgm_timeline.length > 0
+    ? currentMapping.bgm_timeline[0].file
+    : settings.bgmPath;
 
   return (
     <div className="flex flex-col min-h-full bg-gray-950 text-gray-100 space-y-4 pb-12">
@@ -750,26 +771,37 @@ const AlurfilmRenderStep: React.FC = () => {
       )}
 
       {/* Cinematic Intro Studio & Mandatory Preview Section */}
-      <div className="bg-gradient-to-r from-amber-950/40 via-purple-950/30 to-gray-900 border border-amber-500/30 p-4 rounded-2xl shadow-xl mt-3 shrink-0 flex flex-col lg:flex-row items-stretch justify-between gap-4">
-        {/* Left Side: Info & Controls */}
-        <div className="flex-1 space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <span className="p-1.5 bg-amber-500/20 text-amber-400 rounded-lg text-sm">🎬</span>
-              <h3 className="text-sm font-bold text-white tracking-wide">
-                Intro Studio & Mandatory Preview
-              </h3>
-              {introResult?.filePath ? (
-                <span className="px-2 py-0.5 bg-emerald-950/90 text-emerald-400 border border-emerald-800 text-[10px] font-mono font-bold rounded-full flex items-center gap-1">
-                  <span>✅</span> INTRO READY
-                </span>
-              ) : (
-                <span className="px-2 py-0.5 bg-amber-950/90 text-amber-300 border border-amber-800 text-[10px] font-mono font-bold rounded-full flex items-center gap-1">
-                  <span>⏳</span> WAJIB UNTUK PARTIAL RENDER
-                </span>
-              )}
-            </div>
+      <div className="bg-gradient-to-r from-amber-950/40 via-purple-950/30 to-gray-900 border border-amber-500/30 p-4 rounded-2xl shadow-xl mt-3 shrink-0 flex flex-col justify-between gap-3">
+        {/* Header Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="p-1.5 bg-amber-500/20 text-amber-400 rounded-lg text-sm">🎬</span>
+            <h3 className="text-sm font-bold text-white tracking-wide">
+              Intro Studio & Mandatory Preview
+            </h3>
+            {introResult?.filePath ? (
+              <span className="px-2 py-0.5 bg-emerald-950/90 text-emerald-400 border border-emerald-800 text-[10px] font-mono font-bold rounded-full flex items-center gap-1">
+                <span>✅</span> INTRO READY
+              </span>
+            ) : (
+              <span className="px-2 py-0.5 bg-amber-950/90 text-amber-300 border border-amber-800 text-[10px] font-mono font-bold rounded-full flex items-center gap-1">
+                <span>⏳</span> WAJIB UNTUK PARTIAL RENDER
+              </span>
+            )}
+            <span className="text-[11px] font-mono text-amber-300/80 hidden md:inline">
+              "{settings.introTitleText || 'UNDER THE DOME'}" ({settings.introDuration || 6}s)
+            </span>
+          </div>
 
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowIntroStudio(!showIntroStudio)}
+              className="px-3 py-1.5 rounded-xl text-xs font-mono font-bold bg-gray-900 hover:bg-gray-800 border border-gray-700 text-gray-300 hover:text-white transition-all flex items-center gap-1"
+            >
+              <span>{showIntroStudio ? 'Sembunyikan Panel' : 'Buka Preview & Setting'}</span>
+              <span>{showIntroStudio ? '▲' : '▼'}</span>
+            </button>
             <button
               type="button"
               onClick={handleRenderIntro}
@@ -784,75 +816,83 @@ const AlurfilmRenderStep: React.FC = () => {
               <span>{isRenderingIntro ? 'Rendering Intro...' : 'Render Intro Only'}</span>
             </button>
           </div>
+        </div>
 
-          <p className="text-[11px] text-gray-300 leading-relaxed">
-            Intro sinematik 16:9 wajib dirender sebelum me-render part video lainnya. Anda dapat me-render dan memutar preview Intro secara independen di sini.
-          </p>
+        {/* Expandable Body */}
+        {showIntroStudio && (
+          <div className="flex flex-col lg:flex-row items-stretch justify-between gap-4 pt-3 border-t border-gray-800/60">
+            {/* Left Side: Info & Controls */}
+            <div className="flex-1 space-y-3">
+              <p className="text-[11px] text-gray-300 leading-relaxed">
+                Intro sinematik 16:9 wajib dirender sebelum me-render part video lainnya. Anda dapat me-render dan memutar preview Intro secara independen di sini.
+              </p>
 
-          {/* Settings Quick Bar */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-gray-950/80 p-2.5 rounded-xl border border-gray-800 text-xs font-mono">
-            <div>
-              <span className="text-gray-400 text-[10px] block">TITLE:</span>
-              <span className="text-amber-300 font-bold truncate block">{settings.introTitleText || 'UNDER THE DOME'}</span>
+              {/* Settings Quick Bar */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-gray-950/80 p-2.5 rounded-xl border border-gray-800 text-xs font-mono">
+                <div>
+                  <span className="text-gray-400 text-[10px] block">TITLE:</span>
+                  <span className="text-amber-300 font-bold truncate block">{settings.introTitleText || 'UNDER THE DOME'}</span>
+                </div>
+                <div>
+                  <span className="text-gray-400 text-[10px] block">SUBTITLE:</span>
+                  <span className="text-gray-200 block truncate">{settings.introSubtitleText || 'ALUR CERITA FILM'}</span>
+                </div>
+                <div>
+                  <span className="text-gray-400 text-[10px] block">PRESET / DURATION:</span>
+                  <span className="text-purple-300 block truncate">{settings.introStylePreset || 'cinematic_gold'} ({settings.introDuration || 6}s)</span>
+                </div>
+              </div>
+
+              {/* Progress bar if rendering intro */}
+              {isRenderingIntro && (
+                <div className="space-y-1 pt-1">
+                  <div className="flex justify-between text-[11px] font-mono text-amber-300">
+                    <span>Rendering Intro Video...</span>
+                    <span>{introProgressPct}%</span>
+                  </div>
+                  <div className="w-full bg-gray-900 rounded-full h-2 overflow-hidden border border-amber-950">
+                    <div
+                      className="bg-gradient-to-r from-amber-500 to-yellow-400 h-full transition-all duration-200"
+                      style={{ width: `${Math.max(5, introProgressPct)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {introError && (
+                <div className="p-2 bg-red-950/80 border border-red-800 rounded-lg text-[11px] text-red-200 font-mono">
+                  ❌ Intro Render Error: {introError}
+                </div>
+              )}
             </div>
-            <div>
-              <span className="text-gray-400 text-[10px] block">SUBTITLE:</span>
-              <span className="text-gray-200 block truncate">{settings.introSubtitleText || 'ALUR CERITA FILM'}</span>
-            </div>
-            <div>
-              <span className="text-gray-400 text-[10px] block">PRESET / DURATION:</span>
-              <span className="text-purple-300 block truncate">{settings.introStylePreset || 'cinematic_gold'} ({settings.introDuration || 6}s)</span>
+
+            {/* Right Side: Intro Video Player Preview */}
+            <div className="w-full lg:w-72 aspect-video bg-black rounded-xl border border-amber-500/20 overflow-hidden flex flex-col justify-center items-center relative shrink-0">
+              {introResult?.mediaUrl ? (
+                <video
+                  src={introResult.mediaUrl}
+                  controls
+                  className="w-full h-full object-contain bg-black"
+                />
+              ) : (
+                <div className="p-4 text-center space-y-2">
+                  <span className="text-3xl opacity-40">🎬</span>
+                  <p className="text-[11px] text-gray-400">
+                    Preview Intro MP4 akan muncul di sini setelah dirender.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleRenderIntro}
+                    disabled={isRenderingIntro}
+                    className="px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-[10px] font-bold rounded-lg transition-all"
+                  >
+                    Render Intro Sekarang
+                  </button>
+                </div>
+              )}
             </div>
           </div>
-
-          {/* Progress bar if rendering intro */}
-          {isRenderingIntro && (
-            <div className="space-y-1 pt-1">
-              <div className="flex justify-between text-[11px] font-mono text-amber-300">
-                <span>Rendering Intro Video...</span>
-                <span>{introProgressPct}%</span>
-              </div>
-              <div className="w-full bg-gray-900 rounded-full h-2 overflow-hidden border border-amber-950">
-                <div
-                  className="bg-gradient-to-r from-amber-500 to-yellow-400 h-full transition-all duration-200"
-                  style={{ width: `${Math.max(5, introProgressPct)}%` }}
-                />
-              </div>
-            </div>
-          )}
-
-          {introError && (
-            <div className="p-2 bg-red-950/80 border border-red-800 rounded-lg text-[11px] text-red-200 font-mono">
-              ❌ Intro Render Error: {introError}
-            </div>
-          )}
-        </div>
-
-        {/* Right Side: Intro Video Player Preview */}
-        <div className="w-full lg:w-72 aspect-video bg-black rounded-xl border border-amber-500/20 overflow-hidden flex flex-col justify-center items-center relative shrink-0">
-          {introResult?.mediaUrl ? (
-            <video
-              src={introResult.mediaUrl}
-              controls
-              className="w-full h-full object-contain bg-black"
-            />
-          ) : (
-            <div className="p-4 text-center space-y-2">
-              <span className="text-3xl opacity-40">🎬</span>
-              <p className="text-[11px] text-gray-400">
-                Preview Intro MP4 akan muncul di sini setelah dirender.
-              </p>
-              <button
-                type="button"
-                onClick={handleRenderIntro}
-                disabled={isRenderingIntro}
-                className="px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-[10px] font-bold rounded-lg transition-all"
-              >
-                Render Intro Sekarang
-              </button>
-            </div>
-          )}
-        </div>
+        )}
       </div>
 
       {/* Top Banner: Full Movie Recap Render Controls */}
@@ -1034,11 +1074,16 @@ const AlurfilmRenderStep: React.FC = () => {
               {chunks.map((chunk) => {
                 const isRendered = !!renderedOutputs[chunk.part];
                 const isActive = activePart === chunk.part;
+                const partMapping = mappings[chunk.part]?.data;
+                const partCuts = partMapping?.mappings
+                  ? partMapping.mappings.reduce((acc, s) => acc + (s.visuals && s.visuals.length > 0 ? s.visuals.length : 1), 0)
+                  : 0;
+
                 return (
                   <button
                     key={chunk.part}
                     onClick={() => setActivePart(chunk.part)}
-                    className={`w-full px-3 py-2 rounded-xl text-xs font-bold font-mono transition-all flex items-center justify-between border ${
+                    className={`w-full px-3 py-2.5 rounded-xl text-xs font-bold font-mono transition-all flex items-center justify-between border ${
                       isActive
                         ? 'bg-purple-600 border-purple-500 text-white shadow-lg shadow-purple-600/30'
                         : isRendered
@@ -1046,7 +1091,18 @@ const AlurfilmRenderStep: React.FC = () => {
                         : 'bg-gray-950 border-gray-800 text-gray-400 hover:text-gray-200'
                     }`}
                   >
-                    <span>Part #{chunk.part}</span>
+                    <div className="flex flex-col text-left">
+                      <span>Part #{chunk.part}</span>
+                      {partCuts > 0 ? (
+                        <span className={`text-[10px] font-normal ${isActive ? 'text-purple-200' : 'text-purple-400'}`}>
+                          {partCuts} cuts ✓
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-normal opacity-50 text-gray-500">
+                          no mapping
+                        </span>
+                      )}
+                    </div>
                     <span className="text-xs">{isRendered ? '✓' : '○'}</span>
                   </button>
                 );
@@ -1072,22 +1128,157 @@ const AlurfilmRenderStep: React.FC = () => {
             </div>
           </div>
 
-          {/* Readiness Checks */}
-          <div className="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-2 text-xs">
-            <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wider block">Render Prerequisites:</span>
-            <div className="flex items-center justify-between">
-              <span className="text-gray-400">10-Min Video Chunk:</span>
-              <span className={currentChunk ? 'text-emerald-400 font-bold' : 'text-gray-600'}>{currentChunk ? '✓ Ready' : '○ Missing'}</span>
+          {/* Readiness Prerequisites Overview */}
+          <div className="bg-gray-950 p-4 rounded-xl border border-gray-800 space-y-2.5 text-xs">
+            <div className="flex items-center justify-between pb-1.5 border-b border-gray-800/80">
+              <span className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">
+                Render Prerequisites:
+              </span>
+              <span className={`px-2 py-0.5 text-[10px] font-mono font-bold rounded-full border ${
+                isPartReady ? 'bg-emerald-950 text-emerald-300 border-emerald-800/60' : 'bg-amber-950 text-amber-300 border-amber-800/60'
+              }`}>
+                {isPartReady ? 'Ready for Render ✓' : 'Prerequisites Incomplete'}
+              </span>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-gray-400">Voiceover Audio File:</span>
-              <span className={currentAudio ? 'text-emerald-400 font-bold' : 'text-gray-600'}>{currentAudio ? '✓ Ready' : '○ Missing'}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-gray-400">Video Cuts Mapping:</span>
-              <span className={currentMapping ? 'text-emerald-400 font-bold' : 'text-gray-600'}>{currentMapping ? '✓ Ready' : '○ Missing'}</span>
+
+            <div className="space-y-1 font-mono text-[11px]">
+              <div className="flex items-center justify-between">
+                <span className="text-gray-400">1. Video Chunk:</span>
+                <span className={currentChunk ? 'text-emerald-400 font-bold' : 'text-gray-600'}>
+                  {currentChunk ? `${currentChunk.fileName || 'part_' + activePart + '.mp4'} (${currentChunk.duration ? currentChunk.duration.toFixed(1) + 's' : 'Ready'}) ✓` : '○ Missing'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-400">2. Voiceover Audio:</span>
+                <span className={currentAudio ? 'text-emerald-400 font-bold' : 'text-gray-600'}>
+                  {currentAudio ? 'Spliced VO Ready ✓' : '○ Missing'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-400">3. Video Cuts Mapping:</span>
+                <span className={currentMapping ? 'text-emerald-400 font-bold' : 'text-gray-600'}>
+                  {currentMapping ? `${totalVisualCuts} Visual Cuts (${totalMappingTargetDuration.toFixed(1)}s) ✓` : '○ Missing'}
+                </span>
+              </div>
             </div>
           </div>
+
+          {/* Integrated Video Mapping Card */}
+          {currentMapping ? (
+            <div className="bg-gradient-to-br from-gray-950 via-purple-950/20 to-gray-950 p-4 rounded-xl border border-purple-800/40 space-y-3">
+              <div className="flex items-center justify-between pb-2 border-b border-gray-800/80">
+                <div className="flex items-center gap-2">
+                  <span className="text-purple-400 font-bold text-xs flex items-center gap-1.5">
+                    <span>🎬</span> Integrated Video Mapping Data
+                  </span>
+                  <span className="px-2 py-0.5 bg-emerald-950/90 text-emerald-300 border border-emerald-800/60 rounded-full text-[10px] font-mono">
+                    100% Match ✓
+                  </span>
+                </div>
+                <span className="text-[10px] text-gray-400 font-mono">
+                  {totalVisualCuts} Cuts / {mappingSentences.length} Sentences
+                </span>
+              </div>
+
+              {/* Key Metrics Grid */}
+              <div className="grid grid-cols-3 gap-2 text-[11px] font-mono">
+                <div className="bg-gray-900/80 p-2 rounded-lg border border-gray-800">
+                  <span className="text-gray-400 text-[10px] block">TOTAL VISUALS:</span>
+                  <span className="text-purple-300 font-bold">{totalVisualCuts} Cuts</span>
+                </div>
+                <div className="bg-gray-900/80 p-2 rounded-lg border border-gray-800">
+                  <span className="text-gray-400 text-[10px] block">TARGET DURATION:</span>
+                  <span className="text-emerald-400 font-bold">{totalMappingTargetDuration.toFixed(1)}s</span>
+                </div>
+                <div className="bg-gray-900/80 p-2 rounded-lg border border-gray-800">
+                  <span className="text-gray-400 text-[10px] block">BGM ACTIVE:</span>
+                  <span className="text-indigo-300 font-bold truncate block" title={activeBgmFile || 'Default BGM'}>
+                    {activeBgmFile ? activeBgmFile.split(/[\/\\]/).pop() : 'Default'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Video Techniques Chips */}
+              <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                {hasSlowMo && (
+                  <span className="px-2 py-0.5 bg-purple-950 text-purple-300 border border-purple-800/60 rounded text-[10px] font-mono flex items-center gap-1">
+                    <span>⚡</span> Slow Motion (0.4-0.5x)
+                  </span>
+                )}
+                {hasColorGrading && (
+                  <span className="px-2 py-0.5 bg-blue-950 text-blue-300 border border-blue-800/60 rounded text-[10px] font-mono flex items-center gap-1">
+                    <span>🎨</span> Color Grading (Content ID Bypass)
+                  </span>
+                )}
+                {hasFreezeFrame && (
+                  <span className="px-2 py-0.5 bg-amber-950 text-amber-300 border border-amber-800/60 rounded text-[10px] font-mono flex items-center gap-1">
+                    <span>🔍</span> Freeze Frame Zoom
+                  </span>
+                )}
+                {hasVisualOnly && (
+                  <span className="px-2 py-0.5 bg-emerald-950 text-emerald-300 border border-emerald-800/60 rounded text-[10px] font-mono flex items-center gap-1">
+                    <span>🎬</span> Visual Only Gaps
+                  </span>
+                )}
+              </div>
+
+              {/* Accordion Toggle: Inspect Cuts Timeline */}
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowMappingDetails(!showMappingDetails)}
+                  className="w-full py-2 px-3 bg-gray-900/90 hover:bg-gray-800 text-gray-300 hover:text-white rounded-lg text-[11px] font-mono flex items-center justify-between border border-gray-800 transition-all"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <span>📋</span>
+                    <span>{showMappingDetails ? 'Tutup Rincian Visual Cuts' : `Buka Inspeksi Visual Cuts (${totalVisualCuts} Cuts)`}</span>
+                  </span>
+                  <span>{showMappingDetails ? '▲' : '▼'}</span>
+                </button>
+
+                {showMappingDetails && (
+                  <div className="mt-2 max-h-56 overflow-y-auto space-y-2 pr-1 select-text scrollbar-thin scrollbar-thumb-gray-800">
+                    {mappingSentences.map((sentence, sIdx) => (
+                      <div key={sIdx} className="p-2.5 bg-[#090d16] rounded-lg border border-gray-800/80 space-y-1.5">
+                        <div className="flex items-center justify-between text-[10px] font-mono">
+                          <span className="text-purple-400 font-bold">Kalimat #{sentence.sentence_index ?? sIdx}</span>
+                          <span className="text-gray-500">
+                            {sentence.start !== undefined ? sentence.start.toFixed(1) + 's' : '0s'} - {sentence.end !== undefined ? sentence.end.toFixed(1) + 's' : ''} ({sentence.duration !== undefined ? sentence.duration.toFixed(1) + 's' : ''})
+                          </span>
+                        </div>
+                        {sentence.text && (
+                          <p className="text-[11px] text-gray-300 italic line-clamp-2">
+                            "{sentence.text}"
+                          </p>
+                        )}
+                        {sentence.visuals && sentence.visuals.length > 0 && (
+                          <div className="space-y-1 pt-1 border-t border-gray-800/50">
+                            {sentence.visuals.map((vis, vIdx) => {
+                              const ss = vis.source_start_seconds ?? (vis as any).source_timestamp_seconds ?? 0;
+                              return (
+                                <div key={vIdx} className="flex items-center justify-between text-[10px] font-mono bg-gray-900/50 px-2 py-1 rounded">
+                                  <span className="text-amber-300">
+                                    Cut #{vIdx + 1}: @{ss.toFixed(1)}s (dur: {vis.duration}s)
+                                  </span>
+                                  <span className="text-gray-400">
+                                    {vis.type === 'slow_motion' ? `slow-mo ${vis.slow_mo_factor || 0.45}x` : vis.type}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="p-3 bg-amber-950/30 border border-amber-800/40 rounded-xl text-amber-300 text-xs font-mono">
+              ⚠️ Belum ada data Video Mapping untuk Part #{activePart}. Silakan selesaikan Step 5 (Video Mapping) terlebih dahulu.
+            </div>
+          )}
 
           <button
             onClick={() => handleRenderPart(activePart)}

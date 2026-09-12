@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { spawn } = require('child_process');
+const { clearCloudData } = require('../shared/supabaseClient.cjs');
 
 function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt, getMainWindow }) {
   // ─── Content ID Helper ────────────────────────────────
@@ -17,6 +18,20 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt, getM
     }
     const isLongform = mode === 'longform';
     try {
+      let oldContentId = null;
+      try {
+        oldContentId = p.getOrGenerateContentId('longform');
+      } catch (e) {
+        console.warn('[Reset Longform] Could not retrieve old content ID:', e.message);
+      }
+
+      console.log(`🧹 [Reset Longform] Purging Supabase cloud data (Target ID: ${oldContentId || 'all'})...`);
+      try {
+        await clearCloudData(oldContentId);
+      } catch (cloudErr) {
+        console.warn('⚠️ [Reset Longform] Failed or partial cloud purge:', cloudErr.message);
+      }
+
       const outputDir = path.join(p.PROJECT_ROOT, 'output');
       const inputDir = path.join(p.PROJECT_ROOT, 'input');
       const alurfilmDir = path.join(p.PROJECT_ROOT, 'input', 'alurfilm');
