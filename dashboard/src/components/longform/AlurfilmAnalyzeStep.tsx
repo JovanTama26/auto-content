@@ -817,7 +817,7 @@ const safeStr = (val: any, fallback: string = ''): string => {
               return (
                 <>
                   <p>- Split Video Duration: <span className="text-emerald-400 font-bold">{durText}</span></p>
-                  <p>- Target Word Count: <span className="text-emerald-400 font-bold">~{computedWords} Kata</span> (~{voMinutes} Menit Voiceover)</p>
+                  <p>- Target Kata: <span className="text-emerald-400 font-bold">~{computedWords} Kata</span> (Plafon Fleksibel / Story First ~{voMinutes} Menit VO)</p>
                 </>
               );
             })()}

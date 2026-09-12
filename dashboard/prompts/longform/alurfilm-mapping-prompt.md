@@ -89,26 +89,57 @@ Tujuan UTAMA dan TERTINGGI dari video mapping adalah **RELEVANSI VISUAL PENONTON
      * JANGAN PERNAH mengorbankan relevansi visual narator demi "menyimpan klip" untuk visual only! Relevansi visual ucapan narator selalu nomor satu.
 
 ==================================================
+🎯 HUKUM MUTLAK ANTI-RACE-CONDITION (SCENE ANCHOR LOCK):
+==================================================
+🚨 **MASALAH PALING KRITIS YANG WAJIB DIHILANGKAN**:
+"Narator masih bercerita tentang adegan A, tapi visual di layar sudah melompat jauh ke adegan C bahkan D!"
+Penyebabnya adalah AI mapping panik mencari klip baru ke depan sehingga melompati timeline film terlalu cepat. **INI KESALAHAN FATAL!**
+
+1. 🔒 **SCENE ANCHOR LOCK (VISUAL TERKUNCI PADA BABAK CERITA NARATOR)**:
+   - Setiap kalimat narasi VO memiliki konteks babak adegan yang sedang diceritakan.
+   - Amati daftar `{{scene_breakdown}}` (Scene Window).
+   - Selama narator masih menceritakan babak adegan A (misal adegan A berada di rentang timecode `01:10 - 02:45`), maka **100% klip visual untuk seluruh kalimat yang membahas adegan A WAJIB DIAMBIL DARI DALAM RENTANG `01:10 - 02:45`**!
+   - 🛑 **DILARANG KERAS melompat ke timecode babak berikutnya (C atau D) sebelum narator selesai membahas babak A!**
+
+2. 🔄 **LEGALITAS PENUH PENGGUNAAN FOOTAGE BERULANG (REUSE & MULTI-ANGLE SHOT)**:
+   - 🛑 **JANGAN TAKUT MEMAKAI FOOTAGE DARI SATU ADEGAN YANG SAMA BERULANG KALI!**
+   - Dalam editing alur film profesional, satu babak adegan (misal percakapan 1–2 menit atau momen ketegangan) memiliki banyak sudut kamera dan detail:
+     * Shot 1: Angle fokus wajah/close-up ekspresi karakter utama.
+     * Shot 2: Wide shot ruangan/lingkungan sekitar.
+     * Shot 3: Reverse shot ekspresi lawan bicara / reaksi sekitar.
+     * Shot 4: Insert shot tangan / objek penting / detail aksi.
+     * Shot 5: Freeze frame ekspresi wajah yang diperpanjang dengan slow zoom.
+   - Kamu BISA dan SANGAT DIANJURKAN mengambil klip-klip berbeda dari rentang waktu adegan yang sama, memotong sub-detik yang berbeda (+0.5s, +1.2s, +2.5s), atau membalik horizontal (`mirror_cut`)!
+   - **Prinsip Utama**: Jauh lebih baik visual menampilkan variasi shot atau freeze frame dari adegan A berulang kali daripada visual mendahului cerita narator dan melompat ke adegan C!
+
+3. ❄️ **FLEKSIBILITAS FREEZE FRAME PANJANG (`freeze_frame_with_zoom` 3.0s s/d 8.0s+)**:
+   - `freeze_frame_with_zoom` (foto diam 1 frame tajam + animasi zoom halus) adalah solusi emas sinkronisasi:
+     * **100% KEBAL DARI DETEKSI YOUTUBE CONTENT ID** (karena berupa 1 frame foto diam beranimasi zoom).
+     * **100% SINKRON DENGAN UCAPAN NARATOR**: Jika narator sedang menjelaskan isi hati, pemikiran, atau penderitaan karakter dalam kalimat berdurasi 5.0s–8.0s, kamu **BISA MENGGUNAKAN 1 KLIP FREEZE FRAME WAJAH/EKSPRESI KARAKTER SEPANJANG DURASI KALIMAT TERSEBUT**!
+     * Durasi freeze frame TIDAK dibatasi kaku 3 detik. Boleh berdurasi **3.0s s/d 8.0s+** (bahkan bisa menutupi 1 kalimat narasi penuh) asalkan frame foto tajam dan ekspresi karakter match dengan kata-kata narator.
+     * Rasio penggunaan freeze frame: **~35% - 45%** dari total klip (sangat aman & stabil).
+
+==================================================
 🎯 PRINSIP "SMART SHOT HUNTING" & NAVIGASI NON-LINIER DI DALAM ADEGAN:
 ==================================================
-Sutradara film merancang satu adegan (Scene) dari puluhan **shot pendek (1–3 detik)** dengan berbagai sudut kamera (wide shot, close-up ekspresi, insert tangan/objek, reaction shot) yang disusun secara artistik dan non-linier. Ketika digabung, shot-shot pendek ini membentuk satu babak adegan utuh, NAMUN urutan shot di video mentah sering kali TIDAK SEJAJAR 1:1 dengan alur kalimat narator recap!
+Sutradara film merancang satu adegan (Scene) dari puluhan **shot pendek (1–3 detik)** dengan berbagai sudut kamera yang disusun secara artistik. Urutan shot di video mentah sering kali TIDAK SEJAJAR 1:1 dengan alur kalimat narator recap.
 
-Karena itu, AI wajib cerdas dalam mencari klip ("Pintar-Pintar Hunting Klip") dengan aturan berikut:
+Karena itu, AI wajib cerdas dalam mencari klip di dalam Scene Window dengan aturan berikut:
 
 1. 🛑 **DILARANG KERAS MENGHITUNG TIMESTAMP SECARA MATEMATIKA KAKU (+3s / +5s / +8s)**:
    - JANGAN PERNAH hanya menambahkan +5 detik secara buta dari timestamp sebelumnya!
-   - Di film dengan tempo editing cepat, melompati +5s secara kaku akan membuat timestamp mendarat di shot kosong (seperti batu, dinding, bayangan, atau punggung orang) dan MELEWATKAN momen aksi/ekspresi penting yang ada di detik ke-2 atau detik ke-8 di dalam adegan tersebut.
+   - Pilihlah titik waktu murni berdasarkan KONTEN SHOT di video sumber yang sesuai dengan kata narasi saat itu.
 
 2. 🔍 **AKTIF "HUNTING" (MENYISIR) SHOT PENDEK SPESIFIK SESUAI KATA NARASI VO**:
    - Amati video dengan jeli: cari detik di mana **aksi, ekspresi wajah, atau objek yang sedang diucapkan narator BENAR-BENAR TAMPIL DI LAYAR**.
    - Contoh kasus nyata:
-     * Narator bicara: *"Aron panik dan mencoba sekuat tenaga mendorong batu itu"* ➔ **WAJIB HUNTING** detik close-up di mana wajah Aron mengejan panik atau tangan kirinya mendorong batu. DILARANG menampilkan shot drone pemandangan tebing dari kejauhan!
-     * Narator bicara: *"Jatuh nabrak ranting bukannya ngeluh, dia malah ketawa lepas dan nyempetin selfie santai"* ➔ **WAJIB HUNTING** shot pendek 1.5 detik saat Aron memegang kamera dan tertawa di tanah, meskipun shot tersebut berada beberapa detik sebelum atau sesudah kalimat sebelumnya!
-     * Narator bicara: *"Dua pendaki cewek yang kebingungan karena nyasar"* ➔ **WAJIB HUNTING** shot wajah Megan dan Kristi yang sedang bingung atau membuka peta, BUKAN punggung Aron yang sedang berjalan!
+     * Narator bicara: *"Aron panik dan mencoba sekuat tenaga mendorong batu itu"* ➔ **WAJIB HUNTING** detik close-up di mana wajah Aron mengejan panik atau tangannya mendorong batu. DILARANG menampilkan shot drone tebing kosong!
+     * Narator bicara: *"Jatuh nabrak ranting bukannya ngeluh, dia malah ketawa lepas dan nyempetin selfie santai"* ➔ **WAJIB HUNTING** shot pendek 1.5 detik saat Aron memegang kamera dan tertawa di tanah!
+     * Narator bicara: *"Dua pendaki cewek yang kebingungan karena nyasar"* ➔ **WAJIB HUNTING** shot wajah kedua pendaki yang bingung membuka peta!
      * Narator bicara: *"Aron mengukir nama dan tanggal di dinding tebing"* ➔ **WAJIB HUNTING** close-up pisau/tangan menggores dinding batu!
 
 3. 🔄 **KEBEBASAN NON-LINIER PENUH DI DALAM SCENE WINDOW (RETROGRADE & JUMP CUT)**:
-   - Di dalam batas satu babak adegan (`Scene Window` dari daftar `{{scene_breakdown}}`), urutan shot di film mentah bergerak bolak-balik (intercut).
+   - Di dalam batas satu babak adegan (`Scene Window` dari daftar `{{scene_breakdown}}`), urutan shot bergerak bolak-balik.
    - **Kamu DIBERI KEBEBASAN PENUH untuk melompat maju atau mundur (retrograde jump -10s, -25s, +15s, +35s)** di dalam batas adegan tersebut demi menyambar potongan shot yang 100% SINKRON dengan kalimat narasi saat itu!
    - Kebutuhan **RELEVANSI VISUAL PENONTON ADALAH HUKUM TERTINGGI**, jauh melampaui aturan urutan waktu linier.
 
@@ -118,37 +149,26 @@ Karena itu, AI wajib cerdas dalam mencari klip ("Pintar-Pintar Hunting Klip") de
 ==================================================
 🚨 FORMULA FAIR USE & CONTENT ID BYPASS (DISESUAIKAN DENGAN RELEVANSI VISUAL):
 ==================================================
-Terapkan kombinasi manipulasi visual berikut tanpa merusak relevansi cerita:
-Meskipun kamu bebas hunting shot non-linier demi relevansi makna, **KEAMANAN DARI KLAIM HAK CIPTA YOUTUBE (CONTENT ID) ADALAH SYARAT MUTLAK**.
 Algoritma Content ID YouTube mendeteksi kecocokan video jika ada rekaman mentah asli yang berjalan kontinu >2.5 detik tanpa manipulasi.
 Terapkan kombinasi manipulasi visual berikut pada setiap klip yang kamu pilih:
 
-1. 🎬 **ULTRA SLOW MOTION (PRIMARY #1)**:
-   - `slow_mo_factor`: 0.25 - 0.60. Ambil **1.5 - 2.0 DETIK** adegan bergerak dari video mentah asli, lalu perlambat di timeline.
-   - Memberikan kesan visual sinematik dan memotong kontinuitas gerakan video asli dari Content ID.
-1. 🎬 **ULTRA SLOW MOTION (PRIMARY #1 — RASIO ~45%-50%)**:
+1. 🎬 **ULTRA SLOW MOTION (PRIMARY #1 — RASIO ~40%-45%)**:
    - `slow_mo_factor`: 0.25 - 0.60. Ambil HANYA **1.0 - 2.0 DETIK** rekaman bergerak dari video mentah asli, lalu perlambat menjadi 2.5 - 5.0 detik di timeline.
    - **Kekuatan Anti-Content ID**: Mematahkan kurva kecepatan asli (*motion fingerprint*) sehingga AI YouTube tidak bisa mengenali pola gerakan aslinya.
 
-2. ❄️ **FREEZE FRAME DI JEDA ~5s (`freeze_frame_with_zoom`)**:
-   - Gunakan foto diam (*still frame*) berdurasi 3.0 - 5.0 detik dengan efek slow zoom-in untuk adegan ekspresi karakter/objek diam.
-   - 100% BEBAS dari klaim hak cipta gerakan video YouTube.
-2. ❄️ **FREEZE FRAME DI JEDA ~5s (`freeze_frame_with_zoom` — RASIO ~30%-35%)**:
-2. ❄️ **FREEZE FRAME DI JEDA ~3s-5s (`freeze_frame_with_zoom` — RASIO ~30%-35%)**:
-   - Gunakan foto diam (*still frame* 1 frame tunggal) berdurasi 3.0 - 5.0 detik dengan efek slow zoom-in untuk adegan ekspresi karakter, tatapan mata, atau objek diam.
+2. ❄️ **FREEZE FRAME FLEKSIBEL (`freeze_frame_with_zoom` — RASIO ~35%-45%)**:
+   - Gunakan foto diam (*still frame* 1 frame tunggal tajam) berdurasi **3.0 - 8.0 detik+** (disesuaikan dengan panjang kalimat narator) dengan efek slow zoom-in halus.
    - **Kekuatan Anti-Content ID**: 100% KEBAL DARI DETEKSI GERAKAN VIDEO, karena berupa 1 frame foto diam beranimasi zoom.
 
-3. ⏩ **PENENTUAN TIMECODE BERDASARKAN CUT AKTUAL (BUKAN SKIP ACAK)**:
 3. ✂️ **BATAS MAKSIMAL RAW FOOTAGE (MAX 2.0 DETIK UNTUK `video_cut` — RASIO ~10%-15%)**:
    - Jika menggunakan `video_cut` (kecepatan normal 1.0x), durasi klip **MUTLAK MAKSIMAL 2.0 DETIK**!
-   - 🛑 **DILARANG KERAS mengambil klip video normal >2.5 detik tanpa slow-mo atau freeze-frame**! Mengambil rekaman mentah 3–5 detik kontinu adalah penyebab #1 video terkena klaim Content ID.
+   - 🛑 **DILARANG KERAS mengambil klip video normal >2.5 detik tanpa slow-mo atau freeze-frame**!
 
 4. 🪞 **VARIASI MIRROR CUT (`mirror_cut` — RASIO ~5%-10%)**:
    - Balik gambar secara horizontal (`"mirror_mode": "horizontal"`). Sangat efektif membalik komposisi visual sutradara asli.
 
 5. ⏩ **PENENTUAN TIMECODE BERDASARKAN CUT AKTUAL (BUKAN SKIP ACAK)**:
    - Ambil detik awal dari cut/shot yang relevan (+0.2s s/d +0.4s setelah potongan adegan/cut-point agar frame sudah stabil dan tajam).
-   - JANGAN menggunakan formula tambah waktu kaku (+5s acak). Pilihlah titik waktu murni berdasarkan KONTEN SHOT di video sumber.
 
 6. 🎨 **COLOR GRADING SHIFT (WAJIB PADA SETIAP KLIP)**:
    - Wajib sertakan `color_grading_shift` acak pada setiap klip (contrast: 1.02-1.07, brightness: 0.002-0.01, saturation: 1.03-1.08) untuk mengubah sidik jari piksel digital.
@@ -186,8 +206,8 @@ Saat menentukan timestamp (`source_start_seconds`) untuk tipe visual `"freeze_fr
 ==================================================
 🎭 KOMBINASI TIPE VISUAL, FIELD WAJIB & RASIO PENGGUNAAN:
 ==================================================
-1. `slow_motion`            (~45% - 50%) ➔ [PRIMARY #1] Klip gerak lambat. **Field wajib**: `slow_mo_factor` (0.25-0.6), `duration` (output timeline), `source_start_seconds`.
-2. `freeze_frame_with_zoom` (~30% - 35%) ➔ [SECONDARY #2] Foto diam 1 frame tajam + slow zoom-in animasi 1.00x→1.035x (zoom otomatis oleh render, **jangan isi `zoom_speed`** — field ini tidak berpengaruh). **Field wajib**: `duration` (3.0-5.0s), `source_start_seconds`.
+1. `slow_motion`            (~40% - 45%) ➔ [PRIMARY #1] Klip gerak lambat. **Field wajib**: `slow_mo_factor` (0.25-0.6), `duration` (output timeline), `source_start_seconds`.
+2. `freeze_frame_with_zoom` (~35% - 45%) ➔ [SECONDARY #2] Foto diam 1 frame tajam + slow zoom-in animasi 1.00x→1.035x (zoom otomatis oleh render, **jangan isi `zoom_speed`** — field ini tidak berpengaruh). **Field wajib**: `duration` (3.0-8.0s+), `source_start_seconds`. Sangat fleksibel mengikuti durasi kalimat narator.
 3. `video_cut`              (~10% - 15%) ➔ Potongan klip bergerak kecepatan normal max 2.0s. **Field wajib**: `duration`, `source_start_seconds`.
 4. `mirror_cut`             (~5% - 10%) ➔ Variasi mirror klip bergerak max 2.0s. **WAJIB sertakan** `"mirror_mode": "horizontal"` atau `"mirror_mode": "vertical"` — tanpa field ini efek mirror TIDAK aktif di render!
 5. `pan_and_zoom_cut`       (~5%)        ➔ Klip bergerak dengan efek pan searah. **Field opsional**: `"pan_direction": "left" | "right" | "up" | "down" | "center"`.

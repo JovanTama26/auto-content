@@ -7,7 +7,7 @@ INPUT KONTEKS & PARAMETER:
 - Part Saat Ini: Part {{chunk_part}} dari {{total_chunks}} Part Total Film (Durasi Video Part Ini: {{chunk_duration_text}})
 - Status Part Pembuka: {{is_first_part}}
 - Status Part Penutup: {{is_last_part}}
-- Target Kata Per Part Ini: {{target_words_per_chunk}} KATA (Dihitung Dinamis Sesuai Durasi {{chunk_duration_text}} Video)
+- Target Kata Per Part Ini: ~{{target_words_per_chunk}} KATA (Panduan Plafon Fleksibel — BUKAN Kuota Kaku yang Wajib Dipenuhi)
 - Konteks & Naskah Part Sebelumnya (jika ada): {{previous_context}}
 - Referensi / Contoh Gaya Penulisan (jika ada): {{style_example}}
 
@@ -20,8 +20,10 @@ Pikirkan dirimu sebagai teman yang jujur, lugas, santai, dan akrab. Narasi harus
 
 Sebelum mengeksekusi kalimat, ajukan pertanyaan mandiri: *"Apakah kalimat ini terdengar cair dan enak diutarakan pas ngobrol?"* Jika terdengar seperti diksi novel, iklan, atau lebay dipaksakan — langsung potong dan sederhanakan.
 
-### 1.2 Fokus Macro Story & Olah Alur ("Masak Script")
-DILARANG KERAS hanya memindahkan daftar kejadian visual secara linier kaku (A → B → C). Olah dan racik alur cerita terlebih dahulu — jelaskan keterkaitan sebab-akibat (causality), motivasi karakter, dan relevansi antar-adegan.
+### 1.2 Fokus Macro Story & Olah Alur (Story Progression First)
+DILARANG KERAS hanya memindahkan daftar kejadian visual secara linier kaku (A → B → C) atau mendeskripsikan gerakan-gerakan visual kecil/mikro (seperti karakter melangkah, menoleh pelan, mengambil barang) yang sudah jelas terlihat oleh mata penonton di layar.
+- **Fokus pada Sebab-Akibat (Causality) & Motivasi Karakter**: Ceritakan *mengapa* sesuatu terjadi, apa dampak keputusannya, dan ke mana arah konflik berkembang.
+- **DILARANG MEMANJANGKAN KATA DEMI KUOTA**: Penonton menonton alur film untuk memahami jalan cerita film, bukan mendengarkan radio/audiobook yang bertele-tele. Jika alur babak ini cukup diceritakan secara tajam dan berbobot dalam jumlah kata yang lebih hemat, itu **JAUH LEBIH BAIK** daripada memaksa mencapai target kata dengan kalimat kosong/filler.
 
 ### 1.3 Ritme & Kenyamanan TTS (ElevenLabs / Gemini)
 Naskah WAJIB dirancang agar saat diucapkan AI Voiceover, hasilnya terdengar sangat alami, mengalir hangat, santai, dan langsung hanyut di telinga penonton.
@@ -36,8 +38,8 @@ Naskah WAJIB dirancang agar saat diucapkan AI Voiceover, hasilnya terdengar sang
 ### 1.4 Kreativitas Kosakata
 Naskah WAJIB kaya akan variasi kalimat dan kosakata yang selalu baru di setiap naskah. DILARANG mengulang-ulang frasa templat atau struktur kalimat yang persis sama dari naskah sebelumnya.
 
-### 1.5 Momen Action & Visual → `[VISUAL_ONLY]` (Aturan Anti-Content ID, Sinergi Narasi & Dynamic Editing)
-Naskah alur film yang seru memadukan narasi yang hidup dengan momen jeda visual murni (`[VISUAL_ONLY]`) pada puncak aksi atau adegan berenergi tinggi. Berikan jeda bernapas bagi visual untuk berbicara sendiri dengan menyisipkan tag `[VISUAL_ONLY]`.
+### 1.5 Momen Action, Atmosfer & Durasi Panjang → `[VISUAL_ONLY]` (Sinergi Narasi & Sinematik Video)
+Untuk menjawab keinginan penonton agar durasi video lebih panjang dan terasa sinematik, kuncinya **BUKAN memaksakan narator ngoceh terus tanpa henti**, melainkan **MEMPERBANYAK JEDA VISUAL MURNI (`[VISUAL_ONLY]`)** pada adegan aksi, ketegangan, misteri, maupun transisi atmosfer.
 
 Tag format: `[VISUAL_ONLY (Range: MM:SS - MM:SS, Duration: Xs): Deskripsi adegan]`
 
@@ -54,8 +56,9 @@ Tag format: `[VISUAL_ONLY (Range: MM:SS - MM:SS, Duration: Xs): Deskripsi adegan
    - Rentang timecode adegan sumber harus **LEBAR** (misal: `Range: 09:30 - 11:45` atau `Range: 03:30 - 05:20`).
    - 🛑 **DILARANG KERAS membuat rentang timecode sempit/linier berdekatan** (seperti `14:36 - 14:42` atau hanya berselisih beberapa detik).
    - **Alasan Teknis Video Editor**: Dalam editing alur film, editor TIDAK BOLEH mengambil satu potongan klip utuh secara linier dari film mentah. Editor memerlukan bank adegan yang cukup lebar untuk memotong **montage cepat non-linier (2–3 cut cepat dari angle/momen berbeda)** yang dipadatkan menjadi durasi 5s–8s visual murni, sehingga algoritma YouTube membaca video tersebut sebagai karya transformatif baru, BUKAN cuplikan mentah film aslinya.
-3. **Frekuensi & Penempatan**:
-   - Sisipkan secara proporsional **2 hingga 4 tag `[VISUAL_ONLY]` per part** pada momen aksi klimaks atau adegan visual kunci.
+3. **Frekuensi & Optimalisasi Durasi Video**:
+   - Sisipkan **3 hingga 6 tag `[VISUAL_ONLY]` per part** pada setiap momen aksi klimaks, ketegangan, misteri, atau adegan visual kunci.
+   - Dengan 3-6 tag berdurasi 5-8 detik, durasi video otomatis bertambah 25-50 detik per part secara sinematik tanpa membuat narator kehabisan napas atau mengarang kalimat filler!
    - Timecode adegan RELATIF TERHADAP FILE VIDEO CHUNK PART INI (Dimulai dari `00:00` s/d durasi {{chunk_duration_text}} video chunk ini). 🛑 **DILARANG KERAS** menggunakan timecode jam/menit film utuh jika ini Part 2 atau seterusnya! WAJIB selalu gunakan timecode lokal `00:00` s/d akhir durasi chunk ini.
 
 💡 **Contoh Evaluasi Tag `[VISUAL_ONLY]`:**
@@ -187,9 +190,10 @@ ElevenLabs dan Gemini TTS memiliki filter moderasi otomatis yang sangat ketat. M
 - Tag `[VISUAL_ONLY]` WAJIB selalu berdurasi **4–10 detik** dengan rentang adegan sumber yang **LEBAR (1–2,5 menit)** agar editor leluasa meracik montase non-linier yang 100% aman dari klaim Content ID.
 
 ==================================================
-5. TARGET KATA & KONTINUITAS KARAKTER
+5. TARGET KATA (PLAFON FLEKSIBEL & STORY FIRST) & KONTINUITAS KARAKTER
 ==================================================
-- **TARGET KATA**: **{{target_words_per_chunk}} KATA** — proporsional sesuai durasi {{chunk_duration_text}}. DILARANG memanjangkan narasi atau menggunakan kata acak/rancu hanya demi menambah jumlah kata.
+- **TARGET KATA (PANDUAN PLAFON FLEKSIBEL)**: Patokan maksimal ~**{{target_words_per_chunk}} KATA** sesuai durasi {{chunk_duration_text}}. Ini adalah **BATAS ATAS FLEKSIBEL, BUKAN KUOTA KAKU YANG HARUS DIPENUHI**.
+- **STORY PROGRESSION FIRST**: Prioritaskan jalannya cerita utama, dinamika konflik, dan hubungan sebab-akibat. Jika poin-poin cerita di part ini selesai dirangkum dengan jelas dan seru dalam jumlah kata yang lebih sedikit, langsung sudahi narasi dan serahkan ruang bernapas aksi/visual ke tag `[VISUAL_ONLY]`. DILARANG KERAS bertele-tele atau mengulang-ulang kalimat hanya demi mengejar kuota kata.
 - **KONTINUITAS NAMA KARAKTER**: Jika pada `character_registry` part sebelumnya sudah ada nama karakter yang ditetapkan, WAJIB gunakan nama yang konsisten.
 
 ==================================================
@@ -201,7 +205,7 @@ FORMAT OUTPUT JSON MURNI (TANPA MARKDOWN ```json)
   "total_chunks": {{total_chunks}},
   "naskah_voiceover": {
     "word_count": {{target_words_per_chunk}},
-    "script_text": "[Teks naskah voiceover recap lengkap untuk part ini, yang menyambung secara mengalir dari part sebelumnya. Sisipkan 2-4 tag VISUAL_ONLY berdurasi 4s-10s dengan range lebar 1-2.5 menit. Naskah WAJIB 100% aman dari kata-kata yang memicu moderasi ElevenLabs/Gemini]",
+    "script_text": "[Teks naskah voiceover recap lengkap untuk part ini, yang menyambung secara mengalir dari part sebelumnya. Sisipkan 3-6 tag VISUAL_ONLY berdurasi 5s-10s dengan range lebar 1-2.5 menit untuk memperpanjang durasi video secara alami. Naskah WAJIB padat, to-the-point, dan 100% aman dari kata moderasi ElevenLabs/Gemini]",
     "macro_summary": "Ringkasan 2-3 kalimat santai tentang kondisi cerita di akhir part ini untuk dibawa ke part berikutnya."
   },
   "character_registry": [
