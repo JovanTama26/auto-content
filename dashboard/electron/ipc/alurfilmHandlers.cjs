@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const { parseSrtToEntries } = require('../shared/subtitle-utils.cjs');
-const { syncAnalysesFromSupabase } = require('../shared/supabaseClient.cjs');
+const { syncAnalysesFromSupabase, syncMappingPromptsToSupabase } = require('../shared/supabaseClient.cjs');
 
 
 function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
@@ -2247,9 +2247,8 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
     return Array.from(transcriptMap.values()).sort((a, b) => a.part - b.part);
   });
 
-  // ─── Get Alurfilm Mapping Prompt ───────────────────────
-  ipcMain.handle('get-alurfilm-mapping-prompt', async (_event, { chunkPart, totalChunks = 2 }) => {
-    const contentId = p.getOrGenerateContentId('longform');
+  // ─── Video Mapping Prompt Generator Helper ───────────────────────
+  async function buildMappingPromptForPart(contentId, chunkPart, totalChunks = 2) {
     const partStr = String(chunkPart).padStart(2, '0');
     const promptFileName = 'alurfilm-mapping-prompt.md';
     const promptFile = path.join(p.PROMPTS_DIR, 'longform', promptFileName);
@@ -2466,7 +2465,51 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
       .replace(/{{chunk_video_duration_formatted}}/g, totalChunkDurFormatted);
 
     return fullPrompt;
+  }
+
+  // ─── Get Alurfilm Mapping Prompt ───────────────────────
+  ipcMain.handle('get-alurfilm-mapping-prompt', async (_event, { contentId: reqContentId, chunkPart, totalChunks = 2 } = {}) => {
+    const contentId = reqContentId || p.getOrGenerateContentId('longform');
+    return await buildMappingPromptForPart(contentId, chunkPart, totalChunks);
   });
+
+  // ─── Get All Alurfilm Mapping Prompts ──────────────────
+  ipcMain.handle('get-all-alurfilm-mapping-prompts', async (_event, { contentId: reqContentId } = {}) => {
+    const contentId = reqContentId || p.getOrGenerateContentId('longform');
+    const chunkSearchDirs = [p.ALURFILM_CHUNKS_DIR, p.ALURFILM_COMPRESS_DIR, p.ALURFILM_DIR].filter(d => d && fs.existsSync(d));
+    const partNumbersSet = new Set();
+
+    for (const dir of chunkSearchDirs) {
+      try {
+        const files = fs.readdirSync(dir);
+        files.filter(f => f.startsWith(contentId) && f.endsWith('.mp4')).forEach(f => {
+          const match = f.match(/part_(\d+)/);
+          if (match) partNumbersSet.add(parseInt(match[1], 10));
+        });
+      } catch {}
+    }
+
+    const parts = Array.from(partNumbersSet).sort((a, b) => a - b);
+    const totalChunks = parts.length > 0 ? parts.length : 1;
+    const prompts = {};
+
+    for (const pt of parts) {
+      try {
+        prompts[pt] = await buildMappingPromptForPart(contentId, pt, totalChunks);
+      } catch (err) {
+        console.warn(`[MappingPrompt] Failed to build prompt for part ${pt}:`, err.message);
+      }
+    }
+
+    return { contentId, parts, totalChunks, prompts };
+  });
+
+  // ─── Sync Alurfilm Mapping Prompts to Supabase ──────────
+  ipcMain.handle('sync-alurfilm-mapping-prompts-to-supabase', async (_event, { contentId: reqContentId, prompts } = {}) => {
+    const contentId = reqContentId || p.getOrGenerateContentId('longform');
+    return await syncMappingPromptsToSupabase(contentId, prompts || {});
+  });
+
 
   function normalizeMappingObj(obj, defaultPart = 1, realChunkDur = 0) {
     if (!obj) return null;

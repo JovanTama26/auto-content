@@ -34,6 +34,10 @@ CREATE TABLE IF NOT EXISTS autocontent.content_parts (
     script_status TEXT DEFAULT 'pending',
     script_output JSONB,
     script_done_at TIMESTAMPTZ,
+    mapping_prompt TEXT,
+    mapping_status TEXT DEFAULT 'pending',
+    mapping_output JSONB,
+    mapping_done_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now(),
     CONSTRAINT uq_content_parts_content_id_part_number UNIQUE (content_id, part_number)

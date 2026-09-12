@@ -285,7 +285,17 @@ export interface ElectronAPI {
   listAlurfilmTranscripts: (modeContentId?: string) => Promise<AlurfilmTranscriptResult[]>;
   runAlurfilmWhisperXAlignment?: (parts: number[], audioPath?: string) => Promise<{ success: boolean; savedResults?: any[]; multiPartMap?: any }>;
   onAlurfilmAlignmentProgress?: (callback: (data: AlurfilmAlignmentProgressPayload) => void) => () => void;
-  getAlurfilmMappingPrompt: (chunkPart: number, totalChunks?: number) => Promise<string>;
+  getAlurfilmMappingPrompt: (chunkPart: number, totalChunks?: number, contentId?: string) => Promise<string>;
+  getAllAlurfilmMappingPrompts?: (contentId?: string) => Promise<{
+    contentId: string;
+    parts: number[];
+    totalChunks: number;
+    prompts: Record<number, string>;
+  }>;
+  syncAlurfilmMappingPrompts?: (
+    contentId: string,
+    prompts: Record<number, string>
+  ) => Promise<{ success: boolean; count: number; error?: string }>;
   saveAlurfilmMapping: (contentIdOrPart: string | number, partOrData?: number | any, jsonTextOrPart?: any) => Promise<AlurfilmMappingResult>;
   listAlurfilmMappings: (modeContentId?: string) => Promise<AlurfilmMappingResult[]>;
   listAlurfilmRenders: (modeContentId?: string) => Promise<AlurfilmRenderResult[]>;

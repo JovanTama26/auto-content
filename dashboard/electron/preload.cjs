@@ -149,8 +149,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('alurfilm-alignment-progress', handler);
     return () => ipcRenderer.removeListener('alurfilm-alignment-progress', handler);
   },
-  getAlurfilmMappingPrompt: (chunkPart, totalChunks) =>
-    ipcRenderer.invoke('get-alurfilm-mapping-prompt', { chunkPart, totalChunks }),
+  getAlurfilmMappingPrompt: (chunkPart, totalChunks, contentId) =>
+    ipcRenderer.invoke('get-alurfilm-mapping-prompt', { chunkPart, totalChunks, contentId }),
+  getAllAlurfilmMappingPrompts: (contentId) =>
+    ipcRenderer.invoke('get-all-alurfilm-mapping-prompts', { contentId }),
+  syncAlurfilmMappingPrompts: (contentId, prompts) =>
+    ipcRenderer.invoke('sync-alurfilm-mapping-prompts-to-supabase', { contentId, prompts }),
   saveAlurfilmMapping: (...args) => {
     let chunkPart = 1;
     let jsonText = null;

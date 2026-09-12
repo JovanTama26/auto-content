@@ -348,9 +348,73 @@ async function syncAnalysesFromSupabase(contentId, alurfilmDir, options = {}) {
   return results;
 }
 
+/**
+ * Update video mapping prompt into autocontent.content_parts
+ */
+async function syncMappingPromptsToSupabase(contentId, prompts = {}) {
+  if (!supabase || !contentId) return { success: false, count: 0 };
+  const partNums = Object.keys(prompts).map(Number).filter(n => !isNaN(n));
+  let count = 0;
+  let supportsMappingPrompt = true;
+
+  for (const pNum of partNums) {
+    const promptText = prompts[pNum];
+    if (!promptText) continue;
+
+    if (supportsMappingPrompt) {
+      try {
+        const { error } = await supabase
+          .from('content_parts')
+          .update({
+            mapping_prompt: promptText,
+            mapping_status: 'pending',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('content_id', contentId)
+          .eq('part_number', pNum);
+
+        if (!error) {
+          count++;
+          continue;
+        }
+        if (error.code === '42703' || error.message?.includes('mapping_prompt')) {
+          supportsMappingPrompt = false;
+        } else {
+          console.warn(`[SupabaseSync] Warning updating mapping_prompt part #${pNum}:`, error.message);
+        }
+      } catch (e) {
+        supportsMappingPrompt = false;
+      }
+    }
+
+    // Fallback: simpan di column prompt
+    try {
+      const { error: fErr } = await supabase
+        .from('content_parts')
+        .update({
+          prompt: promptText,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('content_id', contentId)
+        .eq('part_number', pNum);
+
+      if (!fErr) {
+        count++;
+      } else {
+        console.warn(`[SupabaseSync] Warning fallback updating prompt part #${pNum}:`, fErr.message);
+      }
+    } catch (err) {
+      console.warn(`[SupabaseSync] Error updating prompt part #${pNum}:`, err.message);
+    }
+  }
+
+  return { success: true, count };
+}
+
 module.exports = {
   supabase,
   supabaseUrl,
   supabaseSchema,
   syncAnalysesFromSupabase,
+  syncMappingPromptsToSupabase,
 };

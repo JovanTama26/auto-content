@@ -21,6 +21,10 @@ export interface SyncedPartRecord {
   duration_sec?: number;
   size_bytes?: number;
   prompt?: string | null;
+  mapping_prompt?: string | null;
+  mapping_status?: string;
+  mapping_output?: any;
+  mapping_done_at?: string;
   upload_status: string;
   script_status: string;
   updated_at: string;
@@ -142,9 +146,23 @@ export async function getSyncedChunks(
   contentId: string
 ): Promise<SyncedPartRecord[]> {
   try {
+    // Try selecting with mapping fields, fall back if mapping_prompt does not exist
+    let query = 'id, content_id, part_number, filename, video_path, duration_sec, size_bytes, prompt, upload_status, script_status, updated_at';
+    try {
+      const testRes = await supabase
+        .from('content_parts')
+        .select('id, content_id, part_number, filename, video_path, duration_sec, size_bytes, prompt, mapping_prompt, mapping_status, mapping_output, mapping_done_at, upload_status, script_status, updated_at')
+        .eq('content_id', contentId)
+        .order('part_number', { ascending: true });
+
+      if (!testRes.error && Array.isArray(testRes.data)) {
+        return (testRes.data as unknown as SyncedPartRecord[]);
+      }
+    } catch {}
+
     const { data, error } = await supabase
       .from('content_parts')
-      .select('id, content_id, part_number, filename, video_path, duration_sec, size_bytes, prompt, upload_status, script_status, updated_at')
+      .select(query)
       .eq('content_id', contentId)
       .order('part_number', { ascending: true });
 
@@ -153,8 +171,86 @@ export async function getSyncedChunks(
       return [];
     }
 
-    return (data as SyncedPartRecord[]) || [];
+    return (data as unknown as SyncedPartRecord[]) || [];
   } catch (e) {
     return [];
   }
 }
+
+/**
+ * Menyimpan / memperbarui dynamic mapping prompt per video chunk ke Supabase
+ */
+export async function syncMappingPromptsToSupabase(params: {
+  contentId: string;
+  prompts: Record<number, string>;
+}): Promise<{ success: boolean; count: number; error?: string }> {
+  const { contentId, prompts } = params;
+
+  if (!contentId) {
+    throw new Error('Content ID tidak boleh kosong.');
+  }
+  const partNums = Object.keys(prompts)
+    .map(Number)
+    .filter((n) => !isNaN(n));
+  if (partNums.length === 0) {
+    throw new Error('Tidak ada prompt mapping untuk disimpan.');
+  }
+
+  try {
+    let successCount = 0;
+    let supportsMappingPromptCol = true;
+
+    for (const partNum of partNums) {
+      const promptText = prompts[partNum];
+      if (!promptText) continue;
+
+      if (supportsMappingPromptCol) {
+        const { error: errMap } = await supabase
+          .from('content_parts')
+          .update({
+            mapping_prompt: promptText,
+            mapping_status: 'pending',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('content_id', contentId)
+          .eq('part_number', partNum);
+
+        if (!errMap) {
+          successCount++;
+          continue;
+        }
+
+        if (errMap.code === '42703' || errMap.message?.includes('mapping_prompt')) {
+          supportsMappingPromptCol = false;
+        } else {
+          console.warn(`[SupabaseSync] Warning updating mapping_prompt part #${partNum}:`, errMap.message);
+        }
+      }
+
+      // Fallback: simpan di prompt column agar otomasi tetap berjalan mulus
+      const { error: fallbackErr } = await supabase
+        .from('content_parts')
+        .update({
+          prompt: promptText,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('content_id', contentId)
+        .eq('part_number', partNum);
+
+      if (!fallbackErr) {
+        successCount++;
+      } else {
+        console.warn(`[SupabaseSync] Warning fallback updating prompt part #${partNum}:`, fallbackErr.message);
+      }
+    }
+
+    return {
+      success: true,
+      count: successCount,
+    };
+  } catch (err: any) {
+    console.error('[SupabaseSync] syncMappingPrompts error:', err);
+    throw err;
+  }
+}
+
