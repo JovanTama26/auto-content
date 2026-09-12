@@ -21,6 +21,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   const viewElevenLabs = document.getElementById('viewElevenLabs');
   const btnOpenElevenLabs = document.getElementById('btnOpenElevenLabs');
 
+  // ElevenLabs Signup & Account elements
+  const inputSignupEmail = document.getElementById('inputSignupEmail');
+  const inputSignupPassword = document.getElementById('inputSignupPassword');
+  const btnRegenEmail = document.getElementById('btnRegenEmail');
+  const btnAutoSignupElevenLabs = document.getElementById('btnAutoSignupElevenLabs');
+  const signupSpinner = document.getElementById('signupSpinner');
+  const signupBtnText = document.getElementById('signupBtnText');
+  const signupLiveStatus = document.getElementById('signupLiveStatus');
+  const signupStepLog = document.getElementById('signupStepLog');
+  const elevenlabsAccountsList = document.getElementById('elevenlabsAccountsList');
+  const accountsCountBadge = document.getElementById('accountsCountBadge');
+  const btnRefreshAccounts = document.getElementById('btnRefreshAccounts');
+  let isSigningUpElevenLabs = false;
+
   // Bulk action elements
   const btnUploadAll = document.getElementById('btnUploadAll');
   const bulkSpinner = document.getElementById('bulkSpinner');
@@ -1584,6 +1598,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       viewAiStudio?.classList.add('hidden');
       viewElevenLabs?.classList.remove('hidden');
+
+      loadElevenLabsAccounts();
     } else {
       tabBtnElevenLabs?.classList.remove('active');
       tabBtnElevenLabs?.setAttribute('aria-selected', 'false');
@@ -1614,6 +1630,189 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     });
   }
+
+  // --- ElevenLabs Auto-Signup & Account Management Logic ---
+  function generateRandomEmail() {
+    const firstNames = [
+      'alex', 'ryan', 'kevin', 'daniel', 'jason', 'david', 'brian', 'eric',
+      'marcus', 'nathan', 'tyler', 'brandon', 'justin', 'leo', 'adrian',
+      'felix', 'adam', 'noah', 'ethan', 'lucas', 'liam', 'mason', 'oliver',
+      'arthur', 'samuel', 'benjamin', 'victor', 'connor', 'oscar', 'julian'
+    ];
+    const lastNames = [
+      'miller', 'taylor', 'wilson', 'moore', 'clark', 'wright', 'scott',
+      'adams', 'baker', 'turner', 'walker', 'carter', 'evans', 'parker',
+      'collins', 'stewart', 'morris', 'rogers', 'reed', 'cook', 'bell',
+      'morgan', 'cooper', 'brooks', 'sanders', 'bennett', 'wood', 'watson'
+    ];
+    const first = firstNames[Math.floor(Math.random() * firstNames.length)];
+    const last = lastNames[Math.floor(Math.random() * lastNames.length)];
+    const num = Math.floor(100 + Math.random() * 900);
+    return `${first}.${last}${num}@riztama.my.id`;
+  }
+
+  function setSignupStatus(text, type = 'normal') {
+    if (!signupLiveStatus || !signupStepLog) return;
+    signupLiveStatus.classList.remove('hidden');
+    signupStepLog.className = 'signup-step-log';
+    if (type === 'success') signupStepLog.classList.add('success');
+    if (type === 'error') signupStepLog.classList.add('error');
+    if (type === 'warn') signupStepLog.classList.add('warn');
+    signupStepLog.textContent = text;
+  }
+
+  async function loadElevenLabsAccounts() {
+    if (!elevenlabsAccountsList) return;
+    try {
+      if (btnRefreshAccounts) btnRefreshAccounts.disabled = true;
+      const accounts = await window.SupabaseBridge.getElevenLabsAccounts();
+
+      if (!accounts || accounts.length === 0) {
+        if (accountsCountBadge) accountsCountBadge.textContent = '0 Akun';
+        elevenlabsAccountsList.innerHTML = `
+          <div class="empty-state">
+            <span>Belum ada akun ElevenLabs tersimpan. Klik tombol di atas untuk mendaftarkan akun baru.</span>
+          </div>`;
+        return;
+      }
+
+      if (accountsCountBadge) accountsCountBadge.textContent = `${accounts.length} Akun`;
+
+      elevenlabsAccountsList.innerHTML = accounts.map((acc) => {
+        const isPending = acc.status === 'pending_verification';
+        const badgeClass = isPending ? 'pending' : 'active';
+        const badgeText = isPending ? '⏳ Pending Verif' : '✅ Active';
+        const credits = (acc.credits_remaining !== undefined && acc.credits_remaining !== null)
+          ? `${Number(acc.credits_remaining).toLocaleString('id-ID')} Credits`
+          : '10.000 Credits';
+        const createdDate = acc.created_at ? new Date(acc.created_at).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' }) : '-';
+
+        return `
+          <div class="account-card" data-account-id="${acc.id || ''}">
+            <div class="account-header">
+              <span class="account-email">${acc.email}</span>
+              <span class="account-status-badge ${badgeClass}">${badgeText}</span>
+            </div>
+            <div class="account-meta">
+              <span>Pass: <strong style="color: #cbd5e1;">${acc.password || 'Jovan@1224'}</strong></span>
+              <span class="account-credits">${credits}</span>
+              <span>${createdDate}</span>
+            </div>
+          </div>
+        `;
+      }).join('');
+    } catch (err) {
+      console.error('[ElevenLabs] Gagal memuat akun dari Supabase:', err);
+      if (accountsCountBadge) accountsCountBadge.textContent = 'Error';
+      const isMissingTable = err.message && (err.message.includes('relation') || err.message.includes('404') || err.message.includes('does not exist'));
+      if (isMissingTable) {
+        elevenlabsAccountsList.innerHTML = `
+          <div class="empty-state" style="color: #fbbf24; text-align: left; font-size: 11px;">
+            ⚠️ Tabel <strong>autocontent.elevenlabs_accounts</strong> belum ada di Supabase.<br><br>
+            Silakan jalankan query di file <code>scripts/migration-add-elevenlabs-accounts.sql</code> pada Supabase SQL Editor.
+          </div>`;
+      } else {
+        elevenlabsAccountsList.innerHTML = `
+          <div class="empty-state" style="color: #f87171;">
+            Gagal memuat akun: ${err.message}
+          </div>`;
+      }
+    } finally {
+      if (btnRefreshAccounts) btnRefreshAccounts.disabled = false;
+    }
+  }
+
+  async function handleAutoSignupElevenLabs() {
+    if (isSigningUpElevenLabs) return;
+    const email = inputSignupEmail?.value?.trim();
+    const password = inputSignupPassword?.value?.trim() || 'Jovan@1224';
+
+    if (!email) {
+      setSignupStatus('Target email tidak boleh kosong.', 'error');
+      return;
+    }
+
+    isSigningUpElevenLabs = true;
+    if (btnAutoSignupElevenLabs) btnAutoSignupElevenLabs.disabled = true;
+    if (signupSpinner) signupSpinner.classList.remove('hidden');
+    if (signupBtnText) signupBtnText.textContent = 'Mendaftarkan ke ElevenLabs...';
+    setSignupStatus(`1/3 Menyimpan kredensial ${email} ke Supabase Cloud...`, 'warn');
+
+    try {
+      // 1. Simpan ke Supabase terlebih dahulu (Safety requirement)
+      let dbSaved = false;
+      try {
+        await window.SupabaseBridge.createElevenLabsAccount({
+          email,
+          password,
+          status: 'pending_verification',
+          credits_remaining: 10000,
+        });
+        dbSaved = true;
+        setSignupStatus(`2/3 Kredensial tersimpan di Supabase! Membuka halaman signup ElevenLabs...`, 'warn');
+      } catch (dbErr) {
+        console.warn('[ElevenLabs] Warning saat simpan ke Supabase:', dbErr);
+        setSignupStatus(`⚠️ Gagal simpan DB (${dbErr.message}), tetap lanjut proses registrasi di browser...`, 'warn');
+      }
+
+      // 2. Kirim pesan ke background script untuk membuka tab & isi form
+      setSignupStatus(`3/3 Mengisi email & password di tab ElevenLabs dan klik Sign up...`, 'warn');
+
+      let signupRes;
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        signupRes = await chrome.runtime.sendMessage({
+          action: 'OPEN_AND_SIGNUP_ELEVENLABS',
+          payload: { email, password }
+        });
+      } else {
+        throw new Error('Chrome extension runtime messaging tidak tersedia.');
+      }
+
+      if (!signupRes || !signupRes.success) {
+        throw new Error(signupRes?.error || 'Gagal mengeksekusi otomatisasi sign up di tab ElevenLabs.');
+      }
+
+      const msg = dbSaved
+        ? `🎉 BERHASIL! Link verifikasi telah dikirim ke ${email} dan kredensial tersimpan di Supabase.`
+        : `🎉 BERHASIL! Link verifikasi telah dikirim ke ${email}. (Catatan: tabel Supabase perlu dimigrasi).`;
+      setSignupStatus(msg, 'success');
+
+      // Refresh daftar akun
+      await loadElevenLabsAccounts();
+
+      // Buat email acak baru untuk pendaftaran berikutnya
+      if (inputSignupEmail) {
+        inputSignupEmail.value = generateRandomEmail();
+      }
+    } catch (err) {
+      console.error('[ElevenLabs Signup Error]', err);
+      setSignupStatus(`❌ Gagal: ${err.message}`, 'error');
+    } finally {
+      isSigningUpElevenLabs = false;
+      if (btnAutoSignupElevenLabs) btnAutoSignupElevenLabs.disabled = false;
+      if (signupSpinner) signupSpinner.classList.add('hidden');
+      if (signupBtnText) signupBtnText.textContent = '🚀 Daftar & Simpan ke Supabase';
+    }
+  }
+
+  // Setup ElevenLabs listeners & default values
+  if (inputSignupEmail && !inputSignupEmail.value) {
+    inputSignupEmail.value = generateRandomEmail();
+  }
+
+  btnRegenEmail?.addEventListener('click', () => {
+    if (inputSignupEmail) {
+      inputSignupEmail.value = generateRandomEmail();
+    }
+  });
+
+  btnAutoSignupElevenLabs?.addEventListener('click', async () => {
+    await handleAutoSignupElevenLabs();
+  });
+
+  btnRefreshAccounts?.addEventListener('click', async () => {
+    await loadElevenLabsAccounts();
+  });
 
   // Restore saved active tab
   try {

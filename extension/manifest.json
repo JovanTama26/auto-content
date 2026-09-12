@@ -63,6 +63,16 @@
         "picker.js"
       ],
       "run_at": "document_end"
+    },
+    {
+      "matches": [
+        "https://elevenlabs.io/*"
+      ],
+      "js": [
+        "content.js",
+        "modules/elevenlabs-signup.js"
+      ],
+      "run_at": "document_idle"
     }
   ]
 }

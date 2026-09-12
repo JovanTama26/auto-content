@@ -27,5 +27,57 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // async
   }
 
-  // Modul otomatisasi lain di masa depan akan didaftarkan di sini secara independen
+  // 2. Modul ElevenLabs Signup Automation
+  if (message.action === 'OPEN_AND_SIGNUP_ELEVENLABS') {
+    (async () => {
+      try {
+        const { email, password } = message.payload || {};
+        if (!email || !password) {
+          throw new Error('Email dan password wajib ada');
+        }
+
+        // Cari apakah tab elevenlabs.io/sign-up sudah terbuka
+        const tabs = await chrome.tabs.query({ url: '*://elevenlabs.io/*' });
+        let targetTab = tabs.find((t) => t.url && t.url.includes('elevenlabs.io/sign-up'));
+
+        if (targetTab && targetTab.id) {
+          await chrome.tabs.update(targetTab.id, { active: true });
+        } else {
+          targetTab = await chrome.tabs.create({ url: 'https://elevenlabs.io/sign-up', active: true });
+        }
+
+        // Tunggu tab selesai memuat halaman (status: complete)
+        await new Promise((resolve) => {
+          let timeoutId;
+          function listener(tabId, changeInfo) {
+            if (tabId === targetTab.id && changeInfo.status === 'complete') {
+              chrome.tabs.onUpdated.removeListener(listener);
+              clearTimeout(timeoutId);
+              resolve();
+            }
+          }
+          chrome.tabs.onUpdated.addListener(listener);
+          timeoutId = setTimeout(() => {
+            chrome.tabs.onUpdated.removeListener(listener);
+            resolve();
+          }, 9000);
+        });
+
+        // Delay singkat untuk Next.js / React hydration
+        await new Promise((r) => setTimeout(r, 1200));
+
+        // Kirim perintah signup ke Content Script di tab ElevenLabs
+        const res = await chrome.tabs.sendMessage(targetTab.id, {
+          module: 'elevenlabsSignup',
+          action: 'EXECUTE_ELEVENLABS_SIGNUP',
+          payload: { email, password },
+        });
+
+        sendResponse({ success: true, ...res });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message });
+      }
+    })();
+    return true; // async
+  }
 });

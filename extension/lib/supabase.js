@@ -92,6 +92,56 @@ const SupabaseBridge = {
       }),
     });
   },
+
+  /**
+   * Simpan akun ElevenLabs baru ke Supabase Cloud (schema autocontent)
+   */
+  async createElevenLabsAccount(accountData) {
+    return await this.request('elevenlabs_accounts', {
+      method: 'POST',
+      headers: {
+        'Prefer': 'return=representation',
+      },
+      body: JSON.stringify({
+        email: accountData.email,
+        password: accountData.password,
+        status: accountData.status || 'pending_verification',
+        credits_remaining: accountData.credits_remaining !== undefined ? accountData.credits_remaining : 10000,
+        verification_link: accountData.verification_link || null,
+        api_key: accountData.api_key || null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }),
+    });
+  },
+
+  /**
+   * Ambil daftar akun ElevenLabs
+   */
+  async getElevenLabsAccounts(limit = 30) {
+    return await this.request(`elevenlabs_accounts?select=*&order=created_at.desc&limit=${limit}`);
+  },
+
+  /**
+   * Update status atau kredensial akun ElevenLabs
+   */
+  async updateElevenLabsAccount(accountIdOrEmail, updates = {}) {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(accountIdOrEmail);
+    const filter = isUuid
+      ? `id=eq.${encodeURIComponent(accountIdOrEmail)}`
+      : `email=eq.${encodeURIComponent(accountIdOrEmail)}`;
+
+    return await this.request(`elevenlabs_accounts?${filter}`, {
+      method: 'PATCH',
+      headers: {
+        'Prefer': 'return=representation',
+      },
+      body: JSON.stringify({
+        ...updates,
+        updated_at: new Date().toISOString(),
+      }),
+    });
+  },
 };
 
 // Export untuk berbagai environment (window context di extension atau module)
