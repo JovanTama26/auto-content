@@ -164,6 +164,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         chunksList.innerHTML = '<div class="empty-state">Tidak ada chunk untuk session ini.</div>';
         btnUploadAll.disabled = true;
         sessionDriveCount.textContent = '0 di Drive';
+        if (btnRunMapping) {
+          btnRunMapping.disabled = true;
+          btnRunMapping.title = 'Belum ada chunk video.';
+          mappingBtnText.textContent = '🔒 Prompt Mapping Belum di-Set';
+        }
+        if (btnAutoProgressMapping) {
+          btnAutoProgressMapping.disabled = true;
+          btnAutoProgressMapping.title = 'Belum ada chunk video.';
+        }
         return;
       }
 
@@ -197,13 +206,42 @@ document.addEventListener('DOMContentLoaded', async () => {
       const targetMappingPart = currentChunks.find(c => c.mapping_status !== 'done' && c.mapping_status !== 'completed');
       if (mappingTargetBadge && btnRunMapping) {
         if (targetMappingPart) {
-          mappingTargetBadge.textContent = `Part ${targetMappingPart.part_number}`;
-          mappingBtnText.textContent = `🚀 Kirim & Pantau Mapping (Part ${targetMappingPart.part_number})`;
-          btnRunMapping.disabled = isRunningMapping || isAutoProgressMappingActive;
+          const hasTargetPrompt = !!(
+            (targetMappingPart.mapping_prompt && targetMappingPart.mapping_prompt.trim().length > 0) ||
+            (targetMappingPart.prompt && targetMappingPart.prompt.trim().length > 0)
+          );
+
+          if (!hasTargetPrompt) {
+            mappingTargetBadge.textContent = `Part ${targetMappingPart.part_number} (Prompt Belum di-Set)`;
+            mappingTargetBadge.classList.add('warning-badge');
+            mappingBtnText.textContent = `🔒 Prompt Mapping Part ${targetMappingPart.part_number} Belum di-Set`;
+            btnRunMapping.disabled = true;
+            btnRunMapping.title = `Prompt video mapping Part #${targetMappingPart.part_number} belum diset. Silakan generate/simpan prompt mapping di Dashboard Step 5 terlebih dahulu.`;
+            if (btnAutoProgressMapping) {
+              btnAutoProgressMapping.disabled = true;
+              btnAutoProgressMapping.title = 'Prompt mapping belum diset di dashboard.';
+            }
+          } else {
+            mappingTargetBadge.textContent = `Part ${targetMappingPart.part_number}`;
+            mappingTargetBadge.classList.remove('warning-badge');
+            mappingBtnText.textContent = `🚀 Kirim & Pantau Mapping (Part ${targetMappingPart.part_number})`;
+            btnRunMapping.disabled = isRunningMapping || isAutoProgressMappingActive;
+            btnRunMapping.title = '';
+            if (btnAutoProgressMapping) {
+              btnAutoProgressMapping.disabled = isRunningMapping;
+              btnAutoProgressMapping.title = '';
+            }
+          }
         } else {
           mappingTargetBadge.textContent = 'Selesai';
+          mappingTargetBadge.classList.remove('warning-badge');
           mappingBtnText.textContent = '✓ Semua Video Mapping Selesai';
           btnRunMapping.disabled = true;
+          btnRunMapping.title = '';
+          if (btnAutoProgressMapping) {
+            btnAutoProgressMapping.disabled = true;
+            btnAutoProgressMapping.title = '';
+          }
         }
       }
 
@@ -264,9 +302,20 @@ document.addEventListener('DOMContentLoaded', async () => {
             <button class="btn-generate-chunk" id="btn-run-${chunk.part_number}" ${isRunningScript || isAutoProgressActive ? 'disabled' : ''} title="AI Script Generator">
               ${isScriptDone ? '📋 Script' : '🚀 Script'}
             </button>
-            <button class="btn-map-chunk ${isMappingDone ? 'done' : ''}" id="btn-map-${chunk.part_number}" ${isRunningMapping || isAutoProgressMappingActive ? 'disabled' : ''} title="AI Video Mapping">
-              ${isMappingDone ? '📋 Map' : '🎯 Map'}
-            </button>
+            ${(() => {
+              const hasChunkPrompt = !!((chunk.mapping_prompt && chunk.mapping_prompt.trim()) || (chunk.prompt && chunk.prompt.trim()));
+              const isMapDisabled = isRunningMapping || isAutoProgressMappingActive || (!isMappingDone && !hasChunkPrompt);
+              const mapTitle = isMappingDone 
+                ? 'Salin Hasil Output Mapping JSON' 
+                : hasChunkPrompt 
+                  ? 'AI Video Mapping' 
+                  : 'Prompt mapping belum diset di Supabase. Set di Dashboard Step 5 terlebih dahulu.';
+              return `
+                <button class="btn-map-chunk ${isMappingDone ? 'done' : ''}" id="btn-map-${chunk.part_number}" ${isMapDisabled ? 'disabled' : ''} title="${mapTitle}">
+                  ${isMappingDone ? '📋 Map' : hasChunkPrompt ? '🎯 Map' : '🔒 Map'}
+                </button>
+              `;
+            })()}
             <button class="btn-toggle-done" id="btn-toggle-${chunk.part_number}" title="${isDone ? 'Tandai Pending' : 'Tandai Selesai Manual'}">
               ${isDone ? '↩️' : '✓'}
             </button>
@@ -339,6 +388,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             btnMap.textContent = '✓ Copied';
             setTimeout(() => { btnMap.textContent = '📋 Map'; }, 1500);
           } else {
+            const hasChunkPrompt = !!((chunk.mapping_prompt && chunk.mapping_prompt.trim()) || (chunk.prompt && chunk.prompt.trim()));
+            if (!hasChunkPrompt) {
+              alert(`Prompt Video Mapping Part #${chunk.part_number} belum diset. Silakan generate & simpan prompt mapping di Dashboard Step 5 terlebih dahulu.`);
+              return;
+            }
             await runMappingGeneration(chunk);
           }
         });
@@ -993,8 +1047,32 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
+    // Safety guard: pastikan mapping prompt sudah diset sebelum mengeksekusi AI Studio
+    let hasPrompt = !!(
+      (targetChunk.mapping_prompt && targetChunk.mapping_prompt.trim()) ||
+      (targetChunk.prompt && targetChunk.prompt.trim())
+    );
+    if (!hasPrompt) {
+      try {
+        const freshParts = await window.SupabaseBridge.getParts(sessionSelect.value);
+        const freshTarget = freshParts.find((p) => Number(p.part_number) === Number(targetChunk.part_number));
+        if (freshTarget?.mapping_prompt?.trim() || freshTarget?.prompt?.trim()) {
+          targetChunk = freshTarget;
+          hasPrompt = true;
+        }
+      } catch {}
+    }
+
+    if (!hasPrompt) {
+      alert(
+        `Prompt Video Mapping Part #${targetChunk.part_number} belum ada di Supabase database. Silakan klik tombol "Generate & Simpan Prompt Mapping" di Dashboard Step 5 terlebih dahulu.`
+      );
+      return;
+    }
+
     isRunningMapping = true;
     if (btnRunMapping) btnRunMapping.disabled = true;
+    if (btnAutoProgressMapping) btnAutoProgressMapping.disabled = true;
     if (mappingSpinner) mappingSpinner.classList.remove('hidden');
     if (mappingLiveStatus) mappingLiveStatus.classList.remove('hidden');
     if (mappingStepLog) {
@@ -1330,7 +1408,25 @@ document.addEventListener('DOMContentLoaded', async () => {
       btnAutoProgressMapping.classList.remove('active');
       if (autoProgressMappingIcon) autoProgressMappingIcon.textContent = '⚡';
       if (autoProgressMappingText) autoProgressMappingText.textContent = 'Auto Progress Mapping (Semua Part)';
-      if (btnRunMapping) btnRunMapping.disabled = isRunningMapping;
+
+      const targetMappingPart = currentChunks.find(c => c.mapping_status !== 'done' && c.mapping_status !== 'completed');
+      const hasTargetPrompt = !!(
+        targetMappingPart &&
+        ((targetMappingPart.mapping_prompt && targetMappingPart.mapping_prompt.trim().length > 0) ||
+         (targetMappingPart.prompt && targetMappingPart.prompt.trim().length > 0))
+      );
+
+      if (btnRunMapping) {
+        btnRunMapping.disabled = isRunningMapping || !hasTargetPrompt || !targetMappingPart;
+      }
+      if (btnAutoProgressMapping) {
+        btnAutoProgressMapping.disabled = isRunningMapping || !hasTargetPrompt || !targetMappingPart;
+        if (!hasTargetPrompt && targetMappingPart) {
+          btnAutoProgressMapping.title = `Prompt Video Mapping Part #${targetMappingPart.part_number} belum diset.`;
+        } else {
+          btnAutoProgressMapping.title = '';
+        }
+      }
     }
   }
 
@@ -1356,6 +1452,21 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
+    const targetPending = currentChunks.find((p) => p.mapping_status !== 'done' && p.mapping_status !== 'completed');
+    if (!targetPending) {
+      alert('Semua part sudah selesai dibuatkan video mapping.');
+      return;
+    }
+
+    const hasInitialPrompt = !!(
+      (targetPending.mapping_prompt && targetPending.mapping_prompt.trim()) ||
+      (targetPending.prompt && targetPending.prompt.trim())
+    );
+    if (!hasInitialPrompt) {
+      alert(`Prompt Video Mapping Part #${targetPending.part_number} belum diset di Supabase. Silakan set/simpan prompt mapping di Dashboard Step 5 terlebih dahulu.`);
+      return;
+    }
+
     isAutoProgressMappingActive = true;
     updateAutoProgressMappingUI();
     if (mappingLiveStatus) mappingLiveStatus.classList.remove('hidden');
@@ -1372,6 +1483,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (mappingStepLog) {
           mappingStepLog.className = 'mapping-step-log success';
           mappingStepLog.innerHTML = `🎉 <b>SELURUH VIDEO MAPPING SELESAI!</b> Semua part (${currentChunks.length} part) telah selesai dipetakan & tersimpan di database.`;
+        }
+        isAutoProgressMappingActive = false;
+        updateAutoProgressMappingUI();
+        break;
+      }
+
+      const hasLoopPrompt = !!(
+        (nextPending.mapping_prompt && nextPending.mapping_prompt.trim()) ||
+        (nextPending.prompt && nextPending.prompt.trim())
+      );
+      if (!hasLoopPrompt) {
+        if (mappingStepLog) {
+          mappingStepLog.className = 'mapping-step-log warn';
+          mappingStepLog.innerHTML = `⚠️ <b>Auto Progress Terhenti:</b> Prompt Video Mapping Part #${nextPending.part_number} belum diset. Silakan generate & simpan prompt mapping di Dashboard Step 5.`;
         }
         isAutoProgressMappingActive = false;
         updateAutoProgressMappingUI();

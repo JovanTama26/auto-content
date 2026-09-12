@@ -158,6 +158,12 @@ html, body {
   font-size: 10.5px;
 }
 
+.count-pill.warning-badge {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
 /* Session Card */
 .session-card {
   background: #131b2e;
@@ -635,9 +641,11 @@ html, body {
   box-shadow: 0 6px 16px rgba(124, 58, 237, 0.35);
 }
 .btn-run-mapping:disabled {
-  opacity: 0.6;
+  opacity: 0.45;
   cursor: not-allowed;
   transform: none;
+  filter: grayscale(0.5);
+  box-shadow: none;
 }
 
 .btn-auto-progress-mapping {
@@ -668,8 +676,11 @@ html, body {
   box-shadow: 0 0 10px rgba(245, 158, 11, 0.25);
 }
 .btn-auto-progress-mapping:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
+  filter: grayscale(0.5);
+  border-color: #334155;
+  color: #64748b;
 }
 
 .mapping-status-box {
