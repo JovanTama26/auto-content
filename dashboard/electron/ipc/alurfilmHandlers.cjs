@@ -3,6 +3,8 @@ const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const { parseSrtToEntries } = require('../shared/subtitle-utils.cjs');
+const { syncAnalysesFromSupabase } = require('../shared/supabaseClient.cjs');
+
 
 function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
   // Ensure alurfilm dirs exist
@@ -650,7 +652,18 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
   // ─── List Alurfilm Analyses ────────────────────────────
   ipcMain.handle('list-alurfilm-analyses', async (_event, modeContentId) => {
     const contentId = modeContentId || p.getOrGenerateContentId('longform');
-    if (!fs.existsSync(p.ALURFILM_DIR)) return [];
+    if (!fs.existsSync(p.ALURFILM_DIR)) {
+      fs.mkdirSync(p.ALURFILM_DIR, { recursive: true });
+    }
+
+    // Auto-sync missing analyses from Supabase if not present on disk
+    if (contentId) {
+      try {
+        await syncAnalysesFromSupabase(contentId, p.ALURFILM_DIR);
+      } catch (err) {
+        console.warn('[list-alurfilm-analyses] Supabase sync warning:', err.message);
+      }
+    }
 
     const files = fs.readdirSync(p.ALURFILM_DIR);
     const analyses = files
@@ -668,6 +681,44 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
     return analyses;
   });
 
+  // ─── Sync Alurfilm Analyses from Supabase ───────────────
+  ipcMain.handle('sync-alurfilm-analyses-from-supabase', async (_event, rawOpts = {}) => {
+    let opts = {};
+    if (typeof rawOpts === 'string') {
+      opts = { contentId: rawOpts };
+    } else if (typeof rawOpts === 'object' && rawOpts !== null) {
+      opts = rawOpts;
+    }
+    const contentId = opts.contentId || opts.modeContentId || p.getOrGenerateContentId('longform');
+    const force = !!opts.force;
+
+    if (!fs.existsSync(p.ALURFILM_DIR)) {
+      fs.mkdirSync(p.ALURFILM_DIR, { recursive: true });
+    }
+
+    const synced = await syncAnalysesFromSupabase(contentId, p.ALURFILM_DIR, { force });
+
+    const files = fs.readdirSync(p.ALURFILM_DIR);
+    const analyses = files
+      .filter(f => f.startsWith(contentId) && f.includes('_analysis_part_') && f.endsWith('.json'))
+      .sort()
+      .map(f => {
+        const fullPath = path.join(p.ALURFILM_DIR, f);
+        try {
+          const data = JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
+          return { name: f, filePath: fullPath, data };
+        } catch { return null; }
+      })
+      .filter(Boolean);
+
+    return {
+      success: true,
+      syncedCount: synced.length,
+      analyses,
+    };
+  });
+
+
   // ─── Get Alurfilm Prompt ───────────────────────────────
   ipcMain.handle('get-alurfilm-prompt', async (_event, rawOpts = {}) => {
     let opts = {};
@@ -682,11 +733,22 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
 
     // Auto-build cumulative previousContext from disk if not provided or to guarantee full deduplicated history
     const targetContentId = opts.contentId || opts.modeContentId || p.getOrGenerateContentId('longform');
-    if (chunkPart > 0 && fs.existsSync(p.ALURFILM_DIR)) {
+    if (chunkPart > 0) {
+      if (!fs.existsSync(p.ALURFILM_DIR)) fs.mkdirSync(p.ALURFILM_DIR, { recursive: true });
       try {
-        const files = fs.readdirSync(p.ALURFILM_DIR);
-        const analysisFiles = files
+        let files = fs.readdirSync(p.ALURFILM_DIR);
+        let analysisFiles = files
           .filter(f => targetContentId && f.startsWith(targetContentId) && f.includes('_analysis_part_') && f.endsWith('.json'));
+
+        if (analysisFiles.length === 0 && targetContentId) {
+          try {
+            await syncAnalysesFromSupabase(targetContentId, p.ALURFILM_DIR);
+            files = fs.readdirSync(p.ALURFILM_DIR);
+            analysisFiles = files
+              .filter(f => targetContentId && f.startsWith(targetContentId) && f.includes('_analysis_part_') && f.endsWith('.json'));
+          } catch { }
+        }
+
 
         const partMap = new Map();
         analysisFiles.forEach(f => {
@@ -1072,7 +1134,18 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
     const referenceScriptSections = [];
     for (const pt of targetParts) {
       const ptStr = String(pt).padStart(2, '0');
-      const analysisPath = path.join(p.ALURFILM_DIR, `${contentId}_analysis_part_${ptStr}.json`);
+      let analysisPath = path.join(p.ALURFILM_DIR, `${contentId}_analysis_part_${ptStr}.json`);
+      if (!fs.existsSync(analysisPath)) {
+        analysisPath = path.join(p.ALURFILM_DIR, `${contentId}_analysis_part_${pt}.json`);
+      }
+      if (!fs.existsSync(analysisPath)) {
+        try {
+          await syncAnalysesFromSupabase(contentId, p.ALURFILM_DIR);
+          if (fs.existsSync(path.join(p.ALURFILM_DIR, `${contentId}_analysis_part_${ptStr}.json`))) {
+            analysisPath = path.join(p.ALURFILM_DIR, `${contentId}_analysis_part_${ptStr}.json`);
+          }
+        } catch { }
+      }
       if (fs.existsSync(analysisPath)) {
         try {
           const data = JSON.parse(fs.readFileSync(analysisPath, 'utf-8'));
@@ -1631,6 +1704,14 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
       let analysisPath = path.join(p.ALURFILM_DIR, `${contentId}_analysis_part_${partStr}.json`);
       if (!fs.existsSync(analysisPath)) {
         analysisPath = path.join(p.ALURFILM_DIR, `${contentId}_analysis_part_${pt}.json`);
+      }
+      if (!fs.existsSync(analysisPath)) {
+        try {
+          await syncAnalysesFromSupabase(contentId, p.ALURFILM_DIR);
+          if (fs.existsSync(path.join(p.ALURFILM_DIR, `${contentId}_analysis_part_${partStr}.json`))) {
+            analysisPath = path.join(p.ALURFILM_DIR, `${contentId}_analysis_part_${partStr}.json`);
+          }
+        } catch { }
       }
       let scriptText = '';
       if (fs.existsSync(analysisPath)) {

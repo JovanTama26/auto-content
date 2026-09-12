@@ -34,6 +34,47 @@ const AlurfilmAnalyzeStep: React.FC = () => {
 
   const logEndRef = useRef<HTMLDivElement | null>(null);
 
+  // Supabase Sync State
+  const [isSyncingSupabase, setIsSyncingSupabase] = useState<boolean>(false);
+
+  const handleSyncFromSupabase = async () => {
+    if (isSyncingSupabase) return;
+    setIsSyncingSupabase(true);
+    setError(null);
+    try {
+      let analysisList: AlurfilmAnalysisResult[] = [];
+      let syncedCount = 0;
+      if (api.syncAlurfilmAnalysesFromSupabase) {
+        const res = await api.syncAlurfilmAnalysesFromSupabase({ contentId: contentId || undefined, force: false });
+        analysisList = res?.analyses || [];
+        syncedCount = res?.syncedCount || 0;
+      } else {
+        analysisList = await api.listAlurfilmAnalyses(contentId || undefined);
+      }
+
+      const map: Record<number, AlurfilmAnalysisResult> = {};
+      if (analysisList) {
+        for (const item of analysisList) {
+          if (item.data && typeof item.data.chunk_part === 'number') {
+            map[item.data.chunk_part] = item;
+          } else if (typeof item.part === 'number') {
+            map[item.part] = item;
+          }
+        }
+      }
+      setAnalyses(map);
+      showToast(syncedCount > 0 
+        ? `☁️ Berhasil memuat ${syncedCount} naskah baru dari Supabase!` 
+        : `☁️ Data naskah sudah tersinkron dengan Supabase (${Object.keys(map).length} part terdata).`);
+    } catch (err: any) {
+      setError(`Gagal memuat naskah dari Supabase: ${err.message}`);
+      showToast(`❌ Gagal sinkronisasi Supabase: ${err.message}`);
+    } finally {
+      setIsSyncingSupabase(false);
+    }
+  };
+
+
   // User Profile Browser Selection State
   const [availableProfiles, setAvailableProfiles] = useState<string[]>(['user_1', 'user_2']);
   const [selectedProfile, setSelectedProfile] = useState<string>('user_1');
@@ -482,6 +523,16 @@ const safeStr = (val: any, fallback: string = ''): string => {
           >
             <span>{copiedPromptPart === activePart ? '✓' : '📋'}</span>
             {copiedPromptPart === activePart ? `Copied!` : `Copy Prompt`}
+          </button>
+
+          <button
+            onClick={handleSyncFromSupabase}
+            disabled={isSyncingSupabase}
+            className="px-3.5 py-2.5 bg-blue-900/60 hover:bg-blue-800/80 text-blue-300 border border-blue-500/40 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-md disabled:opacity-50"
+            title="Tarik atau sinkronkan naskah dari Supabase jika file lokal belum ada"
+          >
+            <span>{isSyncingSupabase ? '⏳' : '☁️'}</span>
+            {isSyncingSupabase ? 'Memuat...' : 'Tarik Supabase'}
           </button>
 
           <button
@@ -1037,6 +1088,17 @@ const safeStr = (val: any, fallback: string = ''): string => {
                       <p className="text-[10px] text-gray-400">Klik "Import JSON" dan simpan hasilnya.</p>
                     </div>
                   </div>
+                </div>
+
+                <div className="pt-2 text-center">
+                  <button
+                    onClick={handleSyncFromSupabase}
+                    disabled={isSyncingSupabase}
+                    className="px-4 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 rounded-xl text-xs font-semibold transition-all inline-flex items-center gap-2 disabled:opacity-50"
+                  >
+                    <span>{isSyncingSupabase ? '⏳' : '☁️'}</span>
+                    {isSyncingSupabase ? 'Mengecek Supabase...' : `Tarik Naskah Part #${activePart} dari Supabase`}
+                  </button>
                 </div>
               </div>
             )}

@@ -270,6 +270,11 @@ export interface ElectronAPI {
   compressAlurfilmChunk: (opts: { part: number; filePath?: string }) => Promise<AlurfilmChunk>;
   analyzeAlurfilmChunk: (chunkPath: string, chunkPart: number, previousContext?: any) => Promise<AlurfilmAnalysisResult>;
   listAlurfilmAnalyses: (modeContentId?: string) => Promise<AlurfilmAnalysisResult[]>;
+  syncAlurfilmAnalysesFromSupabase?: (opts?: string | { contentId?: string; modeContentId?: string; force?: boolean }) => Promise<{
+    success: boolean;
+    syncedCount: number;
+    analyses: AlurfilmAnalysisResult[];
+  }>;
   getAlurfilmPrompt: (optsOrPartNum: any, totalChunks?: number, previousContext?: any) => Promise<string>;
   saveAlurfilmAnalysis: (contentIdOrPart: string | number, partOrData?: number | any, jsonTextOrPart?: any) => Promise<AlurfilmAnalysisResult>;
   uploadAlurfilmAudio: (contentId: string, parts: number[], filePath: string) => Promise<AlurfilmAudioResult>;

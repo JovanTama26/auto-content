@@ -63,6 +63,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   analyzeAlurfilmChunk: (chunkPath, chunkPart, previousContext) =>
     ipcRenderer.invoke('analyze-alurfilm-chunk', { chunkPath, chunkPart, previousContext }),
   listAlurfilmAnalyses: (modeContentId) => ipcRenderer.invoke('list-alurfilm-analyses', modeContentId),
+  syncAlurfilmAnalysesFromSupabase: (opts) => ipcRenderer.invoke('sync-alurfilm-analyses-from-supabase', opts),
   runAlurfilmGeminiScriptPipeline: (...args) => {
     let opts = {};
     if (args.length === 1 && typeof args[0] === 'object' && args[0] !== null) {
