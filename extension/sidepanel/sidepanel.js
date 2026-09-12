@@ -14,6 +14,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnRefresh = document.getElementById('btnRefresh');
   const btnOpenAIStudio = document.getElementById('btnOpenAIStudio');
 
+  // Navigation tab elements
+  const tabBtnAiStudio = document.getElementById('tabBtnAiStudio');
+  const tabBtnElevenLabs = document.getElementById('tabBtnElevenLabs');
+  const viewAiStudio = document.getElementById('viewAiStudio');
+  const viewElevenLabs = document.getElementById('viewElevenLabs');
+  const btnOpenElevenLabs = document.getElementById('btnOpenElevenLabs');
+
   // Bulk action elements
   const btnUploadAll = document.getElementById('btnUploadAll');
   const bulkSpinner = document.getElementById('bulkSpinner');
@@ -1566,6 +1573,55 @@ document.addEventListener('DOMContentLoaded', async () => {
       window.open('https://aistudio.google.com/prompts/new_chat', '_blank');
     }
   });
+
+  // Tab Navigation Handling
+  function switchTab(tabName) {
+    if (tabName === 'elevenlabs') {
+      tabBtnAiStudio?.classList.remove('active');
+      tabBtnAiStudio?.setAttribute('aria-selected', 'false');
+      tabBtnElevenLabs?.classList.add('active');
+      tabBtnElevenLabs?.setAttribute('aria-selected', 'true');
+
+      viewAiStudio?.classList.add('hidden');
+      viewElevenLabs?.classList.remove('hidden');
+    } else {
+      tabBtnElevenLabs?.classList.remove('active');
+      tabBtnElevenLabs?.setAttribute('aria-selected', 'false');
+      tabBtnAiStudio?.classList.add('active');
+      tabBtnAiStudio?.setAttribute('aria-selected', 'true');
+
+      viewElevenLabs?.classList.add('hidden');
+      viewAiStudio?.classList.remove('hidden');
+    }
+
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.set({ extensionActiveTab: tabName }).catch(() => {});
+    } else {
+      try { localStorage.setItem('extensionActiveTab', tabName); } catch (e) {}
+    }
+  }
+
+  tabBtnAiStudio?.addEventListener('click', () => switchTab('aistudio'));
+  tabBtnElevenLabs?.addEventListener('click', () => switchTab('elevenlabs'));
+
+  if (btnOpenElevenLabs) {
+    btnOpenElevenLabs.addEventListener('click', () => {
+      const url = 'https://elevenlabs.io/app/speech-synthesis';
+      if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.create) {
+        chrome.tabs.create({ url });
+      } else {
+        window.open(url, '_blank');
+      }
+    });
+  }
+
+  // Restore saved active tab
+  try {
+    const saved = await safeStorageGet(['extensionActiveTab']);
+    if (saved?.extensionActiveTab === 'elevenlabs') {
+      switchTab('elevenlabs');
+    }
+  } catch (e) {}
 
   // Initial connection
   await initConnection();

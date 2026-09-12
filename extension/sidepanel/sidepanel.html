@@ -29,99 +29,136 @@
       </div>
     </header>
 
-    <!-- Session Selector Section -->
-    <section class="section">
-      <div class="section-title">
-        <span>🎬 Active Session</span>
-        <button id="btnRefresh" class="btn-icon" title="Refresh Session & Chunks">🔄</button>
-      </div>
-      <div class="session-card">
-        <select id="sessionSelect" class="session-dropdown">
-          <option value="">Memuat session...</option>
-        </select>
-        <div id="sessionMeta" class="session-meta">
-          <span id="sessionPartsCount">0 Part</span>
-          <span class="meta-dot">•</span>
-          <span id="sessionCategory">alurfilm</span>
-          <span class="meta-dot">•</span>
-          <span id="sessionDriveCount" class="text-drive">0 di Drive</span>
+    <!-- Navigation Tabs -->
+    <nav class="nav-tabs" role="tablist" aria-label="Main Navigation">
+      <button id="tabBtnAiStudio" class="tab-btn active" role="tab" aria-selected="true" aria-controls="viewAiStudio">
+        <span class="tab-icon">🤖</span>
+        <span class="tab-label">AI Studio</span>
+      </button>
+      <button id="tabBtnElevenLabs" class="tab-btn" role="tab" aria-selected="false" aria-controls="viewElevenLabs">
+        <span class="tab-icon">🎙️</span>
+        <span class="tab-label">ElevenLabs</span>
+      </button>
+    </nav>
+
+    <!-- Tab View: AI Studio -->
+    <div id="viewAiStudio" class="tab-content active" role="tabpanel" aria-labelledby="tabBtnAiStudio">
+      <!-- Session Selector Section -->
+      <section class="section">
+        <div class="section-title">
+          <span>🎬 Active Session</span>
+          <button id="btnRefresh" class="btn-icon" title="Refresh Session & Chunks">🔄</button>
+        </div>
+        <div class="session-card">
+          <select id="sessionSelect" class="session-dropdown">
+            <option value="">Memuat session...</option>
+          </select>
+          <div id="sessionMeta" class="session-meta">
+            <span id="sessionPartsCount">0 Part</span>
+            <span class="meta-dot">•</span>
+            <span id="sessionCategory">alurfilm</span>
+            <span class="meta-dot">•</span>
+            <span id="sessionDriveCount" class="text-drive">0 di Drive</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Bulk Action: Validasi Semua Part di Drive -->
+      <section class="section action-section">
+        <button id="btnUploadAll" class="btn-upload-all" disabled>
+          <span class="btn-icon-spin hidden" id="bulkSpinner">🔄</span>
+          <span id="bulkUploadText">🔍 Validasi Semua Part di Drive</span>
+        </button>
+        <div id="bulkProgressBarContainer" class="progress-bar-container hidden">
+          <div id="bulkProgressBar" class="progress-bar-fill" style="width: 0%;"></div>
+        </div>
+        <div id="bulkStatusText" class="bulk-status-text"></div>
+      </section>
+
+      <!-- Script Generator Action Section -->
+      <section class="section script-section">
+        <div class="section-title">
+          <span>🤖 AI Script Generator</span>
+          <span id="scriptTargetBadge" class="count-pill" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa;">Part 1</span>
+        </div>
+        <div class="script-buttons-container">
+          <button id="btnRunScript" class="btn-run-script">
+            <span class="btn-icon-spin hidden" id="scriptSpinner">🔄</span>
+            <span id="scriptBtnText">🚀 Kirim & Pantau Output (Part 1)</span>
+          </button>
+          <button id="btnAutoProgress" class="btn-auto-progress">
+            <span class="btn-icon" id="autoProgressIcon">⚡</span>
+            <span id="autoProgressText">Auto Progress (Jalankan Semua Part Otomatis)</span>
+          </button>
+        </div>
+        <div id="scriptLiveStatus" class="script-status-box hidden">
+          <div id="scriptStepLog" class="script-step-log">Menunggu eksekusi...</div>
+        </div>
+      </section>
+
+      <!-- Video Mapping Generator Action Section -->
+      <section class="section mapping-section">
+        <div class="section-title">
+          <span>🎯 AI Video Mapping Generator</span>
+          <span id="mappingTargetBadge" class="count-pill mapping-badge">Part 1</span>
+        </div>
+        <div class="mapping-buttons-container">
+          <button id="btnRunMapping" class="btn-run-mapping" disabled title="Prompt video mapping belum diset. Buka Dashboard Step 5 terlebih dahulu.">
+            <span class="btn-icon-spin hidden" id="mappingSpinner">🔄</span>
+            <span id="mappingBtnText">🔒 Prompt Mapping Belum di-Set</span>
+          </button>
+          <button id="btnAutoProgressMapping" class="btn-auto-progress-mapping" disabled title="Prompt video mapping belum diset. Buka Dashboard Step 5 terlebih dahulu.">
+            <span class="btn-icon" id="autoProgressMappingIcon">⚡</span>
+            <span id="autoProgressMappingText">Auto Progress Mapping (Semua Part)</span>
+          </button>
+        </div>
+        <div id="mappingLiveStatus" class="mapping-status-box hidden">
+          <div id="mappingStepLog" class="mapping-step-log">Menunggu eksekusi mapping...</div>
+        </div>
+      </section>
+
+      <!-- Chunks Queue List (Full Height Scrollable) -->
+      <section class="section flex-1">
+        <div class="section-title">
+          <span>📑 Video Chunks List</span>
+          <span id="queueCount" class="count-pill">0</span>
+        </div>
+        <div id="chunksList" class="chunks-list">
+          <div class="empty-state">
+            <span>Memuat data chunk dari Supabase...</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Footer Action -->
+      <footer class="footer">
+        <button id="btnOpenAIStudio" class="btn-secondary">
+          <span>🌐 Buka Google AI Studio</span>
+        </button>
+      </footer>
+    </div>
+
+    <!-- Tab View: ElevenLabs (Workspace Kosongan / Siap Otomasi) -->
+    <div id="viewElevenLabs" class="tab-content hidden" role="tabpanel" aria-labelledby="tabBtnElevenLabs">
+      <div class="empty-tab-container">
+        <div class="empty-tab-card">
+          <div class="empty-tab-icon">🎙️</div>
+          <h3 class="empty-tab-title">ElevenLabs Automation</h3>
+          <p class="empty-tab-desc">
+            Tab khusus otomasi voiceover ElevenLabs. Naskah voiceover siap-TTS dari AI Studio akan diotomasi di tab ini.
+          </p>
+          <div class="empty-tab-badge">
+            <span class="pulse-dot"></span>
+            <span>Siap Dikonfigurasi</span>
+          </div>
+          <div class="empty-tab-actions">
+            <button id="btnOpenElevenLabs" class="btn-primary-elevenlabs">
+              <span>🌐 Buka ElevenLabs Studio</span>
+            </button>
+          </div>
         </div>
       </div>
-    </section>
-
-    <!-- Bulk Action: Validasi Semua Part di Drive -->
-    <section class="section action-section">
-      <button id="btnUploadAll" class="btn-upload-all" disabled>
-        <span class="btn-icon-spin hidden" id="bulkSpinner">🔄</span>
-        <span id="bulkUploadText">🔍 Validasi Semua Part di Drive</span>
-      </button>
-      <div id="bulkProgressBarContainer" class="progress-bar-container hidden">
-        <div id="bulkProgressBar" class="progress-bar-fill" style="width: 0%;"></div>
-      </div>
-      <div id="bulkStatusText" class="bulk-status-text"></div>
-    </section>
-
-    <!-- Script Generator Action Section -->
-    <section class="section script-section">
-      <div class="section-title">
-        <span>🤖 AI Script Generator</span>
-        <span id="scriptTargetBadge" class="count-pill" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa;">Part 1</span>
-      </div>
-      <div class="script-buttons-container">
-        <button id="btnRunScript" class="btn-run-script">
-          <span class="btn-icon-spin hidden" id="scriptSpinner">🔄</span>
-          <span id="scriptBtnText">🚀 Kirim & Pantau Output (Part 1)</span>
-        </button>
-        <button id="btnAutoProgress" class="btn-auto-progress">
-          <span class="btn-icon" id="autoProgressIcon">⚡</span>
-          <span id="autoProgressText">Auto Progress (Jalankan Semua Part Otomatis)</span>
-        </button>
-      </div>
-      <div id="scriptLiveStatus" class="script-status-box hidden">
-        <div id="scriptStepLog" class="script-step-log">Menunggu eksekusi...</div>
-      </div>
-    </section>
-
-    <!-- Video Mapping Generator Action Section -->
-    <section class="section mapping-section">
-      <div class="section-title">
-        <span>🎯 AI Video Mapping Generator</span>
-        <span id="mappingTargetBadge" class="count-pill mapping-badge">Part 1</span>
-      </div>
-      <div class="mapping-buttons-container">
-        <button id="btnRunMapping" class="btn-run-mapping" disabled title="Prompt video mapping belum diset. Buka Dashboard Step 5 terlebih dahulu.">
-          <span class="btn-icon-spin hidden" id="mappingSpinner">🔄</span>
-          <span id="mappingBtnText">🔒 Prompt Mapping Belum di-Set</span>
-        </button>
-        <button id="btnAutoProgressMapping" class="btn-auto-progress-mapping" disabled title="Prompt video mapping belum diset. Buka Dashboard Step 5 terlebih dahulu.">
-          <span class="btn-icon" id="autoProgressMappingIcon">⚡</span>
-          <span id="autoProgressMappingText">Auto Progress Mapping (Semua Part)</span>
-        </button>
-      </div>
-      <div id="mappingLiveStatus" class="mapping-status-box hidden">
-        <div id="mappingStepLog" class="mapping-step-log">Menunggu eksekusi mapping...</div>
-      </div>
-    </section>
-
-    <!-- Chunks Queue List (Full Height Scrollable) -->
-    <section class="section flex-1">
-      <div class="section-title">
-        <span>📑 Video Chunks List</span>
-        <span id="queueCount" class="count-pill">0</span>
-      </div>
-      <div id="chunksList" class="chunks-list">
-        <div class="empty-state">
-          <span>Memuat data chunk dari Supabase...</span>
-        </div>
-      </div>
-    </section>
-
-    <!-- Footer Action -->
-    <footer class="footer">
-      <button id="btnOpenAIStudio" class="btn-secondary">
-        <span>🌐 Buka Google AI Studio</span>
-      </button>
-    </footer>
+    </div>
   </div>
 
   <script src="../lib/supabase.js"></script>

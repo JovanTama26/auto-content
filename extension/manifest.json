@@ -30,6 +30,7 @@
     "https://aistudio.google.com/*",
     "https://docs.google.com/*",
     "https://drive.google.com/*",
+    "https://elevenlabs.io/*",
     "https://supabase.riztama.my.id/*",
     "http://127.0.0.1:*/*",
     "http://localhost:*/*"

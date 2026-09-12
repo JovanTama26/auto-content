@@ -114,6 +114,163 @@ html, body {
   background: #ef4444;
 }
 
+/* Navigation Tabs */
+.nav-tabs {
+  display: flex;
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 10px;
+  padding: 3px;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.tab-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 7px;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.tab-btn:hover {
+  color: #f1f5f9;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.tab-btn.active {
+  background: linear-gradient(135deg, #7c3aed, #4f46e5);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.35);
+}
+
+.tab-btn .tab-icon {
+  font-size: 13px;
+}
+
+/* Tab Views Container */
+.tab-content {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+}
+
+.tab-content.hidden {
+  display: none !important;
+}
+
+/* Empty Tab View for ElevenLabs */
+.empty-tab-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 8px;
+}
+
+.empty-tab-card {
+  width: 100%;
+  background: #131b2e;
+  border: 1px dashed rgba(124, 58, 237, 0.4);
+  border-radius: 14px;
+  padding: 28px 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+.empty-tab-icon {
+  width: 54px;
+  height: 54px;
+  border-radius: 14px;
+  background: rgba(124, 58, 237, 0.15);
+  border: 1px solid rgba(124, 58, 237, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  box-shadow: 0 4px 14px rgba(124, 58, 237, 0.2);
+}
+
+.empty-tab-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.empty-tab-desc {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #94a3b8;
+  max-width: 280px;
+}
+
+.empty-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: rgba(124, 58, 237, 0.12);
+  border: 1px solid rgba(124, 58, 237, 0.25);
+  border-radius: 9999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #c4b5fd;
+}
+
+.empty-tab-badge .pulse-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #a78bfa;
+  box-shadow: 0 0 8px #a78bfa;
+  animation: pulse 1.8s infinite;
+}
+
+.empty-tab-actions {
+  margin-top: 4px;
+  width: 100%;
+}
+
+.btn-primary-elevenlabs {
+  width: 100%;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, #7c3aed, #6366f1);
+  border: 1px solid rgba(167, 139, 250, 0.4);
+  border-radius: 8px;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.25);
+}
+
+.btn-primary-elevenlabs:hover {
+  background: linear-gradient(135deg, #6d28d9, #4f46e5);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(124, 58, 237, 0.35);
+}
+
 /* Sections */
 .section {
   display: flex;
