@@ -486,6 +486,51 @@ html, body {
   font-weight: 600;
 }
 
+.account-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid #1e293b;
+}
+
+.btn-verify-account {
+  background: rgba(124, 58, 237, 0.2);
+  border: 1px solid rgba(124, 58, 237, 0.4);
+  color: #c4b5fd;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.btn-verify-account:hover:not(:disabled) {
+  background: #7c3aed;
+  color: #ffffff;
+}
+.btn-verify-account:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.link-verify-url {
+  font-size: 10px;
+  color: #38bdf8;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.link-verify-url:hover {
+  text-decoration: underline;
+}
+
 /* Sections */
 .section {
   display: flex;

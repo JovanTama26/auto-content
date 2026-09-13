@@ -73,7 +73,52 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           payload: { email, password },
         });
 
-        sendResponse({ success: true, ...res });
+        sendResponse({ success: true, tabId: targetTab.id, ...res });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message });
+      }
+    })();
+    return true; // async
+  }
+
+  // 3. Modul ElevenLabs Account Activation via verifyUrl
+  if (message.action === 'VERIFY_ELEVENLABS_ACCOUNT') {
+    (async () => {
+      try {
+        const { verifyUrl, tabId } = message.payload || {};
+        if (!verifyUrl) throw new Error('verifyUrl tidak valid');
+
+        let targetTabId = tabId;
+        if (targetTabId) {
+          try {
+            await chrome.tabs.update(targetTabId, { url: verifyUrl, active: true });
+          } catch (e) {
+            const newTab = await chrome.tabs.create({ url: verifyUrl, active: true });
+            targetTabId = newTab.id;
+          }
+        } else {
+          const newTab = await chrome.tabs.create({ url: verifyUrl, active: true });
+          targetTabId = newTab.id;
+        }
+
+        // Tunggu tab aktivasi selesai memuat
+        await new Promise((resolve) => {
+          let timeoutId;
+          function listener(tid, changeInfo) {
+            if (tid === targetTabId && changeInfo.status === 'complete') {
+              chrome.tabs.onUpdated.removeListener(listener);
+              clearTimeout(timeoutId);
+              resolve();
+            }
+          }
+          chrome.tabs.onUpdated.addListener(listener);
+          timeoutId = setTimeout(() => {
+            chrome.tabs.onUpdated.removeListener(listener);
+            resolve();
+          }, 12000);
+        });
+
+        sendResponse({ success: true, tabId: targetTabId });
       } catch (err) {
         sendResponse({ success: false, error: err.message });
       }

@@ -1687,6 +1687,14 @@ document.addEventListener('DOMContentLoaded', async () => {
           : '10.000 Credits';
         const createdDate = acc.created_at ? new Date(acc.created_at).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' }) : '-';
 
+        const verifyBtnHtml = isPending
+          ? `<button class="btn-verify-account" data-verify-email="${acc.email}" title="Cek webhook n8n untuk link verifikasi email ini">⚡ Ambil Link Verif</button>`
+          : '';
+
+        const verifyLinkHtml = acc.verification_link
+          ? `<a href="${acc.verification_link}" target="_blank" class="link-verify-url" title="${acc.verification_link}">🔗 Buka Link Verif</a>`
+          : '<span style="color: #64748b; font-size: 10px;">Link belum ada</span>';
+
         return `
           <div class="account-card" data-account-id="${acc.id || ''}">
             <div class="account-header">
@@ -1698,9 +1706,23 @@ document.addEventListener('DOMContentLoaded', async () => {
               <span class="account-credits">${credits}</span>
               <span>${createdDate}</span>
             </div>
+            <div class="account-actions">
+              ${verifyLinkHtml}
+              ${verifyBtnHtml}
+            </div>
           </div>
         `;
       }).join('');
+
+      // Pasang listener untuk tombol Ambil Link Verif pada akun-akun yang pending
+      elevenlabsAccountsList.querySelectorAll('.btn-verify-account').forEach((btn) => {
+        btn.addEventListener('click', async (e) => {
+          const emailToVerify = e.currentTarget.getAttribute('data-verify-email');
+          if (emailToVerify) {
+            await handleManualVerify(emailToVerify, e.currentTarget);
+          }
+        });
+      });
     } catch (err) {
       console.error('[ElevenLabs] Gagal memuat akun dari Supabase:', err);
       if (accountsCountBadge) accountsCountBadge.textContent = 'Error';
@@ -1722,6 +1744,53 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+  async function handleManualVerify(email, btnEl) {
+    if (btnEl) btnEl.disabled = true;
+    setSignupStatus(`Mengecek webhook n8n untuk email ${email}...`, 'warn');
+
+    try {
+      if (!window.ElevenLabsVerify) {
+        throw new Error('Modul ElevenLabsVerify belum siap.');
+      }
+
+      const res = await window.ElevenLabsVerify.pollForVerifyUrl(email, {
+        initialDelayMs: 0,
+        maxAttempts: 15,
+        onProgress: (msg) => setSignupStatus(msg, 'warn'),
+      });
+
+      if (res && res.verifyUrl) {
+        setSignupStatus(`Link verifikasi ditemukan! Menyimpan ke Supabase & mengaktifkan...`, 'warn');
+
+        // Simpan link verifikasi ke Supabase
+        await window.SupabaseBridge.updateElevenLabsAccount(email, {
+          verification_link: res.verifyUrl,
+        });
+
+        // Buka tab verifikasi
+        if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+          await chrome.runtime.sendMessage({
+            action: 'VERIFY_ELEVENLABS_ACCOUNT',
+            payload: { verifyUrl: res.verifyUrl },
+          });
+        }
+
+        // Update status di Supabase menjadi active
+        await window.SupabaseBridge.updateElevenLabsAccount(email, {
+          status: 'active',
+        });
+
+        setSignupStatus(`🎉 Akun ${email} berhasil diaktivasi & status di Supabase berubah menjadi Active!`, 'success');
+        await loadElevenLabsAccounts();
+      }
+    } catch (err) {
+      console.error('[Manual Verify Error]', err);
+      setSignupStatus(`❌ Gagal verifikasi ${email}: ${err.message}`, 'error');
+    } finally {
+      if (btnEl) btnEl.disabled = false;
+    }
+  }
+
   async function handleAutoSignupElevenLabs() {
     if (isSigningUpElevenLabs) return;
     const email = inputSignupEmail?.value?.trim();
@@ -1736,7 +1805,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (btnAutoSignupElevenLabs) btnAutoSignupElevenLabs.disabled = true;
     if (signupSpinner) signupSpinner.classList.remove('hidden');
     if (signupBtnText) signupBtnText.textContent = 'Mendaftarkan ke ElevenLabs...';
-    setSignupStatus(`1/3 Menyimpan kredensial ${email} ke Supabase Cloud...`, 'warn');
+    setSignupStatus(`1/5 Menyimpan kredensial ${email} ke Supabase Cloud...`, 'warn');
 
     try {
       // 1. Simpan ke Supabase terlebih dahulu (Safety requirement)
@@ -1749,20 +1818,20 @@ document.addEventListener('DOMContentLoaded', async () => {
           credits_remaining: 10000,
         });
         dbSaved = true;
-        setSignupStatus(`2/3 Kredensial tersimpan di Supabase! Membuka halaman signup ElevenLabs...`, 'warn');
+        setSignupStatus(`2/5 Kredensial tersimpan di Supabase! Membuka halaman signup ElevenLabs...`, 'warn');
       } catch (dbErr) {
         console.warn('[ElevenLabs] Warning saat simpan ke Supabase:', dbErr);
         setSignupStatus(`⚠️ Gagal simpan DB (${dbErr.message}), tetap lanjut proses registrasi di browser...`, 'warn');
       }
 
       // 2. Kirim pesan ke background script untuk membuka tab & isi form
-      setSignupStatus(`3/3 Mengisi email & password di tab ElevenLabs dan klik Sign up...`, 'warn');
+      setSignupStatus(`3/5 Mengisi email & password di tab ElevenLabs dan klik Sign up...`, 'warn');
 
       let signupRes;
       if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
         signupRes = await chrome.runtime.sendMessage({
           action: 'OPEN_AND_SIGNUP_ELEVENLABS',
-          payload: { email, password }
+          payload: { email, password },
         });
       } else {
         throw new Error('Chrome extension runtime messaging tidak tersedia.');
@@ -1772,10 +1841,47 @@ document.addEventListener('DOMContentLoaded', async () => {
         throw new Error(signupRes?.error || 'Gagal mengeksekusi otomatisasi sign up di tab ElevenLabs.');
       }
 
-      const msg = dbSaved
-        ? `🎉 BERHASIL! Link verifikasi telah dikirim ke ${email} dan kredensial tersimpan di Supabase.`
-        : `🎉 BERHASIL! Link verifikasi telah dikirim ke ${email}. (Catatan: tabel Supabase perlu dimigrasi).`;
-      setSignupStatus(msg, 'success');
+      // 3. Form terkirim, sekarang hubungi n8n webhook untuk polling link verifikasi email
+      setSignupStatus(`4/5 Form Sign Up terkirim! Menunggu email masuk & mengecek webhook n8n...`, 'warn');
+
+      try {
+        if (!window.ElevenLabsVerify) {
+          throw new Error('Modul ElevenLabsVerify belum terpasang di window.');
+        }
+
+        const verifyRes = await window.ElevenLabsVerify.pollForVerifyUrl(email, {
+          initialDelayMs: 4000,
+          onProgress: (msg) => setSignupStatus(`4/5 ${msg}`, 'warn'),
+        });
+
+        if (verifyRes && verifyRes.verifyUrl) {
+          setSignupStatus(`5/5 Link verifikasi didapatkan! Mengakses aktivasi ElevenLabs...`, 'warn');
+
+          // Simpan link verifikasi ke Supabase
+          await window.SupabaseBridge.updateElevenLabsAccount(email, {
+            verification_link: verifyRes.verifyUrl,
+          });
+
+          // Buka link verifikasi untuk aktivasi akun ElevenLabs
+          await chrome.runtime.sendMessage({
+            action: 'VERIFY_ELEVENLABS_ACCOUNT',
+            payload: { verifyUrl: verifyRes.verifyUrl, tabId: signupRes.tabId },
+          });
+
+          // Update status di Supabase menjadi active
+          await window.SupabaseBridge.updateElevenLabsAccount(email, {
+            status: 'active',
+          });
+
+          setSignupStatus(`🎉 BERHASIL TOTAL! Akun ${email} telah terverifikasi & aktif di Supabase Cloud (10.000 Credits)!`, 'success');
+        }
+      } catch (verifyErr) {
+        console.warn('[ElevenLabs Verification Warning]', verifyErr);
+        const warnMsg = dbSaved
+          ? `⚠️ Pendaftaran form selesai & tersimpan di Supabase, tapi verifikasi email otomatis belum selesai: ${verifyErr.message}. Klik "⚡ Ambil Link Verif" di daftar akun bila email sudah tiba.`
+          : `⚠️ Pendaftaran selesai, verifikasi email: ${verifyErr.message}`;
+        setSignupStatus(warnMsg, 'warn');
+      }
 
       // Refresh daftar akun
       await loadElevenLabsAccounts();

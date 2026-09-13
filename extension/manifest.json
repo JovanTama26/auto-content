@@ -31,6 +31,7 @@
     "https://docs.google.com/*",
     "https://drive.google.com/*",
     "https://elevenlabs.io/*",
+    "https://n8n.riztama.my.id/*",
     "https://supabase.riztama.my.id/*",
     "http://127.0.0.1:*/*",
     "http://localhost:*/*"
