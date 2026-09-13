@@ -171,6 +171,17 @@
             </button>
           </div>
 
+          <!-- Fallback: Tempel Link Verifikasi Langsung dari Gmail jika sudah terlanjur dibuka -->
+          <div class="manual-verify-container" id="manualVerifyBox">
+            <div class="manual-verify-label">
+              <span>💡 Email sudah dibuka di Gmail? Tempel link <b>Verify email</b> di sini:</span>
+            </div>
+            <div class="input-with-action">
+              <input type="text" id="inputManualVerifyUrl" class="form-input text-xs" placeholder="https://auth.elevenlabs.io/u/verify-email?ticket=..." />
+              <button id="btnProcessManualVerify" class="btn-input-action btn-verify-action" title="Proses Verifikasi & Masuk Dashboard">🚀 Verif</button>
+            </div>
+          </div>
+
           <div id="signupLiveStatus" class="signup-status-box hidden">
             <div id="signupStepLog" class="signup-step-log">Siap mendaftar...</div>
           </div>
