@@ -375,6 +375,40 @@ html, body {
   transform: none;
 }
 
+.signup-buttons-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.btn-fetch-link-only {
+  width: 100%;
+  padding: 8px 12px;
+  background: rgba(30, 27, 75, 0.7);
+  border: 1px solid #6366f1;
+  border-radius: 6px;
+  color: #c7d2fe;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.2s;
+}
+
+.btn-fetch-link-only:hover:not(:disabled) {
+  background: #4338ca;
+  border-color: #818cf8;
+  color: #ffffff;
+}
+
+.btn-fetch-link-only:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .signup-status-box {
   padding: 8px 10px;
   background: #0f172a;

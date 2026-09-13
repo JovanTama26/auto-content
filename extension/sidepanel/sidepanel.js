@@ -26,6 +26,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const inputSignupPassword = document.getElementById('inputSignupPassword');
   const btnRegenEmail = document.getElementById('btnRegenEmail');
   const btnAutoSignupElevenLabs = document.getElementById('btnAutoSignupElevenLabs');
+  const btnFetchLinkOnly = document.getElementById('btnFetchLinkOnly');
   const signupSpinner = document.getElementById('signupSpinner');
   const signupBtnText = document.getElementById('signupBtnText');
   const signupLiveStatus = document.getElementById('signupLiveStatus');
@@ -1746,42 +1747,43 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   async function handleManualVerify(email, btnEl) {
     if (btnEl) btnEl.disabled = true;
-    setSignupStatus(`Mengecek webhook n8n untuk email ${email}...`, 'warn');
+    setSignupStatus(`1/3 Mengambil link verifikasi dari n8n webhook untuk ${email}...`, 'warn');
 
     try {
       if (!window.ElevenLabsVerify) {
         throw new Error('Modul ElevenLabsVerify belum siap.');
       }
 
-      const res = await window.ElevenLabsVerify.pollForVerifyUrl(email, {
-        initialDelayMs: 0,
-        maxAttempts: 15,
-        onProgress: (msg) => setSignupStatus(msg, 'warn'),
-      });
+      // Gunakan getVerifyUrl langsung (sekali tembak terisolasi)
+      const res = await window.ElevenLabsVerify.getVerifyUrl(email);
 
       if (res && res.verifyUrl) {
-        setSignupStatus(`Link verifikasi ditemukan! Menyimpan ke Supabase & mengaktifkan...`, 'warn');
+        setSignupStatus(`2/3 Link verifikasi ditemukan! Menyimpan ke Supabase & mengaktifkan di browser...`, 'warn');
 
-        // Simpan link verifikasi ke Supabase
+        // 1. Simpan link verifikasi ke Supabase
         await window.SupabaseBridge.updateElevenLabsAccount(email, {
           verification_link: res.verifyUrl,
         });
 
-        // Buka tab verifikasi
+        // 2. Buka tab verifikasi
         if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
           await chrome.runtime.sendMessage({
             action: 'VERIFY_ELEVENLABS_ACCOUNT',
             payload: { verifyUrl: res.verifyUrl },
           });
+        } else {
+          window.open(res.verifyUrl, '_blank');
         }
 
-        // Update status di Supabase menjadi active
+        // 3. Update status di Supabase menjadi active
         await window.SupabaseBridge.updateElevenLabsAccount(email, {
           status: 'active',
         });
 
-        setSignupStatus(`🎉 Akun ${email} berhasil diaktivasi & status di Supabase berubah menjadi Active!`, 'success');
+        setSignupStatus(`🎉 BERHASIL! Link verifikasi untuk ${email} berhasil didapatkan & akun telah diaktivasi!`, 'success');
         await loadElevenLabsAccounts();
+      } else {
+        throw new Error('Link verifikasi kosong dari webhook n8n.');
       }
     } catch (err) {
       console.error('[Manual Verify Error]', err);
@@ -1842,7 +1844,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       // 3. Form terkirim, sekarang hubungi n8n webhook untuk polling link verifikasi email
-      setSignupStatus(`4/5 Form Sign Up terkirim! Menunggu email masuk & mengecek webhook n8n...`, 'warn');
+      setSignupStatus(`4/5 Form Sign Up terkirim! Mengambil link verifikasi dari n8n webhook...`, 'warn');
 
       try {
         if (!window.ElevenLabsVerify) {
@@ -1850,7 +1852,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         const verifyRes = await window.ElevenLabsVerify.pollForVerifyUrl(email, {
-          initialDelayMs: 4000,
+          initialDelayMs: 2000,
+          maxAttempts: 12,
+          intervalMs: 3000,
           onProgress: (msg) => setSignupStatus(`4/5 ${msg}`, 'warn'),
         });
 
@@ -1914,6 +1918,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   btnAutoSignupElevenLabs?.addEventListener('click', async () => {
     await handleAutoSignupElevenLabs();
+  });
+
+  btnFetchLinkOnly?.addEventListener('click', async () => {
+    const email = inputSignupEmail?.value?.trim();
+    if (!email) {
+      setSignupStatus('Target email tidak boleh kosong.', 'error');
+      return;
+    }
+    await handleManualVerify(email, btnFetchLinkOnly);
   });
 
   btnRefreshAccounts?.addEventListener('click', async () => {

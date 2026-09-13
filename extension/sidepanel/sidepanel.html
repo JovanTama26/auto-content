@@ -161,10 +161,15 @@
             <input type="text" id="inputSignupPassword" class="form-input font-mono" value="Jovan@1224" readonly />
           </div>
 
-          <button id="btnAutoSignupElevenLabs" class="btn-auto-signup">
-            <span class="btn-icon-spin hidden" id="signupSpinner">🔄</span>
-            <span id="signupBtnText">🚀 Daftar & Simpan ke Supabase</span>
-          </button>
+          <div class="signup-buttons-container">
+            <button id="btnAutoSignupElevenLabs" class="btn-auto-signup">
+              <span class="btn-icon-spin hidden" id="signupSpinner">🔄</span>
+              <span id="signupBtnText">🚀 Daftar & Simpan ke Supabase</span>
+            </button>
+            <button id="btnFetchLinkOnly" class="btn-fetch-link-only" title="Hanya ambil link verifikasi dari n8n webhook untuk email target di atas tanpa submit ulang form">
+              <span>⚡ Ambil Link Verif Saja (Terisolasi)</span>
+            </button>
+          </div>
 
           <div id="signupLiveStatus" class="signup-status-box hidden">
             <div id="signupStepLog" class="signup-step-log">Siap mendaftar...</div>
