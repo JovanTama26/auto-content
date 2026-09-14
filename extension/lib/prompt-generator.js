@@ -74,9 +74,9 @@ BENCHMARK STYLES (REFERENSI GAYA — JANGAN DISALIN MENTAH)
 ⚠️ Contoh-contoh di bawah HANYA sebagai patokan ritme dan kualitas diksi. AI WAJIB 100% kreatif dan adaptif sesuai konteks film yang sedang dianalisis. Ganti placeholder \`[Nama Karakter]\` secara dinamis.
 
 **Pembuka Part 1 (Pengenalan Karakter & Awal Cerita):**
-* *"Okeee, jadi nih di awalan kita diperkenalkan sama sosok mas-mas sangar yang bernama [Nama Karakter]..."*
-* *"Nah, cerita dimulai pas kita dikenalin sama seorang karakter bernama [Nama Karakter] yang hidupnya miris banget..."*
-* *"Oke bro, jadi di bagian awal ini kita langsung dipertemukan sama sosok [Nama Karakter] yang sehari-hari diperlakukan kayak hewan petarung..."*
+* *"Di sebuah kawasan kumuh yang terisolasi, sosok [Nama Karakter] harus menjalani hari-harinya di bawah tekanan berat kelompok preman..."*
+* *"Malam itu di tengah guyuran hujan lebat, sosok [Nama Karakter] tampak terduduk lemas meratapi nasibnya yang tak kunjung membaik..."*
+* *"Di balik jeruji besi yang dingin dan berkarat, sosok [Nama Karakter] diperlakukan secara kejam layaknya hewan petarung..."*
 
 **Alur Kejadian (Santai & Dinamis):**
 * *"Nah pas kerahnya dilepas, si [Nama Karakter] ini langsung ngehajar semua preman di ruangan itu tanpa ampun..."*
@@ -95,18 +95,21 @@ BENCHMARK STYLES (REFERENSI GAYA — JANGAN DISALIN MENTAH)
 ==================================================
 
 ### 2.1 Part 1 / Part Pembuka Film (\`is_first_part = YA\`)
-🚫 **TANPA INTRO FORMAL / TANPA TEASER TERPISAH**:
-- **DILARANG KERAS** membuat intro formal seperti sapaan MC, teaser recap berulang, atau kalimat penutup intro baku ("As usual nggak usah berlama-lama, let's gooo").
-- **LANGSUNG MASUK KE ALUR CERITA SEJAK KALIMAT PERTAMA**:
-  Naskah WAJIB langsung hanyut ke dalam alur cerita film dari detik 0. Gunakan variasi pembuka cerita yang dinamis, cair, lepas, dan mengalir alami khas cowok menceritakan alur film ke temannya.
+🚫 **ATURAN MUTLAK PEMBUKA (ANTI-KLISE & TANPA KATA 'OKEE'):**
+1. 🛑 **DILARANG KERAS MENGGUNAKAN KATA 'OKEE' / 'OKE' / 'OKE BRO' DI AWAL KALIMAT PERTAMA!**
+2. 🛑 **DILARANG KERAS MENGGUNAKAN POLA META-PEMBUKA KLISE**:
+   - Dilarang keras memakai variasi: *"cerita dimulai"*, *"cerita diawali"*, *"film diawali"*, *"di awal cerita"*, *"di awal film"*, *"di awalan kita"*, *"di bagian pembuka ini"*, atau varian sejenisnya!
+3. 🛑 **DILARANG KERAS INTRO FORMAL / SAPAAN MC**:
+   - Dilarang menyapa penonton seperti *"Halo guys"*, *"Balik lagi bareng gue"*, *"As usual nggak usah berlama-lama"*.
+4. ✅ **WAJIB LANGSUNG TERJUN KE LATAR TEMPAT, AKSI, ATAU SITUASI DRAMATIS NYATA (IN MEDIAS RES)**:
+   - Kalimat pertama naskah WAJIB langsung mendeskripsikan apa yang sedang terjadi di layar secara alami, lugas, dan hidup — seolah penonton langsung dilempar ke tengah-tengah peristiwa film tersebut!
 
-💡 **Variasi Pembuka Cerita Dinamis (DILARANG MENGULANG STRUCTURAL TEMPLATE PERSIS SAMA):**
-* *"Okeee, jadi nih di awal cerita kita langsung diperkenalkan sama sosok [Nama Karakter] yang..."*
-* *"Nah, cerita dimulai pas kita dikenalin sama seorang karakter bernama [Nama Karakter]..."*
-* *"Di awal film ini, kita langsung dipertemukan sama sosok [Nama Karakter] yang sehari-hari..."*
-* *"Oke bro, jadi di bagian pembuka ini kehidupan [Nama Karakter] mendadak berubah pas..."*
-* *"Nih di awalan film, sosok [Nama Karakter] tampak lagi..."*
-* *"Cerita diawali pas sosok [Nama Karakter] mendadak disergap sama..."*
+💡 **Contoh Pembuka Cerita yang Benar (Langsung ke Aksi / Latar Nyata):**
+* *"Di sebuah danau es yang membeku, Mike dan kawan-kawannya mendapati sebuah lubang pemancingan misterius yang menganga di tengah hamparan salju..."*
+* *"Malam itu di tengah guyuran hujan lebat, sosok [Nama Karakter] terlihat berlari kencang sambil mendekap tas misterius..."*
+* *"Di balik jeruji besi yang dingin dan berkarat, sosok [Nama Karakter] terbaring lemas dengan tubuh penuh luka..."*
+* *"Suara sirine meraung-raung di jalanan kota saat puluhan mobil polisi melaju kencang mengejar..."*
+* *"Di tengah hiruk pikuk stasiun kereta bawah tanah, sosok [Nama Karakter] mendadak disergap oleh sekelompok pria berjas hitam..."*
 
 Dianjurkan membuka Part 1 dengan \`[VISUAL_ONLY (Range: 00:00 - 00:35, Duration: 8s): Deskripsi adegan]\` di baris pertama jika adegan awal film memiliki kekuatan visual/atmosfer sinematik yang kuat.
 

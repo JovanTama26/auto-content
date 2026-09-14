@@ -194,7 +194,8 @@ Setiap `thumbnail_prompt` yang dihasilkan AI di-format sebagai 3 blok aturan ter
 - **Terjadi setelah video diklik.** YouTube mengukur seberapa lama penonton bertahan.
 - **Risiko Detik Ke-10**: Jika penonton keluar di 10 detik pertama, algoritma membaca bahwa ekspektasi dari thumbnail/judul tidak terpenuhi (sinyal buruk → video tenggelam).
 - **Prinsip Alur Film**:
-  - **Hook Awal Kuat**: 10–30 detik pertama skrip harus langsung mengikat penonton dan memenuhi ekspektasi judul/thumbnail.
+  - **Hook Awal Kuat (In Medias Res)**: 10–30 detik pertama skrip harus langsung mengikat penonton dan memenuhi ekspektasi judul/thumbnail.
+  - **Larangan Pembuka Klise**: DILARANG KERAS membuka narasi dengan kata *"okee/oke/oke bro"*, dan DILARANG memakai variasi klise *"cerita dimulai"*, *"film diawali"*, *"cerita diawali"*, *"di awal cerita"*, atau intro sapaan formal MC. Narasi WAJIB langsung terjun ke latar tempat, aksi nyata, atau situasi dramatis karakter sejak kata pertama!
   - **Pacing Stabil**: Hindari narasi berliku-liku yang membosankan.
   - **Retention Tinggi**: Sinyal bagi YouTube untuk push video ke audiens yang lebih luas.
 

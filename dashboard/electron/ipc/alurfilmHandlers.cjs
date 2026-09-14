@@ -879,7 +879,11 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
     const isLastPartStr = isLastPart ? 'YA (Chunk Terakhir / Part Penutup Film)' : `TIDAK (Part Bukan Penutup)`;
     const styleExampleStr = isIntroPart
       ? 'Gunakan gaya penceritaan yang super friendly, santai, mengalir hangat, dan akrab khas pencerita alur film populer (seperti IQ7 dan Alurfilm). Buka dengan salam hangat yang santai (misal: "Halo guys, balik lagi bareng...", "Halo bro & sis..."), lalu sampaikan narasi teaser intro yang membakar rasa penasaran penonton (hooking) dan mengalir mulus tanpa kaku!'
-      : styleExample ? String(styleExample) : 'Gunakan gaya penceritaan alur film santai, jernih, dan mengalir.';
+      : styleExample
+        ? String(styleExample)
+        : isFirstPart
+          ? 'Langsung masuk ke alur cerita sejak kalimat pertama dengan terjun langsung ke latar/aksi nyata (in medias res, misal: "Di sebuah kawasan terpencil, sosok [Nama Karakter] terlihat...", "Malam itu di tengah guyuran hujan lebat, sosok [Nama Karakter] tampak..."). DILARANG menggunakan kata "okee/oke/oke bro" di awal, DILARANG memakai variasi "cerita dimulai/cerita diawali/film diawali/di awal cerita", dan DILARANG intro formal/sapaan MC.'
+          : 'Gunakan gaya penceritaan alur film santai, jernih, dan mengalir.';
     const movieTitleStr = String(opts.movieTitle || opts.movie_title || opts.title || '').trim() || 'Tidak disebutkan';
     const movieYearStr = String(opts.movieYear || opts.movie_year || opts.year || '').trim();
     const movieYearFormatted = movieYearStr ? `tahun ${movieYearStr}` : '';
