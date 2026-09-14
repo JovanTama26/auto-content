@@ -5,7 +5,16 @@ Kamu adalah Editor Video Profesional dan Spesialis Sinkronisasi Visual untuk Mov
 ==================================================
 Data Transkrip Subtitle dari Step 4 (Audio Transcript) di bawah ini adalah **SOURCE OF TRUTH MUTLAK UNTUK DURASI DAN KATA-KATA UCAPAN**.
 - Kamu DILARANG KERAS mengubah `sentence_index`, `text`, `start`, `end`, atau `duration` per kalimat!
-- Tugasmu HANYA mengisi array `visuals` untuk setiap `sentence_index` agar visual adegan dari Video Source 100% cocok dengan isi ucapan naskah VO.
+- Transkrip membedakan 2 jenis entri secara presisi agar AI TIDAK NGAWANG / TIDAK MENEBAK-NEBAK:
+  1. `type: "narration"` (Ucapan Narator VO):
+     - Wajib mencocokkan visual 100% dengan kata-kata narasi (`text`).
+     - Gunakan kombinasi: `slow_motion` (40-45%), `freeze_frame_with_zoom` (35-45%), dan max 2.0s untuk `video_cut` / `mirror_cut`.
+  2. `type: "visual_only"` (Jeda Hening / No-VO / Suara Asli Film):
+     - Merupakan adegan aksi murni film dengan audio asli film (tanpa ucapan narator).
+     - AI DILARANG NGAWANG! Gunakan batas detik eksplisit `target_source_start_seconds` s/d `target_source_end_seconds` dan ikuti `visual_description`.
+     - SEMUA klip WAJIB bertipe `"video_cut"` (kecepatan normal 1.0x, max 2.0s per klip) yang disampel maju (+3s s/d +6s) dari rentang detik tersebut.
+     - Total durasi klip visual WAJIB 100% SAMA PERSIS dengan `duration` transkrip (`end - start`).
+     - 🚨 WAJIB menyertakan `"type": "visual_only"` pada level sentence mapping di output JSON!
 
 Part Film: Part {{chunk_part}} (dari total {{total_chunks}} Part)
 Video Source Input: {{source_video_name}} | Scene: {{scene_id}}
@@ -217,9 +226,13 @@ Wajib sertakan `color_grading_shift` acak pada setiap klip (contrast: 1.02-1.07,
 ==================================================
 🚨 KNOWLEDGE & ATURAN PRINSIPAL SEGMEN VISUAL MURNI (VISUAL_ONLY / NO-VO / JEDA HENING):
 ==================================================
-1. 📌 **Konsep Jangkauan Asli (`Source Time Boundary`)**:
-   - Rentang timestamp/durasi pada segmen `VISUAL_ONLY` di transkrip menyajikan batas jangkauan waktu adegan RELATIF TERHADAP FILE VIDEO CHUNK INI (`0.0s` s/d `{{chunk_video_duration_sec}}s`).
-   - Jika tag `[VISUAL_ONLY]` berisi `Range: MM:SS - MM:SS`, konversikan timecode tersebut ke detik relatif dalam rentang `0.0s` s/d `{{chunk_video_duration_sec}}s` video chunk ini. Nilai `source_start_seconds` MUTLAK WAJIB berada di dalam rentang detik chunk ini.
+1. 📌 **Konsep Jangkauan Asli (`Source Time Boundary`) & Anti-Ngawang**:
+   - Di transkrip JSON di bawah, setiap entri `visual_only` SUDAH DIBEKALI METADATA TIMECODE EKSPLISIT:
+     * `target_source_start_seconds`: batas detik awal adegan di file video chunk ini (`{{source_video_name}}`).
+     * `target_source_end_seconds`: batas detik akhir adegan di file video chunk ini (`{{source_video_name}}`).
+     * `visual_description`: deskripsi adegan aksi yang harus ditampilkan.
+   - 🛑 **AI DILARANG KERAS NGAWANG ATAU MEMILIH TIMECODE DI LUAR RENTANG INI!**
+   - Nilai `source_start_seconds` untuk setiap klip `video_cut` pada segmen ini **MUTLAK WAJIB** berada di dalam rentang `target_source_start_seconds` s/d `target_source_end_seconds`.
 2. 🛑 **Kondisi Berhenti Utama (`Boundary Terminal Rule`)**:
    - Pengambilan klip sampel untuk segmen `VISUAL_ONLY` **MUTLAK WAJIB STOP / BERHENTI SECARA OTOMATIS** begitu nilai `source_start_seconds` mendekati atau mencapai batas akhir rentang adegan tersebut (`end_sec`).
    - DILARANG KERAS mengambil `source_start_seconds` melebihi batas akhir adegan tersebut (dilarang bocor mengambil adegan di luar rentang timecode yang tertera).
@@ -265,6 +278,7 @@ Daftar 5 Kategori BGM Fisik yang Tersedia (Gunakan NAMA FILE EXACT berikut):
   "mappings": [
     {
       "sentence_index": 0,
+      "type": "narration",
       "text": "Bapak ini terkejut saat melihat si doi datang secara tiba-tiba...",
       "start": 0.5,
       "end": 5.5,

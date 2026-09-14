@@ -86,12 +86,15 @@ export function parseVisualOnlyTag(tagStr: string) {
     outputDuration = Math.min(10.0, Math.max(3.0, Math.round((sourceEndSeconds - sourceStartSeconds) * 0.25) || 8.0));
   }
 
-  if (body.includes(':')) {
-    const parts = body.split(':');
-    description = parts[parts.length - 1].trim();
+  const parenCloseMatch = body.match(/\)\s*:\s*(.+)$/s);
+  if (parenCloseMatch) {
+    description = parenCloseMatch[1].trim();
   } else if (body.includes('|')) {
     const parts = body.split('|');
     description = parts[parts.length - 1].trim();
+  } else if (body.includes(':')) {
+    const parts = body.split(':');
+    description = parts.slice(parts.length > 2 ? 2 : 1).join(':').trim();
   } else {
     description = body.replace(/Range:[^,)]*/gi, '').replace(/Duration:[^,)]*/gi, '').replace(/Output:[^,)]*/gi, '').trim() || description;
   }

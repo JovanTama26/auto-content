@@ -4,6 +4,7 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 const { parseSrtToEntries } = require('../shared/subtitle-utils.cjs');
 const { syncAnalysesFromSupabase, syncMappingsFromSupabase, syncMappingPromptsToSupabase, supabase } = require('../shared/supabaseClient.cjs');
+const audioSplicer = require('../services/alurfilmAudioSplicer.cjs');
 
 
 function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
@@ -1726,41 +1727,7 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
       }
 
       // Step 1: Parse raw script into narration and visual_only elements
-      const tagRegex = /\[VISUAL_ONLY[^\]]*\]/gi;
-      const scriptElements = [];
-      let lastIndex = 0;
-      let match;
-
-      while ((match = tagRegex.exec(scriptText)) !== null) {
-        const textBefore = scriptText.slice(lastIndex, match.index).trim();
-        if (textBefore) {
-          const sents = textBefore.split(/(?<=[.!?])\s+/).filter(Boolean);
-          for (const st of sents) {
-            scriptElements.push({ type: 'narration', text: st });
-          }
-        }
-
-        const parsedVis = parseVisualOnlyTag(match[0]);
-        scriptElements.push({
-          type: 'visual_only',
-          text: `[VISUAL_ONLY (Range: ${parsedVis.sourceRange}, Duration: ${parsedVis.outputDuration}s): ${parsedVis.description}]`,
-          description: parsedVis.description,
-          duration: parsedVis.outputDuration,
-          sourceRange: parsedVis.sourceRange,
-          sourceStartSeconds: parsedVis.sourceStartSeconds,
-          sourceEndSeconds: parsedVis.sourceEndSeconds
-        });
-
-        lastIndex = tagRegex.lastIndex;
-      }
-
-      const textAfter = scriptText.slice(lastIndex).trim();
-      if (textAfter) {
-        const sents = textAfter.split(/(?<=[.!?])\s+/).filter(Boolean);
-        for (const st of sents) {
-          scriptElements.push({ type: 'narration', text: st });
-        }
-      }
+      const scriptElements = audioSplicer.parseScriptToElements(scriptText);
 
       // Step 2: Extract structured narration sentences for Faster-Whisper
       const narrationList = [];
@@ -1823,7 +1790,8 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
                 speech_end: Number(Number(item.speech_end !== undefined ? item.speech_end : rawSpeechEnd).toFixed(3)),
                 firstWordStart: Number(Number(firstWordStart).toFixed(3)),
                 lastWordEnd: Number(Number(rawSpeechEnd).toFixed(3)),
-                is_before_visual_only: !!item.is_before_visual_only
+                is_before_visual_only: !!item.is_before_visual_only,
+                words: Array.isArray(item.words) ? item.words : []
               };
             });
 
@@ -1845,269 +1813,67 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
       try { fs.unlinkSync(tempNarasiPath); } catch { }
       try { fs.unlinkSync(tempOutputPath); } catch { }
 
-      // Assign deterministic sectionIndex to separate pre-visual and post-visual groups
-      let secCounter = 0;
-      for (let idx = 0; idx < scriptElements.length; idx++) {
-        if (scriptElements[idx].type === 'visual_only') {
-          secCounter++;
-        } else {
-          scriptElements[idx].sectionIndex = secCounter;
-        }
-      }
-
-      // Step 3: Map whisper sentences onto scriptElements (using PURE Faster-Whisper text)
-      let whisperIdx = 0;
-      let simClock = 0;
-
-      const alignedElements = [];
-      for (let idx = 0; idx < scriptElements.length; idx++) {
-        const el = scriptElements[idx];
-        if (el.type === 'narration') {
-          const nextEl = idx < scriptElements.length - 1 ? scriptElements[idx + 1] : null;
-          const isFollowedByVisualOnly = nextEl && nextEl.type === 'visual_only';
-
-          if (isFasterWhisperUsed && whisperIdx < whisperSentences.length) {
-            const w = whisperSentences[whisperIdx++];
-            const lastWordEnd = w.lastWordEnd || w.speech_end || w.end;
-            const firstWordStart = w.firstWordStart || w.speech_start || w.start;
-            const actualEnd = isFollowedByVisualOnly ? (w.speech_end || lastWordEnd) : w.end;
-            simClock = actualEnd;
-            alignedElements.push({
-              ...el,
-              text: w.text || el.text, // PURE Faster-Whisper transcribed text
-              start: w.start,
-              end: actualEnd,
-              speech_start: w.speech_start !== undefined ? w.speech_start : firstWordStart,
-              speech_end: w.speech_end !== undefined ? w.speech_end : actualEnd,
-              firstWordStart,
-              lastWordEnd
-            });
-          } else {
-            const words = (el.text || '').split(/\s+/).filter(Boolean);
-            const dur = Math.max(2.5, Number((words.length / 3.0).toFixed(3)));
-            const start = Number(simClock.toFixed(3));
-            simClock += dur;
-            const end = Number(simClock.toFixed(3));
-            alignedElements.push({ ...el, start, end, speech_start: start, speech_end: end, firstWordStart: start, lastWordEnd: end });
-          }
-        } else {
-          alignedElements.push(el);
-        }
-      }
-
-      // Append any extra non-duplicate sentences detected by Faster-Whisper
-      const cleanTextForCompare = (txt) => (txt || '').toLowerCase().replace(/[^\w\s]/g, '').trim();
-      while (isFasterWhisperUsed && whisperIdx < whisperSentences.length) {
-        const w = whisperSentences[whisperIdx++];
-        const prevNarr = [...alignedElements].reverse().find(el => el.type === 'narration');
-        const isDuplicate = prevNarr && cleanTextForCompare(prevNarr.text) === cleanTextForCompare(w.text);
-
-        if (!isDuplicate && w.text && w.text.trim().length > 0) {
-          alignedElements.push({
-            type: 'narration',
-            sectionIndex: secCounter,
-            text: w.text,
-            start: w.start,
-            end: w.end,
-            speech_start: w.speech_start !== undefined ? w.speech_start : (w.firstWordStart || w.start),
-            speech_end: w.speech_end !== undefined ? w.speech_end : (w.lastWordEnd || w.end),
-            firstWordStart: w.firstWordStart || w.start,
-            lastWordEnd: w.lastWordEnd || w.end
-          });
-        }
-      }
+      // Step 3: Align Whisper sentences onto script elements
+      const alignedElements = audioSplicer.alignWhisperToElements(scriptElements, whisperSentences, isFasterWhisperUsed);
 
       // Step 4: Check if FFmpeg audio splicing with silence buffer is needed
       const hasVisualOnly = scriptElements.some(el => el.type === 'visual_only');
       let finalPartAudioPath = targetAudioPath;
-      const audioSplits = [];
+      let audioSplits = [];
+      let audioSpliced = false;
 
       if (hasVisualOnly && fs.existsSync(targetAudioPath)) {
         try {
           const audioMeta = await ffmpeg.getVideoMetaHelper(targetAudioPath);
           const totalRawAudioDur = (audioMeta && audioMeta.duration) ? audioMeta.duration : 0.0;
-          let lastCutTime = 0.0;
-          let chunkSectionIdx = 0;
-
-          for (let i = 0; i < alignedElements.length; i++) {
-            const current = alignedElements[i];
-            if (current.type === 'visual_only') {
-              let prevNarr = null;
-              for (let k = i - 1; k >= 0; k--) {
-                if (alignedElements[k].type === 'narration') {
-                  prevNarr = alignedElements[k];
-                  break;
-                }
-              }
-
-              let nextNarr = null;
-              for (let k = i + 1; k < alignedElements.length; k++) {
-                if (alignedElements[k].type === 'narration') {
-                  nextNarr = alignedElements[k];
-                  break;
-                }
-              }
-
-              if (prevNarr && prevNarr.end !== undefined) {
-                const prevEnd = prevNarr.speech_end !== undefined ? prevNarr.speech_end : (prevNarr.lastWordEnd !== undefined ? prevNarr.lastWordEnd : prevNarr.end);
-                const nextStart = nextNarr
-                  ? (nextNarr.speech_start !== undefined ? nextNarr.speech_start : (nextNarr.firstWordStart !== undefined ? nextNarr.firstWordStart : nextNarr.start))
-                  : totalRawAudioDur;
-
-                let cutEnd;
-                let nextCutStart;
-
-                if (nextNarr && nextStart > prevEnd) {
-                  // Safe decay for last word (+40ms), but leaves at least 80ms silence before next sentence starts
-                  const maxSafeCutEnd = Math.max(prevEnd, nextStart - 0.08);
-                  cutEnd = Math.min(maxSafeCutEnd, prevEnd + 0.04);
-                  // Next slice starts 40ms before first word to capture onset without clipping
-                  nextCutStart = Math.max(cutEnd, Math.max(0.0, nextStart - 0.04));
-                } else if (nextNarr) {
-                  const midPoint = (prevEnd + nextStart) / 2;
-                  cutEnd = midPoint;
-                  nextCutStart = midPoint;
-                } else {
-                  cutEnd = Math.min(totalRawAudioDur, prevEnd + 0.05);
-                  nextCutStart = cutEnd;
-                }
-
-                cutEnd = Math.min(totalRawAudioDur, Math.max(lastCutTime, Number(cutEnd.toFixed(3))));
-                nextCutStart = Math.min(totalRawAudioDur, Math.max(cutEnd, Number(nextCutStart.toFixed(3))));
-
-                if (cutEnd > lastCutTime + 0.02) {
-                  audioSplits.push({
-                    type: 'audio_chunk',
-                    sectionIndex: chunkSectionIdx,
-                    startSec: Number(lastCutTime.toFixed(3)),
-                    endSec: Number(cutEnd.toFixed(3))
-                  });
-                }
-
-                const silenceDur = Number((current.duration || 5.0).toFixed(3));
-                audioSplits.push({
-                  type: 'silence_buffer',
-                  durationSec: silenceDur,
-                  element: current
-                });
-
-                chunkSectionIdx++;
-                lastCutTime = nextCutStart;
-              } else {
-                // No preceding narration — push silence for exact visual_only duration
-                const silenceDur = Number((current.duration || 5.0).toFixed(3));
-                audioSplits.push({
-                  type: 'silence_buffer',
-                  durationSec: silenceDur,
-                  element: current
-                });
-                chunkSectionIdx++;
-                if (nextNarr) {
-                  const nextStart = nextNarr.speech_start !== undefined ? nextNarr.speech_start : (nextNarr.firstWordStart !== undefined ? nextNarr.firstWordStart : nextNarr.start);
-                  lastCutTime = Math.max(0.0, Number((nextStart - 0.04).toFixed(3)));
-                }
-              }
-            }
-
-          }
-
-          if (totalRawAudioDur > lastCutTime + 0.05) {
-            audioSplits.push({
-              type: 'audio_chunk',
-              sectionIndex: chunkSectionIdx,
-              startSec: Number(lastCutTime.toFixed(3)),
-              endSec: Number(totalRawAudioDur.toFixed(3))
-            });
-            lastCutTime = totalRawAudioDur;
-          }
-
-          // Calculate cumulative splicedStart & splicedEnd for precise timestamp mapping
-          let currentSplicedClock = 0.0;
-          for (let j = 0; j < audioSplits.length; j++) {
-            const item = audioSplits[j];
-            if (item.type === 'audio_chunk') {
-              item.splicedStart = Number(currentSplicedClock.toFixed(3));
-              item.splicedEnd = Number((currentSplicedClock + (item.endSec - item.startSec)).toFixed(3));
-              currentSplicedClock = item.splicedEnd;
-            } else {
-              item.splicedStart = Number(currentSplicedClock.toFixed(3));
-              item.splicedEnd = Number((currentSplicedClock + item.durationSec).toFixed(3));
-              currentSplicedClock = item.splicedEnd;
-            }
-          }
+          const splitResult = audioSplicer.calculateAudioSplits(alignedElements, totalRawAudioDur);
+          audioSplits = splitResult.audioSplits;
 
           if (audioSplits.length > 0) {
-            sendProgress('splicing_audio', 85, `Part #${pt}: Splicing audio and inserting ${audioSplits.filter(s => s.type === 'silence_buffer').length} silence gaps via FFmpeg...`);
-            const tempFiles = [];
-            for (let i = 0; i < audioSplits.length; i++) {
-              const item = audioSplits[i];
-              const tempChunkPath = path.join(p.ALURFILM_AUDIO_DIR, `temp_part_${pt}_chunk_${timestamp}_${i}.wav`);
-              tempFiles.push(tempChunkPath);
-
-              if (item.type === 'audio_chunk') {
-                const ss = Math.max(0, item.startSec);
-                const to = Math.max(ss + 0.01, item.endSec);
-                const dur = Number((to - ss).toFixed(3));
-                await new Promise((res, rej) => {
-                  const proc = spawn(ffmpeg.ffmpegPath, ['-i', targetAudioPath, '-ss', String(ss), '-t', String(dur), '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', '-y', tempChunkPath]);
-                  proc.on('close', (c) => c === 0 && fs.existsSync(tempChunkPath) ? res() : rej(new Error(`Slice error ${c}`)));
-                  proc.on('error', rej);
-                });
-              } else {
-                const silenceDur = Number((item.durationSec || 5.0).toFixed(3));
-                await new Promise((res, rej) => {
-                  const proc = spawn(ffmpeg.ffmpegPath, ['-f', 'lavfi', '-i', 'anullsrc=r=16000:cl=mono', '-t', String(silenceDur), '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', '-y', tempChunkPath]);
-                  proc.on('close', (c) => c === 0 && fs.existsSync(tempChunkPath) ? res() : rej(new Error(`Silence error ${c}`)));
-                  proc.on('error', rej);
-                });
-              }
-            }
-
-            const listFilePath = path.join(p.ALURFILM_AUDIO_DIR, `concat_list_part_${pt}_${timestamp}.txt`);
-            const listContent = tempFiles.map(f => `file '${f.replace(/'/g, "'\\''")}'`).join('\n');
-            fs.writeFileSync(listFilePath, listContent, 'utf-8');
-
             const outputSplicedName = `${contentId}_audio_part_${partStr}_spliced_${timestamp}.wav`;
             const splicedOutPath = path.join(p.ALURFILM_AUDIO_DIR, outputSplicedName);
 
-            await new Promise((res, rej) => {
-              const proc = spawn(ffmpeg.ffmpegPath, ['-f', 'concat', '-safe', '0', '-i', listFilePath, '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', '-y', splicedOutPath]);
-              proc.on('close', (c) => c === 0 && fs.existsSync(splicedOutPath) ? res() : rej(new Error(`Concat error ${c}`)));
-              proc.on('error', rej);
+            await audioSplicer.executeFfmpegSplicing({
+              audioPath: targetAudioPath,
+              audioSplits,
+              outputPath: splicedOutPath,
+              ffmpegPath: ffmpeg.ffmpegPath,
+              tempDir: p.ALURFILM_AUDIO_DIR,
+              sendProgress: (stage, prog, msg) => sendProgress(stage, prog, `Part #${pt}: ${msg}`)
             });
 
-            try { fs.unlinkSync(listFilePath); } catch { }
-            for (const f of tempFiles) { try { fs.unlinkSync(f); } catch { } }
+            if (fs.existsSync(splicedOutPath)) {
+              finalPartAudioPath = splicedOutPath;
+              audioSpliced = true;
 
-            finalPartAudioPath = splicedOutPath;
-
-            // Update audio mappings json file with the new spliced audio path
-            const mappingFile = path.join(p.ALURFILM_AUDIO_DIR, `${contentId}_audio_mappings.json`);
-            if (fs.existsSync(mappingFile)) {
-              try {
-                const mapData = JSON.parse(fs.readFileSync(mappingFile, 'utf-8'));
-                if (Array.isArray(mapData.audios)) {
-                  const targetAudioEntry = mapData.audios.find(item => item.parts && item.parts.includes(pt));
-                  if (targetAudioEntry) {
-                    const splicedStat = fs.statSync(splicedOutPath);
-                    if (!targetAudioEntry.rawFilePath) {
-                      targetAudioEntry.rawFilePath = targetAudioPath;
+              // Update audio mappings json file with the new spliced audio path
+              const mappingFile = path.join(p.ALURFILM_AUDIO_DIR, `${contentId}_audio_mappings.json`);
+              if (fs.existsSync(mappingFile)) {
+                try {
+                  const mapData = JSON.parse(fs.readFileSync(mappingFile, 'utf-8'));
+                  if (Array.isArray(mapData.audios)) {
+                    const targetAudioEntry = mapData.audios.find(item => item.parts && item.parts.includes(pt));
+                    if (targetAudioEntry) {
+                      const splicedStat = fs.statSync(splicedOutPath);
+                      if (!targetAudioEntry.rawFilePath) {
+                        targetAudioEntry.rawFilePath = targetAudioPath;
+                      }
+                      if (!targetAudioEntry.originalFilePath) {
+                        targetAudioEntry.originalFilePath = targetAudioPath;
+                      }
+                      targetAudioEntry.filePath = splicedOutPath;
+                      targetAudioEntry.name = outputSplicedName;
+                      targetAudioEntry.url = media.mediaUrl(splicedOutPath);
+                      targetAudioEntry.size = splicedStat.size;
+                      targetAudioEntry.isSpliced = true;
+                      targetAudioEntry.splicedFilePath = splicedOutPath;
+                      targetAudioEntry.splicedAt = new Date().toISOString();
+                      fs.writeFileSync(mappingFile, JSON.stringify(mapData, null, 2), 'utf-8');
                     }
-                    if (!targetAudioEntry.originalFilePath) {
-                      targetAudioEntry.originalFilePath = targetAudioPath;
-                    }
-                    targetAudioEntry.filePath = splicedOutPath;
-                    targetAudioEntry.name = outputSplicedName;
-                    targetAudioEntry.url = media.mediaUrl(splicedOutPath);
-                    targetAudioEntry.size = splicedStat.size;
-                    targetAudioEntry.isSpliced = true;
-                    targetAudioEntry.splicedFilePath = splicedOutPath;
-                    targetAudioEntry.splicedAt = new Date().toISOString();
-                    fs.writeFileSync(mappingFile, JSON.stringify(mapData, null, 2), 'utf-8');
                   }
+                } catch (mapErr) {
+                  console.warn(`Part #${pt}: Failed to update audio mapping with spliced file:`, mapErr.message);
                 }
-              } catch (mapErr) {
-                console.warn(`Part #${pt}: Failed to update audio mapping with spliced file:`, mapErr.message);
               }
             }
           }
@@ -2117,86 +1883,7 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
       }
 
       // Step 5: Construct distinct transcript entries for narration vs visual_only
-      const partEntries = [];
-      let itemCounter = 1;
-      let clockSec = 0.0;
-      const audioSpliced = hasVisualOnly && audioSplits.length > 0;
-
-      for (let i = 0; i < alignedElements.length; i++) {
-        const current = alignedElements[i];
-        if (current.type === 'visual_only') {
-          const silenceItem = audioSplits.find(s => s.type === 'silence_buffer' && s.element === current);
-          const start = (audioSpliced && silenceItem)
-            ? silenceItem.splicedStart
-            : Number(clockSec.toFixed(3));
-          const duration = (audioSpliced && silenceItem)
-            ? Number((silenceItem.splicedEnd - silenceItem.splicedStart).toFixed(3))
-            : Number((current.duration || 5.0).toFixed(3));
-          const end = (audioSpliced && silenceItem)
-            ? silenceItem.splicedEnd
-            : Number((start + duration).toFixed(3));
-
-          clockSec = end;
-
-          const m1 = Math.floor(start / 60); const s1 = Math.floor(start % 60);
-          const m2 = Math.floor(end / 60); const s2 = Math.floor(end % 60);
-          const tsMin = `${String(m1).padStart(2, '0')}:${String(s1).padStart(2, '0')} - ${String(m2).padStart(2, '0')}:${String(s2).padStart(2, '0')}`;
-
-          partEntries.push({
-            id: itemCounter++,
-            start_seconds: start,
-            end_seconds: end,
-            timestamp_minute: tsMin,
-            text: current.text,
-            type: 'visual_only',
-            speaker: 'Visual'
-          });
-        } else {
-          const origStart = current.start !== undefined ? current.start : 0;
-          const origEnd = current.end !== undefined ? current.end : (origStart + 3.0);
-          const rawDuration = Math.max(0.5, Number((origEnd - origStart).toFixed(3)));
-
-          let start = 0.0;
-          let end = 0.0;
-
-          if (audioSpliced && audioSplits.length > 0) {
-            let matchingChunk = audioSplits.find(item => item.type === 'audio_chunk' && item.sectionIndex === current.sectionIndex);
-            if (!matchingChunk) {
-              matchingChunk = audioSplits.find(item => item.type === 'audio_chunk' && origStart >= item.startSec && origStart <= item.endSec)
-                || audioSplits.filter(item => item.type === 'audio_chunk').find(item => origStart <= item.endSec)
-                || audioSplits.filter(item => item.type === 'audio_chunk').pop();
-            }
-
-            if (matchingChunk) {
-              const offset = Math.max(0, origStart - matchingChunk.startSec);
-              start = Number((matchingChunk.splicedStart + offset).toFixed(3));
-              end = Number((start + rawDuration).toFixed(3));
-            } else {
-              start = Number(clockSec.toFixed(3));
-              end = Number((start + rawDuration).toFixed(3));
-            }
-          } else {
-            start = Number((current.start !== undefined ? current.start : clockSec).toFixed(3));
-            end = Number((current.end !== undefined ? current.end : (start + rawDuration)).toFixed(3));
-          }
-
-          clockSec = Math.max(clockSec, end);
-
-          const m1 = Math.floor(start / 60); const s1 = Math.floor(start % 60);
-          const m2 = Math.floor(end / 60); const s2 = Math.floor(end % 60);
-          const tsMin = `${String(m1).padStart(2, '0')}:${String(s1).padStart(2, '0')} - ${String(m2).padStart(2, '0')}:${String(s2).padStart(2, '0')}`;
-
-          partEntries.push({
-            id: itemCounter++,
-            start_seconds: start,
-            end_seconds: end,
-            timestamp_minute: tsMin,
-            text: current.text,
-            type: 'narration',
-            speaker: 'Narator'
-          });
-        }
-      }
+      const partEntries = audioSplicer.mapElementsToSplicedTimeline(alignedElements, audioSplits, audioSpliced);
 
       // Save Part Transcript
       const outputName = `${contentId}_transcript_part_${partStr}.json`;
@@ -2293,8 +1980,31 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
             const st = typeof t.start_seconds === 'number' ? t.start_seconds : (t.start || 0.0);
             const ed = typeof t.end_seconds === 'number' ? t.end_seconds : (t.end || 0.0);
             const dur = Number(Math.max(0.1, ed - st).toFixed(2));
+            const isVisualOnly = (t.type && String(t.type).toLowerCase().includes('visual_only')) ||
+                                 (t.speaker && String(t.speaker).toLowerCase().includes('visual')) ||
+                                 (typeof t.text === 'string' && /\[visual_only/i.test(t.text));
+
+            if (isVisualOnly) {
+              const tagMeta = audioSplicer.parseVisualOnlyTag(t.text || '');
+              return {
+                sentence_index: idx,
+                type: 'visual_only',
+                speaker: 'Visual (No-VO)',
+                text: t.text || '',
+                visual_description: t.description || tagMeta.description || 'Adegan Visual Murni (Action)',
+                target_source_range: t.sourceRange || tagMeta.sourceRange,
+                target_source_start_seconds: typeof t.sourceStartSeconds === 'number' ? t.sourceStartSeconds : tagMeta.sourceStartSeconds,
+                target_source_end_seconds: typeof t.sourceEndSeconds === 'number' ? t.sourceEndSeconds : tagMeta.sourceEndSeconds,
+                start: Number(st.toFixed(2)),
+                end: Number(ed.toFixed(2)),
+                duration: dur
+              };
+            }
+
             return {
               sentence_index: idx,
+              type: 'narration',
+              speaker: t.speaker || 'Narator',
               text: t.text || t.narration || '',
               start: Number(st.toFixed(2)),
               end: Number(ed.toFixed(2)),
@@ -2311,8 +2021,29 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
           const st = t.start_seconds || 0.0;
           const ed = t.end_seconds || 0.0;
           const dur = Number(Math.max(0.1, ed - st).toFixed(2));
+          const isVisualOnly = typeof t.text === 'string' && /\[visual_only/i.test(t.text);
+
+          if (isVisualOnly) {
+            const tagMeta = audioSplicer.parseVisualOnlyTag(t.text || '');
+            return {
+              sentence_index: idx,
+              type: 'visual_only',
+              speaker: 'Visual (No-VO)',
+              text: t.text || '',
+              visual_description: tagMeta.description || 'Adegan Visual Murni (Action)',
+              target_source_range: tagMeta.sourceRange,
+              target_source_start_seconds: tagMeta.sourceStartSeconds,
+              target_source_end_seconds: tagMeta.sourceEndSeconds,
+              start: Number(st.toFixed(2)),
+              end: Number(ed.toFixed(2)),
+              duration: dur
+            };
+          }
+
           return {
             sentence_index: idx,
+            type: 'narration',
+            speaker: 'Narator',
             text: t.text || '',
             start: Number(st.toFixed(2)),
             end: Number(ed.toFixed(2)),
@@ -3316,41 +3047,7 @@ import { renderIntroVideo } from '${enginePath}';
     const rawText = scriptText || '';
 
     // Step 1: Parse raw script into an ordered sequence of elements (sentences + VISUAL_ONLY tags)
-    const tagRegex = /\[VISUAL_ONLY[^\]]*\]/gi;
-    const scriptElements = [];
-    let lastIndex = 0;
-    let match;
-
-    while ((match = tagRegex.exec(rawText)) !== null) {
-      const textBefore = rawText.slice(lastIndex, match.index).trim();
-      if (textBefore) {
-        const sents = textBefore.split(/(?<=[.!?])\s+/).filter(Boolean);
-        for (const st of sents) {
-          scriptElements.push({ type: 'narration', text: st });
-        }
-      }
-
-      const parsedVis = parseVisualOnlyTag(match[0]);
-      scriptElements.push({
-        type: 'visual_only',
-        text: `[VISUAL_ONLY (Range: ${parsedVis.sourceRange}, Duration: ${parsedVis.outputDuration}s): ${parsedVis.description}]`,
-        description: parsedVis.description,
-        duration: parsedVis.outputDuration,
-        sourceRange: parsedVis.sourceRange,
-        sourceStartSeconds: parsedVis.sourceStartSeconds,
-        sourceEndSeconds: parsedVis.sourceEndSeconds
-      });
-
-      lastIndex = tagRegex.lastIndex;
-    }
-
-    const textAfter = rawText.slice(lastIndex).trim();
-    if (textAfter) {
-      const sents = textAfter.split(/(?<=[.!?])\s+/).filter(Boolean);
-      for (const st of sents) {
-        scriptElements.push({ type: 'narration', text: st });
-      }
-    }
+    const scriptElements = audioSplicer.parseScriptToElements(rawText);
 
     // Step 2: Extract structured narration sentences for Faster-Whisper alignment
     const narrationList = [];
@@ -3431,7 +3128,8 @@ import { renderIntroVideo } from '${enginePath}';
               speech_end: Number(Number(item.speech_end !== undefined ? item.speech_end : rawSpeechEnd).toFixed(3)),
               firstWordStart: Number(Number(firstWordStart).toFixed(3)),
               lastWordEnd: Number(Number(rawSpeechEnd).toFixed(3)),
-              is_before_visual_only: !!item.is_before_visual_only
+              is_before_visual_only: !!item.is_before_visual_only,
+              words: Array.isArray(item.words) ? item.words : []
             };
           });
           isFasterWhisperUsed = true;
@@ -3445,350 +3143,52 @@ import { renderIntroVideo } from '${enginePath}';
     try { fs.unlinkSync(tmpScriptPath); } catch { }
     try { fs.unlinkSync(outJsonPath); } catch { }
 
-    // Assign deterministic sectionIndex to separate pre-visual and post-visual groups
-    let secCounter = 0;
-    for (let idx = 0; idx < scriptElements.length; idx++) {
-      if (scriptElements[idx].type === 'visual_only') {
-        secCounter++;
-      } else {
-        scriptElements[idx].sectionIndex = secCounter;
-      }
-    }
+    // Step 3: Align Whisper timestamps onto script elements
+    const alignedElements = audioSplicer.alignWhisperToElements(scriptElements, whisperSentences, isFasterWhisperUsed);
 
-    // Step 3: Map whisper timestamps onto narration elements
-    let whisperIdx = 0;
-    let simClock = 0;
-
-    const alignedElements = scriptElements.map((el, idx) => {
-      if (el.type === 'narration') {
-        const nextEl = idx < scriptElements.length - 1 ? scriptElements[idx + 1] : null;
-        const isFollowedByVisualOnly = nextEl && nextEl.type === 'visual_only';
-
-        if (isFasterWhisperUsed && whisperIdx < whisperSentences.length) {
-          const w = whisperSentences[whisperIdx++];
-          const lastWordEnd = w.lastWordEnd || w.speech_end || w.end;
-          const firstWordStart = w.firstWordStart || w.speech_start || w.start;
-          const actualEnd = isFollowedByVisualOnly ? (w.speech_end || lastWordEnd) : w.end;
-          simClock = actualEnd;
-          return {
-            ...el,
-            start: w.start,
-            end: actualEnd,
-            speech_start: w.speech_start !== undefined ? w.speech_start : firstWordStart,
-            speech_end: w.speech_end !== undefined ? w.speech_end : actualEnd,
-            firstWordStart,
-            lastWordEnd
-          };
-        } else {
-          const words = (el.text || '').split(/\s+/).filter(Boolean);
-          const dur = Math.max(2.5, Number((words.length / 3.0).toFixed(3)));
-          const start = Number(simClock.toFixed(3));
-          simClock += dur;
-          const end = Number(simClock.toFixed(3));
-          return { ...el, start, end, speech_start: start, speech_end: end, firstWordStart: start, lastWordEnd: end };
-        }
-      }
-      return el;
-    });
-
-    // Step 4: Zero-Loss Sequential Audio Splicing with Acoustic Safety Margins (Millisecond Precision)
+    // Step 4: High-Precision Sequential Audio Splicing with Acoustic Safety Margins
     let finalAudioPath = audioPath || '';
     let finalAudioUrl = audioPath ? media.mediaUrl(audioPath) : '';
+    let audioSplits = [];
     let audioSpliced = false;
 
-    const audioMeta = (audioPath && fs.existsSync(audioPath)) ? await ffmpeg.getVideoMetaHelper(audioPath) : null;
-    const totalRawAudioDur = (audioMeta && audioMeta.duration) ? audioMeta.duration : 0.0;
-
-    // Build sequential audio slice instructions
-    const audioSplits = [];
-    let lastCutTime = 0.0;
-    let chunkSectionIdx = 0;
-
-    for (let i = 0; i < alignedElements.length; i++) {
-      const current = alignedElements[i];
-
-      if (current.type === 'visual_only') {
-        let prevNarr = null;
-        for (let k = i - 1; k >= 0; k--) {
-          if (alignedElements[k].type === 'narration') {
-            prevNarr = alignedElements[k];
-            break;
-          }
-        }
-
-        let nextNarr = null;
-        for (let k = i + 1; k < alignedElements.length; k++) {
-          if (alignedElements[k].type === 'narration') {
-            nextNarr = alignedElements[k];
-            break;
-          }
-        }
-
-        if (prevNarr && prevNarr.end !== undefined) {
-          const prevEnd = prevNarr.speech_end !== undefined ? prevNarr.speech_end : (prevNarr.lastWordEnd !== undefined ? prevNarr.lastWordEnd : prevNarr.end);
-          const nextStart = nextNarr
-            ? (nextNarr.speech_start !== undefined ? nextNarr.speech_start : (nextNarr.firstWordStart !== undefined ? nextNarr.firstWordStart : nextNarr.start))
-            : totalRawAudioDur;
-
-          let cutEnd;
-          let nextCutStart;
-
-          if (nextNarr && nextStart > prevEnd) {
-            // Safe decay for last word (+40ms), but leaves at least 80ms silence before next sentence starts
-            const maxSafeCutEnd = Math.max(prevEnd, nextStart - 0.08);
-            cutEnd = Math.min(maxSafeCutEnd, prevEnd + 0.04);
-            // Next slice starts 40ms before first word to capture onset without clipping
-            nextCutStart = Math.max(cutEnd, Math.max(0.0, nextStart - 0.04));
-          } else if (nextNarr) {
-            const midPoint = (prevEnd + nextStart) / 2;
-            cutEnd = midPoint;
-            nextCutStart = midPoint;
-          } else {
-            cutEnd = Math.min(totalRawAudioDur, prevEnd + 0.05);
-            nextCutStart = cutEnd;
-          }
-
-          cutEnd = Math.min(totalRawAudioDur, Math.max(lastCutTime, Number(cutEnd.toFixed(3))));
-          nextCutStart = Math.min(totalRawAudioDur, Math.max(cutEnd, Number(nextCutStart.toFixed(3))));
-
-          if (cutEnd > lastCutTime + 0.02) {
-            audioSplits.push({
-              type: 'audio_chunk',
-              sectionIndex: chunkSectionIdx,
-              startSec: Number(lastCutTime.toFixed(3)),
-              endSec: Number(cutEnd.toFixed(3))
-            });
-          }
-
-          const silenceDur = Number((current.duration || 5.0).toFixed(3));
-          audioSplits.push({
-            type: 'silence_buffer',
-            durationSec: silenceDur,
-            element: current
-          });
-
-          chunkSectionIdx++;
-          lastCutTime = nextCutStart;
-        } else {
-          // No preceding narration
-          const silenceDur = Number((current.duration || 5.0).toFixed(3));
-          audioSplits.push({
-            type: 'silence_buffer',
-            durationSec: silenceDur,
-            element: current
-          });
-          chunkSectionIdx++;
-          if (nextNarr) {
-            const nextStart = nextNarr.speech_start !== undefined ? nextNarr.speech_start : (nextNarr.firstWordStart !== undefined ? nextNarr.firstWordStart : nextNarr.start);
-            lastCutTime = Math.max(0.0, Number((nextStart - 0.04).toFixed(3)));
-          }
-        }
-      }
-    }
-
-    if (totalRawAudioDur > lastCutTime + 0.05) {
-      audioSplits.push({
-        type: 'audio_chunk',
-        sectionIndex: chunkSectionIdx,
-        startSec: Number(lastCutTime.toFixed(3)),
-        endSec: Number(totalRawAudioDur.toFixed(3))
-      });
-      lastCutTime = totalRawAudioDur;
-    }
-
-    // Calculate cumulative splicedStart & splicedEnd for precise timestamp mapping
-    let currentSplicedClock = 0.0;
-    for (let j = 0; j < audioSplits.length; j++) {
-      const item = audioSplits[j];
-      if (item.type === 'audio_chunk') {
-        item.splicedStart = Number(currentSplicedClock.toFixed(3));
-        item.splicedEnd = Number((currentSplicedClock + (item.endSec - item.startSec)).toFixed(3));
-        currentSplicedClock = item.splicedEnd;
-      } else {
-        item.splicedStart = Number(currentSplicedClock.toFixed(3));
-        item.splicedEnd = Number((currentSplicedClock + item.durationSec).toFixed(3));
-        currentSplicedClock = item.splicedEnd;
-      }
-    }
-
-    // Perform FFmpeg slicing and concatenation
-    if (audioPath && fs.existsSync(audioPath) && audioSplits.length > 0) {
+    const hasVisualOnly = scriptElements.some(el => el.type === 'visual_only');
+    if (hasVisualOnly && audioPath && fs.existsSync(audioPath)) {
       try {
-        const tempFiles = [];
-        const sendProgress = (stage, progress, msg) => {
-          try { event.sender.send('alurfilm-test-whisper-progress', { stage, progress, message: msg }); } catch { }
-        };
+        const audioMeta = await ffmpeg.getVideoMetaHelper(audioPath);
+        const totalRawAudioDur = (audioMeta && audioMeta.duration) ? audioMeta.duration : 0.0;
+        const splitResult = audioSplicer.calculateAudioSplits(alignedElements, totalRawAudioDur);
+        audioSplits = splitResult.audioSplits;
 
-        sendProgress('splicing_audio', 85, 'Splicing audio sekuensial & menyisipkan Silence Gap presisi...');
+        if (audioSplits.length > 0) {
+          const outputName = `${contentId}_final_audio_with_silence_gaps_${timestamp}.wav`;
+          const outPath = path.join(p.ALURFILM_AUDIO_DIR, outputName);
 
-        for (let i = 0; i < audioSplits.length; i++) {
-          const item = audioSplits[i];
-          const tempChunkPath = path.join(p.ALURFILM_AUDIO_DIR, `temp_chunk_${timestamp}_${i}.wav`);
-          tempFiles.push(tempChunkPath);
+          await audioSplicer.executeFfmpegSplicing({
+            audioPath,
+            audioSplits,
+            outputPath: outPath,
+            ffmpegPath: ffmpeg.ffmpegPath,
+            tempDir: p.ALURFILM_AUDIO_DIR,
+            sendProgress: (stage, prog, msg) => {
+              try { event.sender.send('alurfilm-test-whisper-progress', { stage, progress: prog, message: msg }); } catch { }
+            }
+          });
 
-          if (item.type === 'audio_chunk') {
-            const ss = Math.max(0, item.startSec);
-            const to = Math.max(ss + 0.01, item.endSec);
-            const dur = Number((to - ss).toFixed(3));
-
-            await new Promise((resolve, reject) => {
-              const args = [
-                '-i', audioPath,
-                '-ss', String(ss),
-                '-t', String(dur),
-                '-ar', '16000',
-                '-ac', '1',
-                '-c:a', 'pcm_s16le',
-                '-y',
-                tempChunkPath
-              ];
-              const proc = spawn(ffmpeg.ffmpegPath, args);
-              proc.on('close', (code) => code === 0 && fs.existsSync(tempChunkPath) ? resolve() : reject(new Error(`FFmpeg slice error ${code}`)));
-              proc.on('error', reject);
-            });
-          } else {
-            const silenceDur = Number((item.durationSec || 5.0).toFixed(3));
-            await new Promise((resolve, reject) => {
-              const args = [
-                '-f', 'lavfi',
-                '-i', 'anullsrc=r=16000:cl=mono',
-                '-t', String(silenceDur),
-                '-ar', '16000',
-                '-ac', '1',
-                '-c:a', 'pcm_s16le',
-                '-y',
-                tempChunkPath
-              ];
-              const proc = spawn(ffmpeg.ffmpegPath, args);
-              proc.on('close', (code) => code === 0 && fs.existsSync(tempChunkPath) ? resolve() : reject(new Error(`FFmpeg silence error ${code}`)));
-              proc.on('error', reject);
-            });
+          if (fs.existsSync(outPath)) {
+            finalAudioPath = outPath;
+            finalAudioUrl = media.mediaUrl(outPath);
+            audioSpliced = true;
           }
         }
-
-        // Concatenate using FFmpeg concat filter with re-encoding to guarantee clean stream joining
-        const listFilePath = path.join(p.ALURFILM_AUDIO_DIR, `concat_list_${timestamp}.txt`);
-        const listContent = tempFiles.map(f => `file '${f.replace(/'/g, "'\\''")}'`).join('\n');
-        fs.writeFileSync(listFilePath, listContent, 'utf-8');
-
-        const outputName = `${contentId}_final_audio_with_silence_gaps_${timestamp}.wav`;
-        const outPath = path.join(p.ALURFILM_AUDIO_DIR, outputName);
-
-        await new Promise((resolve, reject) => {
-          const args = [
-            '-f', 'concat',
-            '-safe', '0',
-            '-i', listFilePath,
-            '-ar', '16000',
-            '-ac', '1',
-            '-c:a', 'pcm_s16le',
-            '-y',
-            outPath
-          ];
-          const proc = spawn(ffmpeg.ffmpegPath, args);
-          proc.on('close', (code) => code === 0 && fs.existsSync(outPath) ? resolve() : reject(new Error(`FFmpeg concat error code ${code}`)));
-          proc.on('error', reject);
-        });
-
-        // Clean up temp files
-        try { fs.unlinkSync(listFilePath); } catch { }
-        for (const f of tempFiles) { try { fs.unlinkSync(f); } catch { } }
-
-        finalAudioPath = outPath;
-        finalAudioUrl = media.mediaUrl(outPath);
-        audioSpliced = true;
       } catch (err) {
-        console.warn('FFmpeg audio splicing failed, keeping original audio:', err.message);
+        console.warn('FFmpeg audio splicing failed in test handler, keeping original audio:', err.message);
       }
     }
 
-    // Step 5: Construct timeline items matching adjusted final audio file perfectly
-    const finalItems = [];
-    let itemCounter = 0;
-    let clockSec = 0.0;
-    let sourceVideoClock = 15.0;
-
-    for (let i = 0; i < alignedElements.length; i++) {
-      const current = alignedElements[i];
-
-      if (current.type === 'visual_only') {
-        const silenceItem = audioSplits.find(s => s.type === 'silence_buffer' && s.element === current);
-        const start = (audioSpliced && silenceItem)
-          ? silenceItem.splicedStart
-          : Number(clockSec.toFixed(3));
-        const duration = (audioSpliced && silenceItem)
-          ? Number((silenceItem.splicedEnd - silenceItem.splicedStart).toFixed(3))
-          : Number((current.duration || 5.0).toFixed(3));
-        const end = (audioSpliced && silenceItem)
-          ? silenceItem.splicedEnd
-          : Number((start + duration).toFixed(3));
-
-        clockSec = end;
-
-        const clip1Dur = Number((duration * 0.5).toFixed(3));
-        const clip2Dur = Number((duration - clip1Dur).toFixed(3));
-
-        finalItems.push({
-          sentence_index: itemCounter++,
-          type: 'visual_only',
-          text: current.text,
-          description: current.description || 'Adegan Visual Murni Action',
-          start,
-          end,
-          duration,
-          visuals: [
-            { type: 'video_cut', duration: clip1Dur, source_start_seconds: Number(sourceVideoClock.toFixed(1)), color_grading_shift: { contrast: 1.06, brightness: 0.005, saturation: 1.06 } },
-            { type: 'video_cut', duration: clip2Dur, source_start_seconds: Number((sourceVideoClock + 25.0).toFixed(1)), color_grading_shift: { contrast: 1.05, brightness: 0.004, saturation: 1.05 } }
-          ]
-        });
-        sourceVideoClock += 35.0;
-      } else {
-        const origStart = current.start !== undefined ? current.start : 0;
-        const origEnd = current.end !== undefined ? current.end : (origStart + 3.0);
-        const rawDuration = Math.max(0.5, Number((origEnd - origStart).toFixed(3)));
-
-        let start = 0.0;
-        let end = 0.0;
-
-        if (audioSpliced && audioSplits.length > 0) {
-          let matchingChunk = audioSplits.find(item => item.type === 'audio_chunk' && item.sectionIndex === current.sectionIndex);
-          if (!matchingChunk) {
-            matchingChunk = audioSplits.find(item => item.type === 'audio_chunk' && origStart >= item.startSec && origStart <= item.endSec)
-              || audioSplits.filter(item => item.type === 'audio_chunk').find(item => origStart <= item.endSec)
-              || audioSplits.filter(item => item.type === 'audio_chunk').pop();
-          }
-
-          if (matchingChunk) {
-            const offset = Math.max(0, origStart - matchingChunk.startSec);
-            start = Number((matchingChunk.splicedStart + offset).toFixed(3));
-            end = Number((start + rawDuration).toFixed(3));
-          } else {
-            start = Number(clockSec.toFixed(3));
-            end = Number((start + rawDuration).toFixed(3));
-          }
-        } else {
-          start = Number((current.start !== undefined ? current.start : clockSec).toFixed(3));
-          end = Number((current.end !== undefined ? current.end : (start + rawDuration)).toFixed(3));
-        }
-
-        clockSec = Math.max(clockSec, end);
-
-        finalItems.push({
-          sentence_index: itemCounter++,
-          type: 'narration',
-          text: current.text,
-          start,
-          end,
-          duration: rawDuration,
-          visuals: [
-            { type: 'video_cut', duration: rawDuration, source_start_seconds: Number(sourceVideoClock.toFixed(1)), color_grading_shift: { contrast: 1.04, brightness: 0.003, saturation: 1.04 } }
-          ]
-        });
-        sourceVideoClock += 12.0;
-      }
-    }
-
-    const totalDur = Number(clockSec.toFixed(3));
+    // Step 5: Construct timeline items matching adjusted final audio file perfectly (with test visuals)
+    const finalItems = audioSplicer.mapElementsToSplicedTimeline(alignedElements, audioSplits, audioSpliced, { generateTestVisuals: true });
+    const totalDur = finalItems.length > 0 ? finalItems[finalItems.length - 1].end : 0.0;
 
     return {
       success: true,

@@ -82,18 +82,40 @@ const AlurfilmMappingStep: React.FC = () => {
       const rawEntries = transcriptResult?.data || transcriptResult?.entries || [];
 
       const voiceoverSentences = Array.isArray(rawEntries)
-        ? rawEntries.map((t: any, idx) => ({
-            sentence_index: idx,
-            text: t.text || t.narration || '',
-            start: typeof t.start_seconds === 'number' ? t.start_seconds : (t.start || 0.0),
-            end: typeof t.end_seconds === 'number' ? t.end_seconds : (t.end || 0.0),
-            duration: Number(
-              (
-                (typeof t.end_seconds === 'number' ? t.end_seconds : (t.end || 0)) -
-                (typeof t.start_seconds === 'number' ? t.start_seconds : (t.start || 0))
-              ).toFixed(2)
-            ),
-          }))
+        ? rawEntries.map((t: any, idx) => {
+            const st = typeof t.start_seconds === 'number' ? t.start_seconds : (t.start || 0.0);
+            const ed = typeof t.end_seconds === 'number' ? t.end_seconds : (t.end || 0.0);
+            const dur = Number(Math.max(0.1, ed - st).toFixed(2));
+            const isVisualOnly = (t.type && String(t.type).toLowerCase().includes('visual_only')) ||
+                                 (t.speaker && String(t.speaker).toLowerCase().includes('visual')) ||
+                                 (typeof t.text === 'string' && /\[visual_only/i.test(t.text));
+
+            if (isVisualOnly) {
+              return {
+                sentence_index: idx,
+                type: 'visual_only',
+                speaker: 'Visual (No-VO)',
+                text: t.text || '',
+                visual_description: t.description || t.visual_description || 'Adegan Visual Murni (Action)',
+                target_source_range: t.sourceRange || t.target_source_range || '00:00 - 00:35',
+                target_source_start_seconds: typeof t.sourceStartSeconds === 'number' ? t.sourceStartSeconds : (t.target_source_start_seconds || 0),
+                target_source_end_seconds: typeof t.sourceEndSeconds === 'number' ? t.sourceEndSeconds : (t.target_source_end_seconds || 35),
+                start: Number(st.toFixed(2)),
+                end: Number(ed.toFixed(2)),
+                duration: dur,
+              };
+            }
+
+            return {
+              sentence_index: idx,
+              type: 'narration',
+              speaker: t.speaker || 'Narator',
+              text: t.text || t.narration || '',
+              start: Number(st.toFixed(2)),
+              end: Number(ed.toFixed(2)),
+              duration: dur,
+            };
+          })
         : [];
 
       let promptTpl = await api.readFromProject?.('dashboard/prompts/longform/alurfilm-mapping-prompt.md');
