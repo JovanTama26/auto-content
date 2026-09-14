@@ -113,34 +113,37 @@ export function parseDurationFromTagStr(durStr?: any): number {
 }
 
 /**
- * Converts script containing [VISUAL_ONLY: 5.0s | ...] into Gemini TTS SSML break tags.
- * Example: "Hello [VISUAL_ONLY: 5.0s | action] world" -> "Hello <break time="5.0s"/> world"
+ * Converts script containing [VISUAL_ONLY: 5.0s | ...] into pause tags ([pauses]).
+ * Removes all other tags ([gasp], [whisper], [pause], [EXPRESSION: ...], [AUDIO: ...], <break ...>, etc.)
+ * so ONLY the [pauses] tag remains for ElevenLabs TTS.
+ * Example: "Hello [VISUAL_ONLY: 5.0s | action] [gasp] world" -> "Hello [pauses] world"
  */
 export function convertToGeminiTtsScript(rawScript: string): string {
   if (!rawScript || typeof rawScript !== 'string') return '';
+  // 1. Convert VISUAL_ONLY tags to [pauses]
   let result = rawScript.replace(
     new RegExp(VISUAL_ONLY_TAG_REGEX.source, 'gi'),
-    (match) => {
-      const sec = parseDurationFromTagStr(match);
-      return `<break time="${sec.toFixed(1)}s"/>`;
-    }
+    () => '[pauses]'
   );
   // Fallback clean any malformed VISUAL_ONLY tags
-  result = result.replace(/\[VISUAL_ONLY[^\]]*\]/gi, '');
-  return result.replace(EXPRESSION_TAG_REGEX, '').trim();
-}
-
-/**
- * Strips all [VISUAL_ONLY...] tags from the script, leaving clean voiceover narration for ElevenLabs TTS.
- * Preserves expression tags like [pause], [excited], [chuckles], [gasp], [sigh] for ElevenLabs TTS voice modulation.
- */
-export function convertToElevenLabsTtsScript(rawScript: string): string {
-  if (!rawScript || typeof rawScript !== 'string') return '';
-  return rawScript
-    .replace(/\[VISUAL_ONLY[^\]]*\]/gi, '') // Remove all VISUAL_ONLY tags completely
+  result = result.replace(/\[VISUAL_ONLY[^\]]*\]/gi, '[pauses]');
+  // 2. Remove any SSML / HTML tags (e.g. <break time="..."/>)
+  result = result.replace(/<[^>]+>/g, '');
+  // 3. Remove all other bracket tags except [pauses]
+  result = result.replace(/\[(?!\/?pauses\])[^\]]*\]/gi, '');
+  // 4. Normalize [pauses] casing and whitespace
+  result = result.replace(/\[pauses\]/gi, '[pauses]');
+  return result
     .replace(/[ \t]+/g, ' ')
     .replace(/\n\s*\n\s*\n+/g, '\n\n')
     .trim();
+}
+
+/**
+ * Converts script for ElevenLabs TTS: keeps only [pauses] tags and removes all other tags.
+ */
+export function convertToElevenLabsTtsScript(rawScript: string): string {
+  return convertToGeminiTtsScript(rawScript);
 }
 
 /**

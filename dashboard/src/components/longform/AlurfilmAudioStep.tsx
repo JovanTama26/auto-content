@@ -211,13 +211,13 @@ const AlurfilmAudioStep: React.FC = () => {
                       const ttsScript = convertToGeminiTtsScript(rawScript);
                       if (api.copyToClipboard) {
                         api.copyToClipboard(ttsScript);
-                        showToast(`🎙️ Copied Gemini TTS Script (<break time="..."/>) Part #${activePart}!`);
+                        showToast(`🎙️ Copied ElevenLabs TTS Script ([pauses]) Part #${activePart}!`);
                       }
                     }}
                     className="px-2.5 py-1 bg-purple-950/80 hover:bg-purple-900 text-purple-300 border border-purple-700/60 rounded-lg text-[10px] font-bold transition-all flex items-center gap-1"
-                    title="Copy naskah dengan tag <break time='...s'/> untuk AI Studio"
+                    title="Copy naskah dengan tag [pauses] untuk ElevenLabs TTS"
                   >
-                    <span>⚡</span> Copy Gemini TTS
+                    <span>⚡</span> Copy ElevenLabs TTS
                   </button>
                 </div>
 

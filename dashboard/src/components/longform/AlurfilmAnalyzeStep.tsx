@@ -4,7 +4,7 @@ import type { AlurfilmChunk, AlurfilmAnalysisResult, AlurfilmAudioResult, Alurfi
 
 import { validateScriptAnalysis } from '../../utils/scriptValidation';
 import { GoogleAiStudioTtsPreset } from '../common/GoogleAiStudioTtsPreset';
-import { parseScriptSegments, convertToGeminiTtsScript, convertToElevenLabsTtsScript } from '../../../../lib/alurfilm/script-parser';
+import { parseScriptSegments, convertToGeminiTtsScript } from '../../../../lib/alurfilm/script-parser';
 
 const api = window.electronAPI;
 
@@ -894,30 +894,16 @@ const safeStr = (val: any, fallback: string = ''): string => {
                 <button
                   onClick={() => {
                     const text = safeStr(currentAnalysis.naskah_voiceover?.script_text || '');
-                    const cleanScript = convertToElevenLabsTtsScript(text);
-                    if (api?.copyToClipboard) {
-                      api.copyToClipboard(cleanScript);
-                      showToast(`🎙️ Copied ElevenLabs TTS (Clean Voiceover) Part #${activePart}!`);
-                    }
-                  }}
-                  className="px-2.5 py-1 bg-emerald-950/70 hover:bg-emerald-900 text-emerald-300 border border-emerald-700/60 rounded-lg text-[11px] font-semibold transition-all flex items-center gap-1 shadow-sm"
-                  title="Copy naskah bersih tanpa tag [VISUAL_ONLY] untuk ElevenLabs TTS"
-                >
-                  <span>🎙️</span> Copy ElevenLabs TTS
-                </button>
-                <button
-                  onClick={() => {
-                    const text = safeStr(currentAnalysis.naskah_voiceover?.script_text || '');
                     const ttsScript = convertToGeminiTtsScript(text);
                     if (api?.copyToClipboard) {
                       api.copyToClipboard(ttsScript);
-                      showToast(`⚡ Copied Gemini TTS Script (<break time="..."/>) Part #${activePart}!`);
+                      showToast(`⚡ Copied ElevenLabs TTS Script ([pauses]) Part #${activePart}!`);
                     }
                   }}
                   className="px-2.5 py-1 bg-purple-950/60 hover:bg-purple-900 text-purple-300 border border-purple-800/60 rounded-lg text-[11px] font-semibold transition-all flex items-center gap-1"
-                  title="Copy naskah dengan tag <break time='...s'/> untuk AI Studio TTS"
+                  title="Copy naskah dengan tag [pauses] untuk ElevenLabs TTS"
                 >
-                  <span>⚡</span> Copy Gemini TTS
+                  <span>⚡</span> Copy ElevenLabs TTS
                 </button>
                 <button
                   onClick={() => {
