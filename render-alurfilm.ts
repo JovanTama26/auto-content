@@ -283,37 +283,51 @@ program
 
     const clips: FlattenedClip[] = [];
     let clipIdCounter = 1;
+    let currentTimelineClock = 0;
+    const numSents = mapping.mappings.length;
 
-    for (const sentence of mapping.mappings) {
+    for (let sIdx = 0; sIdx < numSents; sIdx++) {
+      const sentence = mapping.mappings[sIdx];
+      const nextSentence = sIdx < numSents - 1 ? mapping.mappings[sIdx + 1] : null;
+
       const isVisualOnly = Boolean(
         (sentence.type && sentence.type.toLowerCase().includes('visual_only')) ||
         (sentence.text && /\[visual_only/i.test(sentence.text))
       );
 
-      const rawVoDur = (sentence.start !== undefined && sentence.end !== undefined && sentence.end > sentence.start)
-        ? Number((sentence.end - sentence.start).toFixed(2))
-        : (sentence.duration || 3.0);
+      const sentStart = (sentence.start !== undefined && sentence.start >= currentTimelineClock)
+        ? sentence.start
+        : currentTimelineClock;
 
-      const sumVisDur = (sentence.visuals && sentence.visuals.length > 0)
-        ? Number(sentence.visuals.reduce((sum, v) => sum + (v.duration || 0), 0).toFixed(2))
+      const sentEnd = (nextSentence && typeof nextSentence.start === 'number' && nextSentence.start > sentStart)
+        ? nextSentence.start
+        : (sentence.end && sentence.end > sentStart ? sentence.end : sentStart + (sentence.duration || 3.0));
+
+      const targetSentDur = Math.max(0.2, Number((sentEnd - sentStart).toFixed(3)));
+
+      const visuals = (sentence.visuals && sentence.visuals.length > 0) ? sentence.visuals : null;
+      const sumVisDur = visuals
+        ? Number(visuals.reduce((sum, v) => sum + (v.duration || 0), 0).toFixed(3))
         : 0;
 
-      // Guard: if rawVoDur <= 0.2 (corrupted timecode) and visuals exist, use sumVisDur instead of squashing
-      const targetVoDur = isVisualOnly
-        ? (sentence.duration || (sumVisDur > 0 ? sumVisDur : 3.0))
-        : (rawVoDur > 0.2 ? rawVoDur : (sumVisDur > 0 ? sumVisDur : 3.0));
+      const scale = (visuals && sumVisDur > 0)
+        ? (targetSentDur / sumVisDur)
+        : 1.0;
 
-      if (sentence.visuals && sentence.visuals.length > 0) {
-        const scale = (sumVisDur > 0 && Math.abs(sumVisDur - targetVoDur) > 0.15 && !isVisualOnly)
-          ? (targetVoDur / sumVisDur)
-          : 1.0;
-
-        for (const vis of sentence.visuals) {
+      if (visuals) {
+        let runningOffset = 0;
+        visuals.forEach((vis, vIdx) => {
           const ss = vis.source_start_seconds !== undefined
             ? vis.source_start_seconds
             : (vis.source_timestamp_seconds !== undefined ? vis.source_timestamp_seconds : 0);
 
-          const adjustedDur = Number(((vis.duration || 3.0) * scale).toFixed(3));
+          let adjustedDur: number;
+          if (vIdx === visuals.length - 1) {
+            adjustedDur = Math.max(0.2, Number((targetSentDur - runningOffset).toFixed(3)));
+          } else {
+            adjustedDur = Math.max(0.2, Number(((vis.duration || 3.0) * scale).toFixed(3)));
+            runningOffset += adjustedDur;
+          }
 
           clips.push({
             id: clipIdCounter++,
@@ -327,7 +341,7 @@ program
             colorShift: vis.color_grading_shift,
             isVisualOnly,
           });
-        }
+        });
       } else {
         const fallbackSs = (sentence as any).source_start_seconds !== undefined
           ? (sentence as any).source_start_seconds
@@ -338,11 +352,13 @@ program
           sentenceIndex: sentence.sentence_index,
           text: sentence.text || '',
           sourceStart: fallbackSs,
-          duration: targetVoDur,
+          duration: targetSentDur,
           type: 'video_cut',
           isVisualOnly,
         });
       }
+
+      currentTimelineClock = sentEnd;
     }
 
     let maxAudioDurationSec = 0;
@@ -371,31 +387,6 @@ program
     }
 
     let totalDur = clips.reduce((s, c) => s + c.duration, 0);
-    const narrationClips = clips.filter(c => !c.isVisualOnly);
-    const narrationTotalDur = narrationClips.reduce((s, c) => s + c.duration, 0);
-
-    // Fix: exclude visual_only silence buffers from maxAudioDurationSec before scaling.
-    // The spliced WAV already includes silence gaps for visual_only segments — if we scale
-    // narration clips against the full spliced duration, they get over-stretched and bleed
-    // into the visual_only zone, causing audio overlap.
-    const visualOnlyTotalDur = clips.filter(c => c.isVisualOnly).reduce((s, c) => s + c.duration, 0);
-    const effectiveNarrationAudioDur = maxAudioDurationSec > 0
-      ? Math.max(narrationTotalDur * 0.5, maxAudioDurationSec - visualOnlyTotalDur)
-      : 0;
-
-    if (effectiveNarrationAudioDur > 0 && narrationClips.length > 0 && Math.abs(narrationTotalDur - effectiveNarrationAudioDur) > 0.1) {
-      console.log(`⚠️ [Alurfilm Engine] Narration clips duration (${narrationTotalDur.toFixed(2)}s) differs from effective narration audio (${effectiveNarrationAudioDur.toFixed(2)}s, visual_only silence excluded: ${visualOnlyTotalDur.toFixed(2)}s). Auto-adjusting narration clips.`);
-      const scale = effectiveNarrationAudioDur / narrationTotalDur;
-      narrationClips.forEach((c, idx) => {
-        if (idx === narrationClips.length - 1) {
-          const otherSum = narrationClips.slice(0, idx).reduce((s, x) => s + x.duration, 0);
-          c.duration = Math.max(0.2, Number((effectiveNarrationAudioDur - otherSum).toFixed(3)));
-        } else {
-          c.duration = Number((c.duration * scale).toFixed(3));
-        }
-      });
-      totalDur = clips.reduce((s, c) => s + c.duration, 0);
-    }
 
     // Anti-Freeze Protection: Ensure total video duration covers 100% of the audio stream
     if (maxAudioDurationSec > 0 && totalDur < maxAudioDurationSec) {
@@ -479,10 +470,14 @@ program
           if (clip.mirrorMode === 'horizontal') fxFilters.push('hflip');
           else if (clip.mirrorMode === 'vertical') fxFilters.push('vflip');
 
-          // 2. Slow motion (setpts)
+          // 2. PTS normalization & Slow motion (setpts)
+          // Subtracting STARTPTS is mandatory when using fast seek (-ss before -i)
+          // to prevent PTS forward-shift that truncates 30-100ms off every clip
           if (clip.type === 'slow_motion' && clip.slowMoFactor && clip.slowMoFactor > 0 && clip.slowMoFactor !== 1) {
             const ptsFactor = (1 / clip.slowMoFactor).toFixed(2);
-            fxFilters.push(`setpts=${ptsFactor}*PTS`);
+            fxFilters.push(`setpts=(PTS-STARTPTS)*${ptsFactor}`);
+          } else if (clip.type !== 'freeze_frame_with_zoom') {
+            fxFilters.push('setpts=PTS-STARTPTS');
           }
 
           // 3. Color grading shift (YouTube Content ID bypass)
@@ -508,9 +503,11 @@ program
             scaleFilter = `loop=loop=-1:size=1:start=0,scale=${width}:${height}:force_original_aspect_ratio=increase:flags=lanczos,crop=${width}:${height},zoompan=z='1+0.035*(on/${clipFrames})':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${width}x${height}:fps=30,setsar=1${fxChain}`;
           } else {
             scaleFilter = `scale=${scaledWidth}:${scaledHeight}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1${fxChain}`;
-            inputReadDur = (clip.type === 'slow_motion' && clip.slowMoFactor && clip.slowMoFactor > 0)
-              ? (clip.duration * clip.slowMoFactor).toFixed(3)
-              : String(clip.duration);
+            const baseDur = (clip.type === 'slow_motion' && clip.slowMoFactor && clip.slowMoFactor > 0)
+              ? (clip.duration * clip.slowMoFactor)
+              : clip.duration;
+            // Add +1.5s headroom so decoder is never starved of input frames before output reaches clip.duration
+            inputReadDur = (baseDur + 1.5).toFixed(3);
           }
 
           const readDurNum = parseFloat(inputReadDur) || 0.5;
@@ -520,44 +517,19 @@ program
             console.log(`⚠️ [Alurfilm Engine] Clip #${clip.id} boundary overflow (${clip.sourceStart}s + ${readDurNum}s > ${sourceVideoDuration.toFixed(1)}s). Safely shifted sourceStart to ${safeSourceStart}s.`);
           }
 
-          const ffmpegArgs: string[] = [];
-
-          if (clip.isVisualOnly) {
-            // For VISUAL_ONLY clips, extract original movie video (0:v:0) and original audio (0:a:0?) explicitly with strict audio PTS reset & trimming
-            ffmpegArgs.push(
-              '-y',
-              '-ss', String(safeSourceStart),
-              '-t', inputReadDur,
-              '-i', resolvedVideo,
-              '-vf', scaleFilter,
-              '-af', `atrim=0:${clip.duration},asetpts=PTS-STARTPTS,aresample=48000:async=1:first_pts=0`,
-              '-t', String(clip.duration),
-              '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '18', '-r', '30',
-              '-c:a', 'aac', '-b:a', '128k', '-ar', '48000', '-ac', '2',
-              '-map', '0:v:0', '-map', '0:a:0?',
-              '-avoid_negative_ts', 'make_zero',
-              '-pix_fmt', 'yuv420p',
-              outFile
-            );
-          } else {
-            // For narration clips, use silent stereo audio (anullsrc) to prevent movie audio from clashing with narrator voiceover
-            ffmpegArgs.push(
-              '-y',
-              '-ss', String(safeSourceStart),
-              '-t', inputReadDur,
-              '-i', resolvedVideo,
-              '-f', 'lavfi', '-t', String(clip.duration), '-i', 'anullsrc=r=48000:cl=stereo',
-              '-vf', scaleFilter,
-              '-af', `atrim=0:${clip.duration},asetpts=PTS-STARTPTS,aresample=48000:async=1:first_pts=0`,
-              '-t', String(clip.duration),
-              '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '18', '-r', '30',
-              '-c:a', 'aac', '-b:a', '128k', '-ar', '48000', '-ac', '2',
-              '-map', '0:v:0', '-map', '1:a:0',
-              '-avoid_negative_ts', 'make_zero',
-              '-pix_fmt', 'yuv420p',
-              outFile
-            );
-          }
+          const ffmpegArgs: string[] = [
+            '-y',
+            '-ss', String(safeSourceStart),
+            '-t', inputReadDur,
+            '-i', resolvedVideo,
+            '-vf', scaleFilter,
+            '-t', String(clip.duration),
+            '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '18', '-r', '30',
+            '-an',
+            '-avoid_negative_ts', 'make_zero',
+            '-pix_fmt', 'yuv420p',
+            outFile
+          ];
 
           return runFFmpeg(ffmpegArgs, process.cwd(), `Clip #${clip.id} (Sentence ${clip.sentenceIndex})`);
         });
@@ -569,6 +541,104 @@ program
       }
       console.log('');
 
+      // Generate sample-accurate pre-aligned Movie FX audio track (movie_fx.wav)
+      const hasVisualOnly = clips.some(c => c.isVisualOnly);
+      let fullMovieFxWav: string | null = null;
+
+      if (hasVisualOnly) {
+        console.log('🔊 [Alurfilm Engine] Generating sample-accurate Movie FX audio track...');
+        const fxDir = path.join(tmpDir, 'fx_parts');
+        fs.mkdirSync(fxDir, { recursive: true });
+
+        interface FxSegment {
+          type: 'silence' | 'movie';
+          duration: number;
+          sourceStart?: number;
+        }
+
+        const rawFxSegments: FxSegment[] = [];
+        for (const clip of clips) {
+          if (clip.isVisualOnly) {
+            rawFxSegments.push({
+              type: 'movie',
+              duration: clip.duration,
+              sourceStart: clip.sourceStart,
+            });
+          } else {
+            rawFxSegments.push({
+              type: 'silence',
+              duration: clip.duration,
+            });
+          }
+        }
+
+        // Merge consecutive silence segments
+        const mergedFxSegments: FxSegment[] = [];
+        for (const seg of rawFxSegments) {
+          if (seg.type === 'silence') {
+            const last = mergedFxSegments[mergedFxSegments.length - 1];
+            if (last && last.type === 'silence') {
+              last.duration = Number((last.duration + seg.duration).toFixed(3));
+            } else {
+              mergedFxSegments.push({ ...seg });
+            }
+          } else {
+            mergedFxSegments.push({ ...seg });
+          }
+        }
+
+        const fxWavFiles: string[] = new Array(mergedFxSegments.length);
+        const fxTasks = mergedFxSegments.map(async (seg, idx) => {
+          const wavPath = path.join(fxDir, `fx_${String(idx).padStart(4, '0')}.wav`);
+          fxWavFiles[idx] = wavPath;
+          if (seg.type === 'silence') {
+            const sArgs = [
+              '-y',
+              '-f', 'lavfi',
+              '-t', String(seg.duration),
+              '-i', 'anullsrc=r=48000:cl=stereo',
+              '-c:a', 'pcm_s16le',
+              '-ar', '48000',
+              '-ac', '2',
+              wavPath
+            ];
+            await runFFmpeg(sArgs, process.cwd(), `FX Silence #${idx}`);
+          } else {
+            let safeSs = seg.sourceStart || 0;
+            if (sourceVideoDuration > 0 && safeSs + seg.duration > sourceVideoDuration - 0.2) {
+              safeSs = Math.max(0, Number((sourceVideoDuration - seg.duration - 0.2).toFixed(3)));
+            }
+            const mArgs = [
+              '-y',
+              '-ss', String(safeSs),
+              '-t', String(seg.duration),
+              '-i', resolvedVideo,
+              '-af', `atrim=0:${seg.duration},asetpts=PTS-STARTPTS,aresample=48000:first_pts=0`,
+              '-c:a', 'pcm_s16le',
+              '-ar', '48000',
+              '-ac', '2',
+              wavPath
+            ];
+            await runFFmpeg(mArgs, process.cwd(), `FX Movie #${idx}`);
+          }
+        });
+
+        await Promise.all(fxTasks);
+
+        const fxListFile = path.join(tmpDir, 'fx_list.txt');
+        fs.writeFileSync(fxListFile, fxWavFiles.map(f => `file '${f.replace(/'/g, "'\\''")}'`).join('\n'), 'utf-8');
+        fullMovieFxWav = path.join(tmpDir, 'movie_fx.wav');
+        await runFFmpeg([
+          '-y',
+          '-f', 'concat',
+          '-safe', '0',
+          '-i', fxListFile,
+          '-c:a', 'copy',
+          fullMovieFxWav
+        ], process.cwd(), 'Concat Movie FX WAV');
+        console.log('✅ [Alurfilm Engine] Sample-accurate Movie FX track ready');
+      }
+
       // Concat all TS clips & mix Voiceover audio + Logo
       console.log('🔗 [Alurfilm Engine] Concatenating visual clips & logo overlay...');
       const listFile = path.join(tmpDir, 'list.txt');
@@ -576,16 +646,22 @@ program
 
       const fargs: string[] = [
         '-y',
-        '-f', 'concat', '-safe', '0', '-i', listFile, // Stream 0:v (video) & 0:a (movie FX audio)
+        '-f', 'concat', '-safe', '0', '-i', listFile, // Stream 0:v (video only)
       ];
 
       let streamIndex = 1;
       let voIndex: number | null = null;
+      let movieFxIndex: number | null = null;
       let logoIndex: number | null = null;
 
       if (resolvedAudioFinal) {
         fargs.push('-i', resolvedAudioFinal);
         voIndex = streamIndex++;
+      }
+
+      if (hasVisualOnly && fullMovieFxWav && fs.existsSync(fullMovieFxWav)) {
+        fargs.push('-i', fullMovieFxWav);
+        movieFxIndex = streamIndex++;
       }
 
       // Collect all BGM timeline segments
@@ -664,7 +740,7 @@ program
 
         const bgmSegScale = numBgmSegs > 1 ? numBgmSegs : 1;
 
-        if (voIndex !== null) {
+        if (voIndex !== null && movieFxIndex !== null) {
           const numFinalInputs = 3;
           const targetBgmVol = (bgmVolume * bgmSegScale * numFinalInputs).toFixed(3);
           const targetVisualOnlyVol = (Math.max(bgmVolume * 1.6, 0.45) * bgmSegScale * numFinalInputs).toFixed(3);
@@ -672,26 +748,52 @@ program
           const targetMovieFxVol = (1.8 * numFinalInputs).toFixed(3);
 
           filterParts.push(`[${voIndex}:a]volume=${targetVoVol}[vo]`);
-          filterParts.push(`[0:a]volume=${targetMovieFxVol}[movie_fx]`);
+          filterParts.push(`[${movieFxIndex}:a]volume=${targetMovieFxVol}[movie_fx]`);
           filterParts.push(`[bgm_full]volume='if(${visualOnlyConditions}, ${targetVisualOnlyVol}, ${targetBgmVol})':eval=frame[bgm_ducked]`);
           filterParts.push(`[vo][movie_fx][bgm_ducked]amix=inputs=3:duration=first:dropout_transition=0[aout]`);
           aMap = '[aout]';
-        } else {
+        } else if (voIndex !== null) {
+          const numFinalInputs = 2;
+          const targetBgmVol = (bgmVolume * bgmSegScale * numFinalInputs).toFixed(3);
+          const targetVoVol = (narrationVolume * numFinalInputs).toFixed(3);
+
+          filterParts.push(`[${voIndex}:a]volume=${targetVoVol}[vo]`);
+          filterParts.push(`[bgm_full]volume=${targetBgmVol}[bgm_ducked]`);
+          filterParts.push(`[vo][bgm_ducked]amix=inputs=2:duration=first:dropout_transition=0[aout]`);
+          aMap = '[aout]';
+        } else if (movieFxIndex !== null) {
           const numFinalInputs = 2;
           const targetBgmVol = (bgmVolume * bgmSegScale * numFinalInputs).toFixed(3);
           const targetVisualOnlyVol = (Math.max(bgmVolume * 1.6, 0.45) * bgmSegScale * numFinalInputs).toFixed(3);
           const targetMovieFxVol = (1.8 * numFinalInputs).toFixed(3);
 
-          filterParts.push(`[0:a]volume=${targetMovieFxVol}[movie_fx]`);
+          filterParts.push(`[${movieFxIndex}:a]volume=${targetMovieFxVol}[movie_fx]`);
           filterParts.push(`[bgm_full]volume='if(${visualOnlyConditions}, ${targetVisualOnlyVol}, ${targetBgmVol})':eval=frame[bgm_ducked]`);
           filterParts.push(`[movie_fx][bgm_ducked]amix=inputs=2:duration=first:dropout_transition=0[aout]`);
           aMap = '[aout]';
+        } else {
+          filterParts.push(`[bgm_full]volume=${bgmVolume}[aout]`);
+          aMap = '[aout]';
         }
-      } else if (voIndex !== null) {
-        filterParts.push(`[0:a]volume=1.8[aout]`);
-        aMap = '[aout]';
-      }
+      } else {
+        // No BGM
+        if (voIndex !== null && movieFxIndex !== null) {
+          const numFinalInputs = 2;
+          const targetVoVol = (narrationVolume * numFinalInputs).toFixed(3);
+          const targetMovieFxVol = (1.8 * numFinalInputs).toFixed(3);
 
+          filterParts.push(`[${voIndex}:a]volume=${targetVoVol}[vo]`);
+          filterParts.push(`[${movieFxIndex}:a]volume=${targetMovieFxVol}[movie_fx]`);
+          filterParts.push(`[vo][movie_fx]amix=inputs=2:duration=first:dropout_transition=0[aout]`);
+          aMap = '[aout]';
+        } else if (voIndex !== null) {
+          filterParts.push(`[${voIndex}:a]volume=${narrationVolume}[aout]`);
+          aMap = '[aout]';
+        } else if (movieFxIndex !== null) {
+          filterParts.push(`[${movieFxIndex}:a]volume=1.8[aout]`);
+          aMap = '[aout]';
+        }
+      }
 
       if (filterParts.length > 0) {
         fargs.push('-filter_complex', filterParts.join(';'));
@@ -731,6 +833,10 @@ program
     } catch (err: any) {
       console.error(`❌ [Alurfilm Engine Error] ${err.message}`);
       process.exit(1);
+    } finally {
+      try {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      } catch { }
     }
   });
 

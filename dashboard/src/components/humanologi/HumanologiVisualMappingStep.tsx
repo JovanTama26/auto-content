@@ -24,6 +24,7 @@ interface HumanologiNarasiData {
 
 interface HumanologiVisualMappingStepProps {
   onBackToTranscript?: () => void;
+  onGoToRender?: () => void;
 }
 
 function formatDuration(sec?: number): string {
@@ -35,6 +36,7 @@ function formatDuration(sec?: number): string {
 
 export const HumanologiVisualMappingStep: React.FC<HumanologiVisualMappingStepProps> = ({
   onBackToTranscript,
+  onGoToRender,
 }) => {
   const [activePart, setActivePart] = useState<number>(1);
   const [narasiData, setNarasiData] = useState<HumanologiNarasiData | null>(null);
@@ -529,7 +531,7 @@ export const HumanologiVisualMappingStep: React.FC<HumanologiVisualMappingStepPr
               </span>
             </div>
             <p className="text-xs text-gray-400 mt-1">
-              Potongan adegan visual pendek (3–6 kata), sinkronisasi durasi audio persis kata per kata, dan prompt gambar dokumenter (Stickman/Semi-Chibi) 16:9 via 9router.
+              Potongan adegan visual per konteks kalimat (~5–9s), sinkronisasi durasi audio persis kata per kata, dan prompt gambar dokumenter (Whiteboard Doodle) 16:9 via 9router.
             </p>
           </div>
 
@@ -911,7 +913,7 @@ export const HumanologiVisualMappingStep: React.FC<HumanologiVisualMappingStepPr
             </span>
             {scenesList.length > 0 && (
               <span className="px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800 text-[10px] font-mono">
-                Rata-rata 3–6 kata / adegan
+                Per konteks kalimat (~5–9s / adegan)
               </span>
             )}
           </div>
@@ -1133,9 +1135,20 @@ export const HumanologiVisualMappingStep: React.FC<HumanologiVisualMappingStepPr
           </button>
         )}
 
-        <div className="text-gray-400 font-mono text-[11px]">
+        <div className="text-gray-400 font-mono text-[11px] hidden sm:block">
           Target File: <span className="text-emerald-400">input/humanologi/scenes/part_{activePart}_scenes.json</span>
         </div>
+
+        {onGoToRender && (
+          <button
+            type="button"
+            onClick={onGoToRender}
+            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold shadow-lg shadow-emerald-600/30 transition-all flex items-center gap-2 cursor-pointer"
+          >
+            <span>Lanjut ke Step 5: Render Video</span>
+            <span>➔</span>
+          </button>
+        )}
       </div>
 
       {/* ─── MASTER PROMPT MODAL ───────────────────────────────────────────── */}

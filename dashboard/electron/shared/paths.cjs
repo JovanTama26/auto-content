@@ -54,7 +54,21 @@ function getOrGenerateContentId(mode = 'longform') {
     return 'WV-SHORTS-DRAFT';
   }
   if (mode === 'humanologi') {
-    return 'WV-HUMAN-DRAFT';
+    const idFile = path.join(HUMANOLOGI_INPUT_DIR, '.current_content_id');
+    try {
+      if (fs.existsSync(idFile)) {
+        const saved = fs.readFileSync(idFile, 'utf-8').trim();
+        if (saved) return saved;
+      }
+    } catch {}
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const randStr = Math.random().toString(36).substring(2, 6).toUpperCase();
+    const newId = `WV-HUMAN-${dateStr}-${randStr}`;
+    try {
+      if (!fs.existsSync(HUMANOLOGI_INPUT_DIR)) fs.mkdirSync(HUMANOLOGI_INPUT_DIR, { recursive: true });
+      fs.writeFileSync(idFile, newId, 'utf-8');
+    } catch {}
+    return newId;
   }
   const mappingFile = path.join(PROJECT_ROOT, 'input', 'longform_mapping.json');
 

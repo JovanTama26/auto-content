@@ -541,6 +541,32 @@ export interface ElectronAPI {
       error?: string;
     }) => void
   ) => () => void;
+  getHumanologiRenderReadiness?: () => Promise<HumanologiRenderReadinessResult>;
+  renderHumanologiPart?: (options: {
+    part: number;
+    enableSubtitles?: boolean;
+    kenBurns?: boolean;
+    concurrency?: number;
+  }) => Promise<{
+    success: boolean;
+    part?: number;
+    outputPath?: string;
+    mediaUrl?: string;
+    fileSize?: number;
+    elapsed?: string;
+    error?: string;
+  }>;
+  mergeHumanologiFull?: () => Promise<{
+    success: boolean;
+    outputPath?: string;
+    mediaUrl?: string;
+    fileSize?: number;
+    elapsed?: string;
+    error?: string;
+  }>;
+  onHumanologiRenderProgress?: (
+    callback: (data: HumanologiRenderProgressData) => void
+  ) => () => void;
 }
 
 export interface ShortsVideoShot {
@@ -681,6 +707,48 @@ export interface HumanologiScenesData {
   gaya_visual_global: string;
   scenes: HumanologiScene[];
   updated_at?: string;
+}
+
+export interface HumanologiPartReadiness {
+  part: number;
+  totalScenes: number;
+  readyImages: number;
+  imagesPercent: number;
+  audioExists: boolean;
+  audioFileName?: string | null;
+  audioDuration: number;
+  isRendered: boolean;
+  videoSize?: number;
+  videoMtime?: number | null;
+  videoUrl?: string | null;
+  videoPath?: string;
+}
+
+export interface HumanologiRenderReadinessResult {
+  success: boolean;
+  parts: HumanologiPartReadiness[];
+  fullVideo: {
+    isRendered: boolean;
+    size: number;
+    mtime?: number | null;
+    url?: string | null;
+    filePath?: string;
+  };
+  error?: string;
+}
+
+export interface HumanologiRenderProgressData {
+  part?: number;
+  stage: string;
+  progress: number | null;
+  message: string;
+  currentScene?: number;
+  totalScenes?: number;
+  rawLine?: string;
+  isError?: boolean;
+  outputPath?: string;
+  mediaUrl?: string;
+  elapsed?: string;
 }
 
 declare global {

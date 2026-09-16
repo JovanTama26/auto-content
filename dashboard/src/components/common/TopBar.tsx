@@ -116,15 +116,17 @@ const TopBar: React.FC<TopBarProps> = ({ onResetProject, contentMode }) => {
           )}
         </div>
 
-        {/* Reset Workspace Action (Alur Film only) */}
-        {contentMode === 'longform' && (
+        {/* Reset Workspace Action */}
+        {(contentMode === 'longform' || contentMode === 'humanologi') && (
           <button
             onClick={() => setShowConfirm(true)}
-            className="px-3 py-1.5 bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-800/50 rounded-lg text-xs font-semibold shadow-md transition-all flex items-center gap-1.5"
+            className="px-3 py-1.5 bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-800/50 rounded-lg text-xs font-semibold shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
           >
             <span>🔄</span>
             <span>
-              New Content / Reset ID (Alur Film)
+              {contentMode === 'humanologi'
+                ? 'New Content / Reset ID (Humanologi)'
+                : 'New Content / Reset ID (Alur Film)'}
             </span>
           </button>
         )}
@@ -138,23 +140,35 @@ const TopBar: React.FC<TopBarProps> = ({ onResetProject, contentMode }) => {
               ⚠️
             </div>
             <div>
-              <h3 className="text-base font-bold text-white">Reset Workspace & Hapus Data Cloud?</h3>
+              <h3 className="text-base font-bold text-white">
+                {contentMode === 'humanologi'
+                  ? 'Reset Workspace Humanologi?'
+                  : 'Reset Workspace & Hapus Data Cloud?'}
+              </h3>
               <p className="text-xs text-gray-400 mt-1 leading-relaxed">
-                Tindakan ini akan membuat Content ID baru untuk <strong className="text-white uppercase">Alur Cerita Film</strong>, membersihkan file lokal workspace, serta <strong className="text-red-400 font-semibold">menghapus seluruh data sesi & parts di Cloud (Supabase)</strong>.
+                {contentMode === 'humanologi' ? (
+                  <>
+                    Tindakan ini akan membuat Content ID baru untuk <strong className="text-white uppercase">Humanologi</strong>, membersihkan seluruh naskah narasi, audio rekaman, transkrip, adegan, gambar AI, dan video render lokal di workspace Humanologi.
+                  </>
+                ) : (
+                  <>
+                    Tindakan ini akan membuat Content ID baru untuk <strong className="text-white uppercase">Alur Cerita Film</strong>, membersihkan file lokal workspace, serta <strong className="text-red-400 font-semibold">menghapus seluruh data sesi & parts di Cloud (Supabase)</strong>.
+                  </>
+                )}
               </p>
             </div>
             <div className="flex items-center justify-end gap-3 pt-2">
               <button
                 onClick={() => setShowConfirm(false)}
                 disabled={resetting}
-                className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl text-xs font-semibold transition-all"
+                className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl text-xs font-semibold transition-all cursor-pointer"
               >
                 Batal
               </button>
               <button
                 onClick={handleConfirmReset}
                 disabled={resetting}
-                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-semibold transition-all shadow-lg shadow-red-600/30 flex items-center gap-2"
+                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-semibold transition-all shadow-lg shadow-red-600/30 flex items-center gap-2 cursor-pointer"
               >
                 {resetting ? (
                   <>
@@ -164,7 +178,11 @@ const TopBar: React.FC<TopBarProps> = ({ onResetProject, contentMode }) => {
                 ) : (
                   <>
                     <span>🗑️</span>
-                    <span>Ya, Reset & Hapus Data Cloud</span>
+                    <span>
+                      {contentMode === 'humanologi'
+                        ? 'Ya, Reset Humanologi'
+                        : 'Ya, Reset & Hapus Data Cloud'}
+                    </span>
                   </>
                 )}
               </button>

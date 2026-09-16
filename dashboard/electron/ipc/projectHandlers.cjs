@@ -17,7 +17,88 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt, getM
       return { success: true, content_id: 'WV-SHORTS-DRAFT' };
     }
     if (mode === 'humanologi') {
-      return { success: true, content_id: 'WV-HUMAN-DRAFT' };
+      try {
+        let oldContentId = null;
+        try {
+          oldContentId = p.getOrGenerateContentId('humanologi');
+        } catch (e) {
+          console.warn('[Reset Humanologi] Could not retrieve old content ID:', e.message);
+        }
+
+        if (oldContentId) {
+          console.log(`🧹 [Reset Humanologi] Purging Supabase cloud data (Target ID: ${oldContentId})...`);
+          try {
+            await clearCloudData(oldContentId);
+          } catch (cloudErr) {
+            console.warn('⚠️ [Reset Humanologi] Failed or partial cloud purge:', cloudErr.message);
+          }
+        }
+
+        const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        const randStr = Math.random().toString(36).substring(2, 6).toUpperCase();
+        const newId = `WV-HUMAN-${dateStr}-${randStr}`;
+
+        console.log(`🧹 [Reset Humanologi] Clearing all Humanologi workspace files and setting new ID: ${newId}`);
+
+        // 1. Clear input/humanologi JSON files
+        const narasiJson = path.join(p.HUMANOLOGI_INPUT_DIR, 'humanologi_narasi.json');
+        const audiosJson = path.join(p.HUMANOLOGI_INPUT_DIR, 'humanologi_audios.json');
+        if (fs.existsSync(narasiJson)) {
+          try { fs.unlinkSync(narasiJson); } catch (e) { console.error('[Reset Humanologi] Failed unlinking narasi json:', e); }
+        }
+        if (fs.existsSync(audiosJson)) {
+          try { fs.unlinkSync(audiosJson); } catch (e) { console.error('[Reset Humanologi] Failed unlinking audios json:', e); }
+        }
+
+        // 2. Clear input/humanologi subdirectories (audio, transcripts, scenes, images)
+        const subdirsToClear = [
+          p.HUMANOLOGI_AUDIO_DIR,
+          p.HUMANOLOGI_TRANSCRIPTS_DIR,
+          p.HUMANOLOGI_SCENES_DIR,
+          p.HUMANOLOGI_IMAGES_DIR,
+        ];
+        for (const dir of subdirsToClear) {
+          if (fs.existsSync(dir)) {
+            try {
+              const files = fs.readdirSync(dir);
+              for (const f of files) {
+                try { fs.rmSync(path.join(dir, f), { recursive: true, force: true }); } catch (err) {
+                  console.error(`[Reset Humanologi] Failed to remove ${f} from ${dir}:`, err);
+                }
+              }
+            } catch (e) {
+              console.error(`[Reset Humanologi] Error reading dir ${dir}:`, e);
+            }
+          } else {
+            fs.mkdirSync(dir, { recursive: true });
+          }
+        }
+
+        // 3. Clear output/humanologi (rendered MP4s and subtitle files)
+        if (fs.existsSync(p.HUMANOLOGI_OUTPUT_DIR)) {
+          try {
+            const outFiles = fs.readdirSync(p.HUMANOLOGI_OUTPUT_DIR);
+            for (const f of outFiles) {
+              try { fs.rmSync(path.join(p.HUMANOLOGI_OUTPUT_DIR, f), { recursive: true, force: true }); } catch (err) {
+                console.error(`[Reset Humanologi] Failed to remove output file ${f}:`, err);
+              }
+            }
+          } catch (e) {
+            console.error('[Reset Humanologi] Error reading output dir:', e);
+          }
+        } else {
+          fs.mkdirSync(p.HUMANOLOGI_OUTPUT_DIR, { recursive: true });
+        }
+
+        // 4. Update .current_content_id
+        if (!fs.existsSync(p.HUMANOLOGI_INPUT_DIR)) fs.mkdirSync(p.HUMANOLOGI_INPUT_DIR, { recursive: true });
+        fs.writeFileSync(path.join(p.HUMANOLOGI_INPUT_DIR, '.current_content_id'), newId, 'utf-8');
+
+        return { success: true, content_id: newId };
+      } catch (err) {
+        console.error('[Reset Humanologi] Error:', err);
+        return { success: false, error: err.message };
+      }
     }
     const isLongform = mode === 'longform';
     try {

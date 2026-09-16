@@ -305,5 +305,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('humanologi-image-progress', handler);
     return () => ipcRenderer.removeListener('humanologi-image-progress', handler);
   },
+  getHumanologiRenderReadiness: () =>
+    ipcRenderer.invoke('get-humanologi-render-readiness'),
+  renderHumanologiPart: (options) =>
+    ipcRenderer.invoke('render-humanologi-part', options),
+  mergeHumanologiFull: () =>
+    ipcRenderer.invoke('merge-humanologi-full'),
+  onHumanologiRenderProgress: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('humanologi-render-progress', handler);
+    return () => ipcRenderer.removeListener('humanologi-render-progress', handler);
+  },
 });
 

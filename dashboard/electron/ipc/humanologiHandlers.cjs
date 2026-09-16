@@ -6,8 +6,9 @@ const { spawn } = require('child_process');
 const { chatCompletion, streamChatCompletion, extractCleanJsonObject } = require('../aiClient.cjs');
 
 /**
- * Smart phrase splitter for Humanologi documentary video pacing (2 - 5s per visual shot)
- * Splits paragraphs, compound sentences, and long clauses into punchy short phrases (3 - 6 words).
+ * Context-aware sentence & clause splitter for Humanologi documentary video pacing (~5 - 9s per visual shot)
+ * Keeps natural sentences intact; splits very long sentences (>20 words) at major contrast/causal clauses.
+ * Results in ~35 - 50 coherent contextual scenes per part (previously ~150 fragmented scenes).
  */
 function splitHumanologiNarrationWithContext(text) {
   if (!text || typeof text !== 'string') return [];
@@ -19,25 +20,28 @@ function splitHumanologiNarrationWithContext(text) {
 
   const rawItems = [];
   for (const sent of baseSentences) {
-    const subPhrases = splitSingleSentence(sent);
+    const subPhrases = splitLongSentenceByContext(sent);
     for (const p of subPhrases) {
-      rawItems.push({
-        text: p.trim(),
-        sentenceContext: sent,
-      });
+      if (p.trim()) {
+        rawItems.push({
+          text: p.trim(),
+          sentenceContext: sent,
+        });
+      }
     }
   }
 
+  // Merge any accidental tiny fragments (<= 2 words)
   const merged = [];
   for (let i = 0; i < rawItems.length; i++) {
     const item = rawItems[i];
     if (!item.text) continue;
     const words = item.text.split(/\s+/).filter(Boolean);
-    if (words.length <= 2 && /[,]$/.test(item.text) && i + 1 < rawItems.length) {
+    if (words.length <= 2 && i + 1 < rawItems.length) {
       rawItems[i + 1].text = item.text + ' ' + rawItems[i + 1].text;
       continue;
     }
-    if (words.length === 1 && !/[.!?…]$/.test(item.text) && merged.length > 0) {
+    if (words.length <= 2 && merged.length > 0) {
       merged[merged.length - 1].text = merged[merged.length - 1].text + ' ' + item.text;
       continue;
     }
@@ -50,110 +54,47 @@ function splitHumanologiNarration(text) {
   return splitHumanologiNarrationWithContext(text).map((i) => i.text);
 }
 
-function splitSingleSentence(sent) {
+function splitLongSentenceByContext(sent) {
   const words = sent.split(/\s+/).filter(Boolean);
-  if (words.length <= 6) return [sent];
+  // Sentences up to 20 words stay 100% intact as a single contextual scene
+  if (words.length <= 20) return [sent];
+
+  const contrastKeywords = [
+    'tapi', 'tetapi', 'namun', 'sedangkan', 'sementara', 'sementara itu',
+    'padahal', 'sehingga', 'karena itu', 'bahkan', 'di satu sisi', 'di sisi lain'
+  ];
 
   if (sent.includes(',')) {
     const commaParts = sent.split(/,\s+/);
-    const parts = [];
-    let current = '';
+    if (commaParts.length >= 2) {
+      let currentWords = 0;
+      let splitIdx = -1;
 
-    for (let i = 0; i < commaParts.length; i++) {
-      const part = commaParts[i].trim();
-      if (!part) continue;
+      for (let i = 0; i < commaParts.length - 1; i++) {
+        const pWords = commaParts[i].split(/\s+/).filter(Boolean).length;
+        currentWords += pWords;
+        const nextPart = commaParts[i + 1].trim();
+        const hasContrast = contrastKeywords.some((kw) => nextPart.toLowerCase().startsWith(kw));
 
-      if (!current) {
-        current = part;
-      } else {
-        const curWords = current.split(/\s+/).filter(Boolean).length;
-        const partWords = part.split(/\s+/).filter(Boolean).length;
-        if (curWords >= 3 && partWords >= 3) {
-          const trailing = /[.!?…,]$/.test(current) ? '' : ',';
-          parts.push(current + trailing);
-          current = part;
-        } else {
-          current = current + ', ' + part;
+        if (currentWords >= 7 && (words.length - currentWords) >= 7) {
+          if (hasContrast || currentWords >= 12) {
+            splitIdx = i;
+            break;
+          }
         }
       }
-    }
-    if (current) parts.push(current);
 
-    const subResult = [];
-    for (const p of parts) {
-      const pWords = p.split(/\s+/).filter(Boolean);
-      if (pWords.length > 6) {
-        subResult.push(...splitLongClause(p));
-      } else {
-        subResult.push(p);
-      }
-    }
-    return subResult;
-  }
-
-  return splitLongClause(sent);
-}
-
-function splitLongClause(str) {
-  const words = str.split(/\s+/).filter(Boolean);
-  if (words.length <= 6) return [str];
-
-  const conjunctions = [
-    'dibanding', 'dibandingkan', 'daripada', 'sehingga', 'karena',
-    'seperti', 'bahkan', 'yaitu', 'yakni', 'bahwa', 'agar',
-    'meskipun', 'walaupun', 'tapi', 'namun', 'antara', 'sedangkan',
-    'soal', 'tentang', 'maupun', 'hingga', 'sampai',
-    'yang', 'untuk', 'dengan', 'dalam', 'sangat', 'secara', 'dan', 'bisa', 'sebenarnya',
-    'punya', 'adalah'
-  ];
-
-  let bestIdx = -1;
-  let minDiffFromCenter = 999;
-  const center = words.length / 2;
-
-  for (let i = 2; i <= words.length - 2; i++) {
-    const w = words[i].toLowerCase().replace(/[^\w]/g, '');
-    if (conjunctions.includes(w)) {
-      const isStrong = ['dibanding', 'dibandingkan', 'daripada', 'sehingga', 'karena', 'tapi', 'namun', 'bahkan', 'yaitu', 'yakni', 'bahwa', 'meskipun', 'walaupun', 'sedangkan'].includes(w);
-      const isRel = ['yang', 'dan', 'secara', 'sangat', 'sebenarnya', 'bisa', 'punya'].includes(w);
-      const weight = isStrong ? 0.3 : (isRel ? 0.6 : 1.0);
-      let diff = Math.abs(i - center) * weight;
-
-      const prevW = words[i - 1].toLowerCase().replace(/[^\w]/g, '');
-      if (prevW === 'warna' && w === 'kulit') diff += 10;
-      if (prevW === 'jazirah' && w === 'arab') diff += 10;
-      if (prevW === 'orang' && (w === 'arab' || w === 'papua')) diff += 10;
-      if (prevW === 'radiasi' && w === 'uv') diff += 10;
-      if (prevW === 'asam' && w === 'folat') diff += 10;
-      if (prevW === 'vitamin' && w === 'd') diff += 10;
-      if (prevW === 'seleksi' && w === 'alam') diff += 10;
-      if (prevW === 'bawah' && w === 'matahari') diff += 10;
-      if (prevW === 'berdiri' && w === 'di') diff += 10;
-
-      if (diff < minDiffFromCenter) {
-        minDiffFromCenter = diff;
-        bestIdx = i;
+      if (splitIdx !== -1) {
+        const leftParts = commaParts.slice(0, splitIdx + 1);
+        const rightParts = commaParts.slice(splitIdx + 1);
+        let left = leftParts.join(', ');
+        let right = rightParts.join(', ');
+        if (!/[.!?…,]$/.test(left)) left += ',';
+        return [left, right];
       }
     }
   }
-
-  if (bestIdx <= 0 && words.length > 7) {
-    bestIdx = Math.floor(words.length / 2);
-  }
-
-  if (bestIdx > 0) {
-    const leftWords = words.slice(0, bestIdx);
-    const rightWords = words.slice(bestIdx);
-    let left = leftWords.join(' ');
-    let right = rightWords.join(' ');
-    if (!/[.!?…,]$/.test(left)) left += ',';
-
-    const leftList = leftWords.length > 6 ? splitLongClause(left) : [left];
-    const rightList = rightWords.length > 6 ? splitLongClause(right) : [right];
-    return [...leftList, ...rightList];
-  }
-
-  return [str];
+  return [sent];
 }
 
 function register(ipcMain, { paths: p, media, ffmpeg }) {
@@ -546,7 +487,7 @@ function register(ipcMain, { paths: p, media, ffmpeg }) {
       }
 
       // Batch call 9router with streaming
-      const BATCH_SIZE = 30;
+      const BATCH_SIZE = 25;
       const visualPromptsMap = {};
       const totalBatches = Math.ceil(scenesWithDuration.length / BATCH_SIZE);
 
@@ -556,7 +497,7 @@ function register(ipcMain, { paths: p, media, ffmpeg }) {
         totalScenes: scenesWithDuration.length,
         totalBatches,
         percent: 0,
-        message: `Memulai streaming 9router (${model}) untuk ${scenesWithDuration.length} adegan pendek...`,
+        message: `Memulai streaming 9router (${model}) untuk ${scenesWithDuration.length} adegan konteks kalimat...`,
       });
 
       for (let b = 0; b < scenesWithDuration.length; b += BATCH_SIZE) {
@@ -575,7 +516,8 @@ function register(ipcMain, { paths: p, media, ffmpeg }) {
         });
 
         const prompt = `Kamu adalah visual director untuk channel YouTube edukasi HUMANOLOGI.
-Tugasmu adalah membuat deskripsi_visual_singkat dan image_prompt untuk setiap potongan scene visual pendek di bawah ini agar membentuk animasi edukasi yang LINIER, KONSISTEN, dan BERSAMBUNG (ala channel YouTube Humanova / MinutePhysics / Kok Bisa?).
+Tugasmu adalah membuat deskripsi_visual_singkat dan image_prompt untuk setiap adegan visual berbasis konteks kalimat utuh di bawah ini agar membentuk animasi edukasi yang LINIER, KONSISTEN, dan BERSAMBUNG (ala channel YouTube Humanova / MinutePhysics / Kok Bisa?).
+Setiap adegan mewakili satu konteks kalimat narasi utuh (~5 - 9 detik). Rancang visual ilustrasi yang menceritakan makna gagasan tersebut secara utuh dan jelas!
 
 JUDUL VIDEO: "${narasiData.judul_video || 'Humanologi'}"
 BAGIAN: Part #${partNum} - ${partData.judul_bagian || ''}
@@ -1422,6 +1364,362 @@ ${JSON.stringify(
       data: finalData,
       filePath: finalJsonPath,
     };
+  });
+
+  /**
+   * Get render readiness status for all parts and full video
+   */
+  ipcMain.handle('get-humanologi-render-readiness', async () => {
+    try {
+      const narasiPath = path.join(p.HUMANOLOGI_INPUT_DIR, 'humanologi_narasi.json');
+      let totalParts = 3;
+      if (fs.existsSync(narasiPath)) {
+        try {
+          const nData = JSON.parse(fs.readFileSync(narasiPath, 'utf-8'));
+          if (Array.isArray(nData.narasi) && nData.narasi.length > 0) {
+            totalParts = nData.narasi.length;
+          }
+        } catch { }
+      }
+
+      const outputDir = p.HUMANOLOGI_OUTPUT_DIR || path.join(p.PROJECT_ROOT, 'output', 'humanologi');
+      if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
+
+      const partsStatus = [];
+
+      for (let pt = 1; pt <= totalParts; pt++) {
+        // Scenes
+        const scenesFile = path.join(p.HUMANOLOGI_SCENES_DIR || path.join(p.HUMANOLOGI_INPUT_DIR, 'scenes'), `part_${pt}_scenes.json`);
+        let totalScenes = 0;
+        let scenesDuration = 0;
+        if (fs.existsSync(scenesFile)) {
+          try {
+            const sc = JSON.parse(fs.readFileSync(scenesFile, 'utf-8'));
+            totalScenes = Array.isArray(sc.scenes) ? sc.scenes.length : (sc.total_scene || 0);
+            scenesDuration = sc.audio_duration || 0;
+          } catch { }
+        }
+
+        // Images count
+        const imagesDir = path.join(p.HUMANOLOGI_IMAGES_DIR || path.join(p.HUMANOLOGI_INPUT_DIR, 'images'), `part_${pt}`);
+        let readyImages = 0;
+        if (fs.existsSync(imagesDir)) {
+          const files = fs.readdirSync(imagesDir).filter((f) => /\.(png|jpg|jpeg|webp)$/i.test(f));
+          for (const f of files) {
+            try {
+              const stat = fs.statSync(path.join(imagesDir, f));
+              if (stat.size > 1000) readyImages++;
+            } catch { }
+          }
+        }
+
+        // Audio
+        const audioDir = p.HUMANOLOGI_AUDIO_DIR || path.join(p.HUMANOLOGI_INPUT_DIR, 'audio');
+        let audioExists = false;
+        let audioDuration = 0;
+        let audioFileName = null;
+        if (fs.existsSync(audioDir)) {
+          const candidates = fs.readdirSync(audioDir).filter((f) => {
+            const lower = f.toLowerCase();
+            return (
+              (lower.includes(`part_${pt}`) || lower.includes(`part${pt}`) || lower.includes(`a${pt}.`)) &&
+              /\.(mp3|wav|m4a|aac|flac)$/i.test(lower)
+            );
+          });
+          if (candidates.length > 0) {
+            audioFileName = candidates[0];
+            const fullAudioPath = path.join(audioDir, candidates[0]);
+            audioExists = true;
+            try {
+              if (ffmpeg && ffmpeg.getVideoMeta) {
+                const meta = await ffmpeg.getVideoMeta(fullAudioPath);
+                if (meta?.duration) audioDuration = meta.duration;
+              }
+            } catch { }
+          }
+        }
+
+        // Rendered Part MP4
+        const partVideoFile = path.join(outputDir, `part_${pt}.mp4`);
+        let isRendered = false;
+        let videoSize = 0;
+        let videoMtime = null;
+        let videoUrl = null;
+        if (fs.existsSync(partVideoFile)) {
+          try {
+            const stat = fs.statSync(partVideoFile);
+            if (stat.size > 10000) {
+              isRendered = true;
+              videoSize = stat.size;
+              videoMtime = stat.mtimeMs;
+              videoUrl = `${media.mediaUrl(partVideoFile)}?t=${stat.mtimeMs}`;
+            }
+          } catch { }
+        }
+
+        partsStatus.push({
+          part: pt,
+          totalScenes,
+          readyImages,
+          imagesPercent: totalScenes > 0 ? Math.min(100, Math.round((readyImages / totalScenes) * 100)) : 0,
+          audioExists,
+          audioFileName,
+          audioDuration: audioDuration || scenesDuration,
+          isRendered,
+          videoSize,
+          videoMtime,
+          videoUrl,
+          videoPath: partVideoFile,
+        });
+      }
+
+      // Check Full Merged Video
+      const fullVideoFile = path.join(outputDir, 'humanologi_full_video.mp4');
+      let fullRendered = false;
+      let fullSize = 0;
+      let fullMtime = null;
+      let fullUrl = null;
+      if (fs.existsSync(fullVideoFile)) {
+        try {
+          const stat = fs.statSync(fullVideoFile);
+          if (stat.size > 20000) {
+            fullRendered = true;
+            fullSize = stat.size;
+            fullMtime = stat.mtimeMs;
+            fullUrl = `${media.mediaUrl(fullVideoFile)}?t=${stat.mtimeMs}`;
+          }
+        } catch { }
+      }
+
+      return {
+        success: true,
+        parts: partsStatus,
+        fullVideo: {
+          isRendered: fullRendered,
+          size: fullSize,
+          mtime: fullMtime,
+          url: fullUrl,
+          filePath: fullVideoFile,
+        },
+      };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  /**
+   * Render single part video using render-humanologi.ts
+   */
+  ipcMain.handle('render-humanologi-part', async (event, { part = 1, enableSubtitles = true, kenBurns = true, concurrency = 4 } = {}) => {
+    const partNum = Number(part) || 1;
+    const scriptPath = path.join(p.PROJECT_ROOT, 'render-humanologi.ts');
+
+    if (!fs.existsSync(scriptPath)) {
+      return { success: false, error: `Script renderer tidak ditemukan: ${scriptPath}` };
+    }
+
+    const outputDir = p.HUMANOLOGI_OUTPUT_DIR || path.join(p.PROJECT_ROOT, 'output', 'humanologi');
+    if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
+    const finalOutputPath = path.join(outputDir, `part_${partNum}.mp4`);
+
+    const args = [
+      scriptPath,
+      'render',
+      '--part', String(partNum),
+      '--concurrency', String(concurrency || 4),
+      '--output', finalOutputPath,
+    ];
+
+    if (enableSubtitles === false) args.push('--no-subtitles');
+    if (kenBurns === false) args.push('--no-ken-burns');
+
+    return new Promise((resolve) => {
+      const startTime = Date.now();
+      const sendProgress = (stage, progress, message, extra = {}) => {
+        if (event.sender && !event.sender.isDestroyed()) {
+          event.sender.send('humanologi-render-progress', {
+            part: partNum,
+            stage,
+            progress,
+            message,
+            ...extra,
+          });
+        }
+      };
+
+      sendProgress('start', 0, `Memulai render video Humanologi Part ${partNum}...`);
+
+      const child = spawn('npx', ['tsx', ...args], {
+        cwd: p.PROJECT_ROOT,
+        env: { ...process.env },
+      });
+
+      let fullStdout = '';
+      let fullStderr = '';
+
+      child.stdout.on('data', (d) => {
+        const text = d.toString();
+        fullStdout += text;
+        const lines = text.split('\n').filter(Boolean);
+
+        for (const line of lines) {
+          // Check [PROGRESS] scene=X/Y progress=Z message="..."
+          const sceneMatch = line.match(/\[PROGRESS\]\s+scene=(\d+)\/(\d+)\s+progress=([0-9.]+)\s+message="([^"]*)"/);
+          if (sceneMatch) {
+            const curr = parseInt(sceneMatch[1], 10);
+            const total = parseInt(sceneMatch[2], 10);
+            const prog = parseFloat(sceneMatch[3]);
+            const msg = sceneMatch[4];
+            sendProgress('scenes', prog, msg, { currentScene: curr, totalScenes: total });
+            continue;
+          }
+
+          // Check [PROGRESS] stage=X progress=Y message="..."
+          const stageMatch = line.match(/\[PROGRESS\]\s+stage=([a-zA-Z0-9_]+)\s+progress=([0-9.]+)\s+message="([^"]*)"/);
+          if (stageMatch) {
+            const st = stageMatch[1];
+            const prog = parseFloat(stageMatch[2]);
+            const msg = stageMatch[3];
+            sendProgress(st, prog, msg);
+            continue;
+          }
+
+          // Plain log forwarding
+          const trimmed = line.trim();
+          if (trimmed && !trimmed.startsWith('[PROGRESS]')) {
+            sendProgress('log', null, trimmed, { rawLine: trimmed });
+          }
+        }
+      });
+
+      child.stderr.on('data', (d) => {
+        const text = d.toString();
+        fullStderr += text;
+        const lines = text.split('\n').filter(Boolean);
+        for (const line of lines) {
+          sendProgress('log', null, line.trim(), { rawLine: line.trim(), isError: true });
+        }
+      });
+
+      child.on('close', (code) => {
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        if (code === 0 && fs.existsSync(finalOutputPath)) {
+          const stat = fs.statSync(finalOutputPath);
+          const mediaUrl = `${media.mediaUrl(finalOutputPath)}?t=${stat.mtimeMs}`;
+          sendProgress('done', 1, `Render Part ${partNum} selesai sukses dalam ${elapsed}s!`, {
+            outputPath: finalOutputPath,
+            mediaUrl,
+            elapsed,
+          });
+          resolve({
+            success: true,
+            part: partNum,
+            outputPath: finalOutputPath,
+            mediaUrl,
+            fileSize: stat.size,
+            elapsed,
+          });
+        } else {
+          const errTail = fullStderr.split('\n').filter(Boolean).slice(-10).join('\n');
+          const outTail = fullStdout.split('\n').filter(Boolean).slice(-10).join('\n');
+          sendProgress('error', 0, `Render gagal (kode keluar ${code})`);
+          resolve({
+            success: false,
+            error: `Render gagal (kode ${code}).\n\nStderr:\n${errTail}\n\nStdout:\n${outTail}`,
+          });
+        }
+      });
+
+      child.on('error', (err) => {
+        sendProgress('error', 0, `Gagal menjalankan child process: ${err.message}`);
+        resolve({ success: false, error: err.message });
+      });
+    });
+  });
+
+  /**
+   * Merge all rendered part videos into final longform video
+   */
+  ipcMain.handle('merge-humanologi-full', async (event) => {
+    const scriptPath = path.join(p.PROJECT_ROOT, 'render-humanologi.ts');
+    if (!fs.existsSync(scriptPath)) {
+      return { success: false, error: `Script renderer tidak ditemukan: ${scriptPath}` };
+    }
+
+    const outputDir = p.HUMANOLOGI_OUTPUT_DIR || path.join(p.PROJECT_ROOT, 'output', 'humanologi');
+    const finalOutputPath = path.join(outputDir, 'humanologi_full_video.mp4');
+
+    return new Promise((resolve) => {
+      const startTime = Date.now();
+      const sendProgress = (stage, progress, message, extra = {}) => {
+        if (event.sender && !event.sender.isDestroyed()) {
+          event.sender.send('humanologi-render-progress', {
+            part: 0,
+            stage,
+            progress,
+            message,
+            ...extra,
+          });
+        }
+      };
+
+      sendProgress('merge', 0.1, 'Menggabungkan seluruh part video Humanologi...');
+
+      const child = spawn('npx', ['tsx', scriptPath, 'merge', '--output', finalOutputPath], {
+        cwd: p.PROJECT_ROOT,
+        env: { ...process.env },
+      });
+
+      let fullStdout = '';
+      let fullStderr = '';
+
+      child.stdout.on('data', (d) => {
+        const text = d.toString();
+        fullStdout += text;
+        const lines = text.split('\n').filter(Boolean);
+        for (const line of lines) {
+          const stageMatch = line.match(/\[PROGRESS\]\s+stage=([a-zA-Z0-9_]+)\s+progress=([0-9.]+)\s+message="([^"]*)"/);
+          if (stageMatch) {
+            sendProgress(stageMatch[1], parseFloat(stageMatch[2]), stageMatch[3]);
+          } else if (line.trim() && !line.startsWith('[PROGRESS]')) {
+            sendProgress('log', null, line.trim(), { rawLine: line.trim() });
+          }
+        }
+      });
+
+      child.stderr.on('data', (d) => {
+        fullStderr += d.toString();
+      });
+
+      child.on('close', (code) => {
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        if (code === 0 && fs.existsSync(finalOutputPath)) {
+          const stat = fs.statSync(finalOutputPath);
+          const mediaUrl = `${media.mediaUrl(finalOutputPath)}?t=${stat.mtimeMs}`;
+          sendProgress('done', 1, `Penggabungan Full Video sukses dalam ${elapsed}s!`, {
+            outputPath: finalOutputPath,
+            mediaUrl,
+            elapsed,
+          });
+          resolve({
+            success: true,
+            outputPath: finalOutputPath,
+            mediaUrl,
+            fileSize: stat.size,
+            elapsed,
+          });
+        } else {
+          resolve({
+            success: false,
+            error: `Merge gagal (kode ${code}).\n${fullStderr || fullStdout}`,
+          });
+        }
+      });
+
+      child.on('error', (err) => {
+        resolve({ success: false, error: err.message });
+      });
+    });
   });
 }
 

@@ -8,10 +8,10 @@ Tugasmu adalah menganalisis naskah narasi (voiceover) dan memecahnya menjadi seg
 
 ## 🎯 PRINSIP VISUAL MAPPING HUMANOLOGI:
 1. **Curiosity-Driven & Scientific**: Visual harus mencerminkan sains tubuh manusia, anatomi, biologi evolusi, mikroskopik sel/genetika, peta migrasi manusia purba, atau footage kehidupan masyarakat di dunia.
-2. **Dynamic Short Pacing (2 - 5 detik per visual shot)**: 
-   - DILARANG KERAS membuat entri dengan teks panjang seperti satu paragraf atau durasi visual di atas 6 detik.
-   - Kalimat panjang atau kalimat majemuk WAJIB dipecah (split) menjadi beberapa entri pendek per frasa/klausa kunci (contoh: koma perbandingan, klausa kontras, konjungsi sebab-akibat).
-   - Penonton YouTube cepat bosan jika satu gambar diam terlalu lama. Gambar visual harus berganti dinamis mengikuti setiap penggalan kalimat pendek narator!
+2. **Context Pacing (5 - 9 detik per visual shot)**: 
+   - Pembagian entri dilakukan per kalimat utuh atau sub-klausa ide mandiri (sekitar 10-22 kata per scene).
+   - DILARANG memecah naskah secara hiperaktif menjadi potongan kata 3-6 kata sepotong-sepotong. Biarkan kalimat narasi tetap utuh agar penonton dapat menangkap gagasan visual dengan jelas dan gambar tidak berganti terlalu cepat (hiperaktif).
+   - Jika kalimat sangat panjang (>20 kata) dengan dua ide kontras, pecah di titik koma konjungsi kontras/sebab-akibat (`namun`, `sedangkan`, `tapi`, `sehingga`).
 3. **5 Kategori Visual Type**:
    - `cinematic_broll`: Footage manusia/alam sinematik ala National Geographic / BBC Earth.
    - `microscopic`: Visual mikroskopik sel, melanosit, sinar radiasi UV, DNA, atau molekul tubuh.

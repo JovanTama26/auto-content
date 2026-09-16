@@ -43,7 +43,8 @@ const HUMANOLOGI_STEPS: Step[] = [
   { id: 'topic', icon: '✍️', label: '1. Naskah & Prompt Studio', subText: 'AI Narasi & ElevenLabs Chunks' },
   { id: 'audio', icon: '🎙️', label: '2. Upload Audio Narator', subText: 'Upload voiceover per part' },
   { id: 'transcript', icon: '📝', label: '3. Audio Transcript', subText: 'Faster-Whisper word sync' },
-  { id: 'render', icon: '🎨', label: '4. Visual Mapping & Prompts', subText: 'Short scenes & Visual Prompts' },
+  { id: 'visual', icon: '🎨', label: '4. Visual Mapping & Prompts', subText: 'Short scenes & Visual Prompts' },
+  { id: 'render', icon: '🎬', label: '5. Video Render Studio', subText: 'Dynamic Ken Burns & Full Merge' },
 ];
 
 interface SidebarProps {

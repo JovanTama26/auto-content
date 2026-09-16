@@ -49,14 +49,18 @@ const App: React.FC = () => {
     setLongformResetKey((prev) => prev + 1);
     try {
       Object.keys(localStorage).forEach((key) => {
-        if (key.toLowerCase().includes('longform') || key.toLowerCase().includes('alurfilm')) {
+        if (
+          key.toLowerCase().includes('longform') ||
+          key.toLowerCase().includes('alurfilm') ||
+          key.toLowerCase().includes('humanologi')
+        ) {
           localStorage.removeItem(key);
         }
       });
     } catch {}
     try {
       if (window.electronAPI?.getContentId) {
-        const id = await window.electronAPI.getContentId('longform');
+        const id = await window.electronAPI.getContentId(contentMode);
         setLongformId(id);
       }
     } catch { }
@@ -97,7 +101,7 @@ const App: React.FC = () => {
             )
           ) : contentMode === 'humanologi' ? (
             <HumanologiStepContainer
-              key="humanologi-step-container"
+              key={`humanologi-step-container-${longformResetKey}`}
               activeStep={activeStep}
               onStepChange={setActiveStep}
             />

@@ -4,6 +4,7 @@ import HumanologiResearchStep from './HumanologiResearchStep';
 import HumanologiAudioStep from './HumanologiAudioStep';
 import HumanologiTranscriptStep from './HumanologiTranscriptStep';
 import HumanologiVisualMappingStep from './HumanologiVisualMappingStep';
+import HumanologiRenderStep from './HumanologiRenderStep';
 
 interface HumanologiStepContainerProps {
   activeStep: StepId;
@@ -29,7 +30,7 @@ const HUMANOLOGI_STEPS_META: Record<string, StepMeta> = {
     icon: '✍️',
     title: 'Naskah & Prompt Studio',
     category: 'Pondasi Cerita & ElevenLabs Prompt',
-    badge: 'Step 1 of 4',
+    badge: 'Step 1 of 5',
     description:
       'Prompt generator khusus narasi Humanologi per part (4.500 - 5.000 chars) untuk ElevenLabs TTS, riset topik, sanitasi salam, dan ekspor JSON.',
     targetOutput: 'Naskah Narasi JSON Valid (input/humanologi/humanologi_narasi.json)',
@@ -46,7 +47,7 @@ const HUMANOLOGI_STEPS_META: Record<string, StepMeta> = {
     icon: '🎙️',
     title: 'Upload Audio Narator Hub',
     category: 'Voiceover & Audio Engineering',
-    badge: 'Step 2 of 4',
+    badge: 'Step 2 of 5',
     description:
       'Upload file audio voiceover hasil generate ElevenLabs per part narasi, verifikasi durasi rekaman, dan kelola file audio di sistem lokal.',
     targetOutput: 'Voiceover Audio Tracks (.mp3/.wav di input/humanologi/audio/)',
@@ -63,7 +64,7 @@ const HUMANOLOGI_STEPS_META: Record<string, StepMeta> = {
     icon: '📝',
     title: 'Audio Transcript & Alignment',
     category: 'Word Alignment & Faster-Whisper',
-    badge: 'Step 3 of 4',
+    badge: 'Step 3 of 5',
     description:
       'Alignment naskah kata per kata dengan audio voiceover secara otomatis menggunakan Faster-Whisper.',
     targetOutput: 'Word-Level Transcript JSON (input/humanologi/transcripts/)',
@@ -74,28 +75,46 @@ const HUMANOLOGI_STEPS_META: Record<string, StepMeta> = {
       'Ekspor JSON Transkrip Part 1 - 3',
     ],
   },
-  render: {
-    id: 'render',
+  visual: {
+    id: 'visual',
     stepNumber: 4,
     icon: '🎨',
     title: 'Visual Mapping & Documentary Prompts Studio',
     category: 'AI Visual Director & Image Prompts Hub',
-    badge: 'Step 4 of 4',
+    badge: 'Step 4 of 5',
     description:
-      'Pemecahan naskah menjadi short scenes visual (3–6 kata), sinkronisasi durasi audio persis kata per kata, dan prompt gambar dokumenter (Stickman/Semi-Chibi) 16:9 via 9router.',
+      'Pemecahan naskah menjadi adegan visual per konteks kalimat (~5–9s), sinkronisasi durasi audio persis kata per kata, dan prompt gambar dokumenter (Whiteboard Doodle) 16:9 via 9router.',
     targetOutput: 'Visual Scenes & Image Prompts JSON (input/humanologi/scenes/)',
     features: [
-      'Generate Short Visual Scenes (3-6 Kata per Adegan Cepat & Dinamis)',
+      'Generate Visual Scenes per Konteks Kalimat (~5-9 Detik Dinamis)',
       'Sinkronisasi Durasi Persis dari Transkrip Kata per Kata',
-      'Prompt AI Gambar Dokumenter (Stickman / Semi-Chibi Dewasa 16:9)',
+      'Prompt AI Gambar Dokumenter (Whiteboard Doodle Dewasa 16:9)',
       'Interactive 16:9 Live Sync Preview Stage',
       '1-Click Copy Prompt untuk Midjourney, DALL-E, & Ideogram',
       'Penyimpanan Otomatis ke input/humanologi/scenes/',
     ],
   },
+  render: {
+    id: 'render',
+    stepNumber: 5,
+    icon: '🎬',
+    title: 'Video Render Studio',
+    category: 'FFmpeg Pipeline & Full Video Merge',
+    badge: 'Step 5 of 5',
+    description:
+      'Render video adegan dinamis (Ken Burns zoom & pan), voiceover audio murni, subtitle dokumenter, serta penggabungan full video 16:9.',
+    targetOutput: 'Part MP4 & Full Video YouTube (output/humanologi/)',
+    features: [
+      'Dynamic Ken Burns Slow Zoom & Subtle Pan',
+      'Sinkronisasi Presisi Audio Voiceover Narator',
+      'Clean Documentary Subtitles (Burn-in ASS)',
+      '1-Click Render Part & Instant Concat Full Movie Merge',
+      'Built-in 16:9 Interactive HTML5 Video Player Preview',
+    ],
+  },
 };
 
-const STEP_ORDER: StepId[] = ['topic', 'audio', 'transcript', 'render'];
+const STEP_ORDER: StepId[] = ['topic', 'audio', 'transcript', 'visual', 'render'];
 
 export const HumanologiStepContainer: React.FC<HumanologiStepContainerProps> = ({
   activeStep,
@@ -194,11 +213,16 @@ export const HumanologiStepContainer: React.FC<HumanologiStepContainerProps> = (
       ) : currentStepKey === 'transcript' ? (
         <HumanologiTranscriptStep
           onBackToAudio={() => onStepChange('audio')}
+          onGoToRender={() => onStepChange('visual')}
+        />
+      ) : currentStepKey === 'visual' ? (
+        <HumanologiVisualMappingStep
+          onBackToTranscript={() => onStepChange('transcript')}
           onGoToRender={() => onStepChange('render')}
         />
       ) : (
-        <HumanologiVisualMappingStep
-          onBackToTranscript={() => onStepChange('transcript')}
+        <HumanologiRenderStep
+          onBackToVisual={() => onStepChange('visual')}
         />
       )}
     </div>

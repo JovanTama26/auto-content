@@ -68,6 +68,24 @@ Tag format: \`[VISUAL_ONLY (Range: MM:SS - MM:SS, Duration: Xs): Deskripsi adega
 * ❌ **SALAH (Rawan Content ID & Kaku)**: \`[VISUAL_ONLY (Range: 14:36 - 14:42, Duration: 20s): ...]\` *(Durasi kelewat panjang 20s & range cuma 6 detik linier)*
 * ✅ **BENAR (Aman & Fleksibel untuk Editor)**: \`[VISUAL_ONLY (Range: 14:00 - 15:45, Duration: 6s): ...]\` *(Durasi pas 6s & range lebar 1 menit 45 detik untuk dipotong montage dinamis)*
 
+### 1.6 Gaya Narasi & Tanda Baca (Conversational Storytelling)
+Gunakan gaya bahasa naratif kolokial (*conversational storytelling*), seolah-olah sedang bercerita langsung ke penonton secara santai, bukan membaca teks formal. Ketentuan wajib:
+
+1. **Partikel Pengisi Organik**:
+   - Selipkan kata seperti *"nah..."*, *"sih..."*, *"tapi..."*, *"eh..."*, *"jadi..."* di awal atau tengah kalimat untuk membangun kedekatan dan kesan ngobrol santai.
+   - ⚠️ **Jangan berlebihan**: Cukup 1–2 kali per paragraf agar tetap natural dan tidak terasa dipaksakan.
+2. **Elipsis (\`...\`) untuk Jeda Dramatis**:
+   - Pakai untuk jeda dramatis, menggantung sebelum informasi penting terungkap, atau memberi kesan berpikir/ragu.
+   - *Contoh*: *"Tapi ternyata... semua itu cuma rencana."*
+3. **Tanda Pisah (\`–\` / \`—\`) untuk Reveal & Kejutan**:
+   - Gunakan untuk menyisipkan info tambahan atau membangun jeda sebelum reveal / plot twist.
+   - *Contoh*: *"Dia percaya sahabatnya sendiri — padahal itu kesalahan terbesarnya."*
+4. **Pacing Dinamis (Pendek-Panjang Variatif)**:
+   - Atur ritme kalimat pendek-panjang secara variatif.
+   - Gunakan kalimat pendek untuk penekanan/impact, dan kalimat panjang untuk membangun momentum sebelum jeda/twist.
+5. **Nada (Tone)**:
+   - Santai, mengalir, seperti teman akrab yang sedang asyik bercerita, bukan naskah berita, buku pelajaran, atau teks formal baku.
+
 ==================================================
 BENCHMARK STYLES (REFERENSI GAYA — JANGAN DISALIN MENTAH)
 ==================================================

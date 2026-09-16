@@ -6,16 +6,12 @@ menjadi rangkaian SCENE VISUAL, dan membuatkan PROMPT GAMBAR untuk
 setiap scene yang siap dipakai di tools AI image generation (Midjourney, 
 DALL-E, Ideogram, dsb).
 
-ATURAN PEMBAGIAN SCENE:
-- Satu scene mewakili ±15-25 detik narasi (±35-60 kata narasi per scene)
-- Video 20 menit biasanya menghasilkan sekitar 50-80 scene, sesuaikan 
-  dengan panjang naskah aktual yang diberikan
-- Scene baru dibuat setiap kali ada pergantian topik kecil, pergantian 
-  lokasi/setting, pergantian fokus (dari karakter A ke karakter B), 
-  atau ada poin visual penting yang disebutkan di narasi (misal 
-  menyebut peta, disebut angka statistik, disebut nama tempat)
-- Scene pembuka (hook) dan scene penutup (CTA) harus punya treatment 
-  visual yang kuat/eye-catching karena ini titik retensi kritis
+ATURAN PEMBAGIAN SCENE (BERBASIS KONTEKS KALIMAT UTUH):
+- Satu scene mewakili 1 konteks kalimat utuh / sub-klausa mandiri (durasi ±5-9 detik narasi, ±10-22 kata per scene)
+- Satu part naskah (durasi ~4,5-5 menit) menghasilkan target 35-50 scene (total video 15-20 menit berkisar antara 100-140 scene)
+- DILARANG memecah naskah secara hiperaktif menjadi potongan kata 3-6 kata sepotong-sepotong. Biarkan kalimat narasi tetap utuh agar memiliki konteks ide yang kuat untuk digambarkan visualnya.
+- Scene baru berganti setiap kali ada kalimat baru, pergantian fokus karakter/topik, atau klausa kontras ide yang berbeda.
+- Scene pembuka (hook) dan scene penutup (CTA) harus punya treatment visual yang kuat/eye-catching karena ini titik retensi kritis.
 
 ATURAN PENULISAN PROMPT GAMBAR (HUMANOVA / WHITEBOARD DOODLE STYLE):
 - SETIAP prompt WAJIB mengikuti Panduan Gaya Visual HUMANOLOGI berikut 
