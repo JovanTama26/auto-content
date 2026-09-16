@@ -245,4 +245,65 @@ contextBridge.exposeInMainWorld('electronAPI', {
   generateShortsPrompt: (opts) => ipcRenderer.invoke('generate-shorts-prompt', opts),
   getLatestShortsPrompt: () => ipcRenderer.invoke('get-latest-shorts-prompt'),
   saveShortsPrompt: (data) => ipcRenderer.invoke('save-shorts-prompt', { data }),
+
+  // Humanologi Helpers (Prompt, Narration JSON, Audio, and Transcript Mapping)
+  getHumanologiPrompt: () => ipcRenderer.invoke('get-humanologi-prompt'),
+  getLatestHumanologiNarasi: () => ipcRenderer.invoke('get-latest-humanologi-narasi'),
+  saveHumanologiNarasi: (data) => ipcRenderer.invoke('save-humanologi-narasi', { data }),
+  listHumanologiAudios: () => ipcRenderer.invoke('list-humanologi-audios'),
+  uploadHumanologiAudio: (part, filePath) =>
+    ipcRenderer.invoke('upload-humanologi-audio', { part, filePath }),
+  deleteHumanologiAudio: (part) =>
+    ipcRenderer.invoke('delete-humanologi-audio', { part }),
+  getHumanologiAudioDir: () => ipcRenderer.invoke('get-humanologi-audio-dir'),
+  getHumanologiTranscriptPrompt: () =>
+    ipcRenderer.invoke('get-humanologi-transcript-prompt'),
+  getHumanologiTranscript: (part) =>
+    ipcRenderer.invoke('get-humanologi-transcript', { part }),
+  saveHumanologiTranscript: (part, data) =>
+    ipcRenderer.invoke('save-humanologi-transcript', { part, data }),
+  listHumanologiTranscripts: () =>
+    ipcRenderer.invoke('list-humanologi-transcripts'),
+  runHumanologiWhisperAlignment: (part, model) =>
+    ipcRenderer.invoke('run-humanologi-whisper-alignment', { part, model }),
+  getHumanologiVisualScenesPrompt: () =>
+    ipcRenderer.invoke('get-humanologi-visual-scenes-prompt'),
+  generateHumanologiScenes9Router: (part, model) =>
+    ipcRenderer.invoke('generate-humanologi-scenes-9router', { part, model }),
+  getHumanologiScenes: (part) =>
+    ipcRenderer.invoke('get-humanologi-scenes', { part }),
+  saveHumanologiScenes: (part, data) =>
+    ipcRenderer.invoke('save-humanologi-scenes', { part, data }),
+  onHumanologiAlignmentProgress: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('humanologi-alignment-progress', handler);
+    return () => ipcRenderer.removeListener('humanologi-alignment-progress', handler);
+  },
+  onHumanologiScenesStreamProgress: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('humanologi-scenes-stream-progress', handler);
+    return () => ipcRenderer.removeListener('humanologi-scenes-stream-progress', handler);
+  },
+  generateHumanologiFlowImages: (options) =>
+    ipcRenderer.invoke('generate-humanologi-flow-images', options),
+  cancelHumanologiFlowImages: () =>
+    ipcRenderer.invoke('cancel-humanologi-flow-images'),
+  getHumanologiImages: (part) =>
+    ipcRenderer.invoke('get-humanologi-images', { part }),
+  onHumanologiImageStart: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('humanologi-image-chunk-start', handler);
+    return () => ipcRenderer.removeListener('humanologi-image-chunk-start', handler);
+  },
+  onHumanologiImageLog: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('humanologi-image-log', handler);
+    return () => ipcRenderer.removeListener('humanologi-image-log', handler);
+  },
+  onHumanologiImageProgress: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('humanologi-image-progress', handler);
+    return () => ipcRenderer.removeListener('humanologi-image-progress', handler);
+  },
 });
+

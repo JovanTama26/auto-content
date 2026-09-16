@@ -30,6 +30,7 @@
     "playwright:create": "npx tsx playwright/cli.ts create-project",
     "playwright:generate": "npx tsx playwright/cli.ts generate-images",
     "playwright:cli": "npx tsx playwright/cli.ts",
+    "flow:login": "npx tsx playwright/init-flow-login.ts",
     "keywords:shorts": "npx tsx dashboard/scripts/generate-shorts-keywords.ts",
     "db:sync": "npx tsx scripts/sync-to-supabase.ts",
     "db:migrate": "npx tsx scripts/migrate.ts",

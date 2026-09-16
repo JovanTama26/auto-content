@@ -13,6 +13,13 @@ const ALURFILM_TRANSCRIPTS_DIR = path.join(PROJECT_ROOT, 'input', 'alurfilm', 't
 const ALURFILM_MAPPINGS_DIR = path.join(PROJECT_ROOT, 'input', 'alurfilm', 'mappings');
 const SHORTS_INPUT_DIR = path.join(PROJECT_ROOT, 'input', 'shorts');
 const SHORTS_OUTPUT_DIR = path.join(PROJECT_ROOT, 'output', 'shorts');
+const HUMANOLOGI_INPUT_DIR = path.join(PROJECT_ROOT, 'input', 'humanologi');
+const HUMANOLOGI_AUDIO_DIR = path.join(PROJECT_ROOT, 'input', 'humanologi', 'audio');
+const HUMANOLOGI_TRANSCRIPTS_DIR = path.join(PROJECT_ROOT, 'input', 'humanologi', 'transcripts');
+const HUMANOLOGI_SCENES_DIR = path.join(PROJECT_ROOT, 'input', 'humanologi', 'scenes');
+const HUMANOLOGI_IMAGES_DIR = path.join(PROJECT_ROOT, 'input', 'humanologi', 'images');
+const HUMANOLOGI_OUTPUT_DIR = path.join(PROJECT_ROOT, 'output', 'humanologi');
+const HUMANOLOGI_PROMPTS_DIR = path.join(PROJECT_ROOT, 'dashboard', 'prompts', 'humanologi');
 const PROMPTS_DIR = path.join(PROJECT_ROOT, 'dashboard', 'prompts');
 const tsxBinPath = path.join(PROJECT_ROOT, 'node_modules', '.bin', 'tsx');
 
@@ -28,6 +35,13 @@ const tsxBinPath = path.join(PROJECT_ROOT, 'node_modules', '.bin', 'tsx');
   ALURFILM_MAPPINGS_DIR,
   SHORTS_INPUT_DIR,
   SHORTS_OUTPUT_DIR,
+  HUMANOLOGI_INPUT_DIR,
+  HUMANOLOGI_AUDIO_DIR,
+  HUMANOLOGI_TRANSCRIPTS_DIR,
+  HUMANOLOGI_SCENES_DIR,
+  HUMANOLOGI_IMAGES_DIR,
+  HUMANOLOGI_OUTPUT_DIR,
+  HUMANOLOGI_PROMPTS_DIR,
 ].forEach((dir) => {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
@@ -38,6 +52,9 @@ const tsxBinPath = path.join(PROJECT_ROOT, 'node_modules', '.bin', 'tsx');
 function getOrGenerateContentId(mode = 'longform') {
   if (mode === 'shorts') {
     return 'WV-SHORTS-DRAFT';
+  }
+  if (mode === 'humanologi') {
+    return 'WV-HUMAN-DRAFT';
   }
   const mappingFile = path.join(PROJECT_ROOT, 'input', 'longform_mapping.json');
 
@@ -91,6 +108,13 @@ module.exports = {
   ALURFILM_MAPPINGS_DIR,
   SHORTS_INPUT_DIR,
   SHORTS_OUTPUT_DIR,
+  HUMANOLOGI_INPUT_DIR,
+  HUMANOLOGI_AUDIO_DIR,
+  HUMANOLOGI_TRANSCRIPTS_DIR,
+  HUMANOLOGI_SCENES_DIR,
+  HUMANOLOGI_IMAGES_DIR,
+  HUMANOLOGI_OUTPUT_DIR,
+  HUMANOLOGI_PROMPTS_DIR,
   PROMPTS_DIR,
   tsxBinPath,
   getOrGenerateContentId,

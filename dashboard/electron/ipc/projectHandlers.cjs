@@ -16,6 +16,9 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt, getM
     if (mode === 'shorts') {
       return { success: true, content_id: 'WV-SHORTS-DRAFT' };
     }
+    if (mode === 'humanologi') {
+      return { success: true, content_id: 'WV-HUMAN-DRAFT' };
+    }
     const isLongform = mode === 'longform';
     try {
       let oldContentId = null;

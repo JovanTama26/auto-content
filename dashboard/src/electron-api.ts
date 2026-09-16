@@ -451,6 +451,96 @@ export interface ElectronAPI {
   }) => Promise<{ success: boolean; data?: ShortsCraftPromptData; error?: string }>;
   getLatestShortsPrompt?: () => Promise<{ success: boolean; data?: ShortsCraftPromptData; error?: string }>;
   saveShortsPrompt?: (data: ShortsCraftPromptData) => Promise<{ success: boolean; error?: string }>;
+
+  // Humanologi Helpers (Prompt, Narration JSON, and Audio)
+  getHumanologiPrompt?: () => Promise<{ success: boolean; prompt?: string; error?: string }>;
+  getLatestHumanologiNarasi?: () => Promise<{ success: boolean; data?: any; error?: string }>;
+  saveHumanologiNarasi?: (data: any) => Promise<{ success: boolean; filePath?: string; error?: string }>;
+  listHumanologiAudios?: () => Promise<{ success: boolean; audios: HumanologiAudioItem[]; error?: string }>;
+  uploadHumanologiAudio?: (
+    part: number,
+    filePath: string
+  ) => Promise<{ success: boolean; audio?: HumanologiAudioItem; error?: string }>;
+  deleteHumanologiAudio?: (part: number) => Promise<{ success: boolean; error?: string }>;
+  getHumanologiAudioDir?: () => Promise<{ success: boolean; dir?: string; error?: string }>;
+  getHumanologiTranscriptPrompt?: () => Promise<{ success: boolean; prompt?: string; error?: string }>;
+  getHumanologiTranscript?: (
+    part: number
+  ) => Promise<{ success: boolean; data?: HumanologiTranscriptPartData; error?: string }>;
+  saveHumanologiTranscript?: (
+    part: number,
+    data: HumanologiTranscriptPartData
+  ) => Promise<{ success: boolean; filePath?: string; data?: HumanologiTranscriptPartData; error?: string }>;
+  listHumanologiTranscripts?: () => Promise<{
+    success: boolean;
+    transcripts: Record<number, HumanologiTranscriptPartData>;
+    error?: string;
+  }>;
+  runHumanologiWhisperAlignment?: (
+    part: number,
+    model?: string
+  ) => Promise<{ success: boolean; data?: HumanologiTranscriptPartData; filePath?: string; error?: string }>;
+  getHumanologiVisualScenesPrompt?: () => Promise<{ success: boolean; prompt?: string; error?: string }>;
+  generateHumanologiScenes9Router?: (
+    part?: number,
+    model?: string
+  ) => Promise<{ success: boolean; data?: HumanologiScenesData; filePath?: string; error?: string }>;
+  getHumanologiScenes?: (
+    part?: number
+  ) => Promise<{ success: boolean; data?: HumanologiScenesData; error?: string }>;
+  saveHumanologiScenes?: (
+    part: number,
+    data: HumanologiScenesData
+  ) => Promise<{ success: boolean; filePath?: string; error?: string }>;
+  onHumanologiAlignmentProgress?: (
+    callback: (data: { stage?: string; progress?: number; log?: string; part?: number }) => void
+  ) => () => void;
+  onHumanologiScenesStreamProgress?: (
+    callback: (data: {
+      type?: 'start' | 'batch-start' | 'chunk' | 'batch-done' | 'completed' | 'error';
+      part?: number;
+      batchNum?: number;
+      totalBatches?: number;
+      percent?: number;
+      message?: string;
+      delta?: string;
+      newScenesCount?: number;
+      totalScenes?: number;
+      data?: HumanologiScenesData;
+    }) => void
+  ) => () => void;
+  generateHumanologiFlowImages?: (options: {
+    part?: number;
+    concurrency?: number;
+    sceneNumbers?: number[];
+    overwriteExisting?: boolean;
+    headed?: boolean;
+  }) => Promise<{ success: boolean; completed?: number; total?: number; error?: string; message?: string }>;
+  cancelHumanologiFlowImages?: () => Promise<{ success: boolean; message?: string }>;
+  getHumanologiImages?: (part?: number) => Promise<{
+    success: boolean;
+    images: Array<{ scene_number?: number; file_name: string; file_path: string; url: string; size: number }>;
+    total: number;
+    error?: string;
+  }>;
+  onHumanologiImageStart?: (
+    callback: (data: { part: number; sceneNumber: number }) => void
+  ) => () => void;
+  onHumanologiImageLog?: (
+    callback: (data: { part: number; sceneNumber: number; text: string }) => void
+  ) => () => void;
+  onHumanologiImageProgress?: (
+    callback: (data: {
+      part: number;
+      current: number;
+      total: number;
+      sceneNumber: number;
+      status: 'success' | 'error';
+      imageUrl?: string;
+      filePath?: string;
+      error?: string;
+    }) => void
+  ) => () => void;
 }
 
 export interface ShortsVideoShot {
@@ -529,6 +619,68 @@ export interface VignetteConfig {
 export interface VoiceOverConfig {
   enabled: boolean;
   volume: number;
+}
+
+export interface HumanologiAudioItem {
+  id: string;
+  part: number;
+  name: string;
+  originalName: string;
+  filePath: string;
+  size: number;
+  duration: number;
+  uploadedAt: string;
+  url?: string;
+}
+
+export interface HumanologiTranscriptEntry {
+  id: number;
+  start_seconds: number;
+  end_seconds: number;
+  timestamp_minute: string;
+  text: string;
+  visual_description?: string;
+  visual_prompt?: string;
+  camera_movement?: string;
+  visual_type?: string;
+  broll_keyword?: string;
+  image_url?: string;
+}
+
+export interface HumanologiTranscriptPartData {
+  part: number;
+  audio_duration: number;
+  total_entries: number;
+  entries: HumanologiTranscriptEntry[];
+  updated_at?: string;
+}
+
+export interface HumanologiScene {
+  scene_number: number;
+  part_narasi: number;
+  start_seconds?: number;
+  end_seconds?: number;
+  durasi_detik?: number;
+  durasi_kata_total?: number;
+  durasi_estimasi_detik?: number;
+  word_count?: number;
+  potongan_narasi: string;
+  konteks_kalimat?: string;
+  deskripsi_visual_singkat: string;
+  image_prompt: string;
+  image_url?: string;
+  image_path?: string;
+}
+
+export interface HumanologiScenesData {
+  judul_video: string;
+  part?: number;
+  total_scene: number;
+  audio_duration?: number;
+  total_parts?: number;
+  gaya_visual_global: string;
+  scenes: HumanologiScene[];
+  updated_at?: string;
 }
 
 declare global {

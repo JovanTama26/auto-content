@@ -17,6 +17,7 @@ import AlurfilmMetadataStep from './components/longform/AlurfilmMetadataStep';
 import AlurfilmTestingHub from './components/longform/testing/AlurfilmTestingHub';
 import ShortsMergerStep from './components/shorts/ShortsMergerStep';
 import ShortsPromptStep from './components/shorts/ShortsPromptStep';
+import HumanologiStepContainer from './components/humanologi/HumanologiStepContainer';
 
 type Status = 'ready' | 'rendering' | 'error';
 
@@ -44,7 +45,7 @@ const App: React.FC = () => {
   }, []);
 
   const handleResetProject = async () => {
-    setActiveStep('source');
+    setActiveStep(contentMode === 'humanologi' ? 'topic' : 'source');
     setLongformResetKey((prev) => prev + 1);
     try {
       Object.keys(localStorage).forEach((key) => {
@@ -74,6 +75,8 @@ const App: React.FC = () => {
             setContentMode(mode);
             if (mode === 'shorts') {
               setActiveStep('analyze');
+            } else if (mode === 'humanologi') {
+              setActiveStep('topic');
             } else {
               setActiveStep('source');
             }
@@ -92,6 +95,12 @@ const App: React.FC = () => {
                 onNavigateToMerger={() => setActiveStep('render')}
               />
             )
+          ) : contentMode === 'humanologi' ? (
+            <HumanologiStepContainer
+              key="humanologi-step-container"
+              activeStep={activeStep}
+              onStepChange={setActiveStep}
+            />
           ) : longformTab === 'testing' ? (
             <AlurfilmTestingHub key="longform-testing-hub" />
           ) : activeStep === 'source' ? (
