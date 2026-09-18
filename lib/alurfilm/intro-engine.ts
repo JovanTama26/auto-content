@@ -53,17 +53,28 @@ export async function renderIntroVideo(
     subtitleColor = '0x38BDF8';
   }
 
-  const cleanTitle = titleText.replace(/'/g, "\\'").replace(/:/g, '\\:');
-  const cleanSubtitle = subtitleText.replace(/'/g, "\\'").replace(/:/g, '\\:');
-
   // Resolve font paths absolute from cwd
   const fontTitle = path.isAbsolute(FONT_TITLE) ? FONT_TITLE : path.resolve(cwd, FONT_TITLE);
   const fontSubtitle = path.isAbsolute(FONT_SUBTITLE) ? FONT_SUBTITLE : path.resolve(cwd, FONT_SUBTITLE);
 
-  // FFmpeg drawtext requires escaped colons/backslashes in font path on Linux
+  // FFmpeg drawtext requires escaped colons/backslashes in file/font path on Linux
   const escPath = (p: string) => p.replace(/\\/g, '/').replace(/:/g, '\\:');
   const fontTitleEsc = escPath(fontTitle);
   const fontSubtitleEsc = escPath(fontSubtitle);
+
+  // Write title and subtitle to temp text files so special characters (apostrophes, quotes, colons, commas)
+  // never break FFmpeg filtergraph syntax parsing (e.g. titles like "Don't Breathe")
+  const tmpDir = path.join(cwd, 'tmp');
+  if (!fs.existsSync(tmpDir)) {
+    fs.mkdirSync(tmpDir, { recursive: true });
+  }
+  const titleFile = path.join(tmpDir, `intro_title_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.txt`);
+  const subtitleFile = path.join(tmpDir, `intro_sub_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.txt`);
+  fs.writeFileSync(titleFile, titleText, 'utf-8');
+  fs.writeFileSync(subtitleFile, subtitleText, 'utf-8');
+
+  const titleFileEsc = escPath(titleFile);
+  const subtitleFileEsc = escPath(subtitleFile);
 
   const titleFadeAlpha = `if(lt(t,${impactTimestamp}),0,if(lt(t,${impactTimestamp + 0.3}),(t-${impactTimestamp})/0.3,if(gt(t,${duration - 1.0}),(${duration}-t)/1.0,1)))`;
   const subtitleFadeAlpha = `if(lt(t,${impactTimestamp + 0.1}),0,if(lt(t,${impactTimestamp + 0.4}),(t-${impactTimestamp}-0.1)/0.3,if(gt(t,${duration - 1.0}),(${duration}-t)/1.0,1)))`;
@@ -71,11 +82,11 @@ export async function renderIntroVideo(
   const filterComplex = [
     `color=c=black:s=1920x1080:d=${duration}:r=30[bg]`,
     // Drop shadow layer for title (offset +4px, semi-transparent black)
-    `[bg]drawtext=text='${cleanTitle}':fontfile='${fontTitleEsc}':fontcolor=0x000000:fontsize=108:x=(w-text_w)/2+4:y=(h-text_h)/2-26:enable='between(t,${impactTimestamp},${duration})':alpha='${titleFadeAlpha}*0.55'[shadow]`,
+    `[bg]drawtext=textfile='${titleFileEsc}':fontfile='${fontTitleEsc}':fontcolor=0x000000:fontsize=108:x=(w-text_w)/2+4:y=(h-text_h)/2-26:enable='between(t,${impactTimestamp},${duration})':alpha='${titleFadeAlpha}*0.55'[shadow]`,
     // Main title — Bebas Neue, larger, letter-spacing feel via fontsize bump
-    `[shadow]drawtext=text='${cleanTitle}':fontfile='${fontTitleEsc}':fontcolor=${titleColor}:fontsize=108:x=(w-text_w)/2:y=(h-text_h)/2-30:enable='between(t,${impactTimestamp},${duration})':alpha='${titleFadeAlpha}'[v1]`,
+    `[shadow]drawtext=textfile='${titleFileEsc}':fontfile='${fontTitleEsc}':fontcolor=${titleColor}:fontsize=108:x=(w-text_w)/2:y=(h-text_h)/2-30:enable='between(t,${impactTimestamp},${duration})':alpha='${titleFadeAlpha}'[v1]`,
     // Subtitle — Montserrat ExtraBold, spaced out with wider tracking feel
-    `[v1]drawtext=text='${cleanSubtitle}':fontfile='${fontSubtitleEsc}':fontcolor=${subtitleColor}:fontsize=30:x=(w-text_w)/2:y=(h-text_h)/2+75:enable='between(t,${impactTimestamp + 0.1},${duration})':alpha='${subtitleFadeAlpha}'[vfinal]`
+    `[v1]drawtext=textfile='${subtitleFileEsc}':fontfile='${fontSubtitleEsc}':fontcolor=${subtitleColor}:fontsize=30:x=(w-text_w)/2:y=(h-text_h)/2+75:enable='between(t,${impactTimestamp + 0.1},${duration})':alpha='${subtitleFadeAlpha}'[vfinal]`
   ].join(';');
 
   const ffmpegArgs = [
@@ -108,5 +119,8 @@ export async function renderIntroVideo(
   } catch (err: any) {
     console.error('❌ Intro render error:', err);
     return { success: false, outputPath: resolvedOutput, error: err.message };
+  } finally {
+    try { fs.unlinkSync(titleFile); } catch {}
+    try { fs.unlinkSync(subtitleFile); } catch {}
   }
 }

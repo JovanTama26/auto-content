@@ -18,10 +18,15 @@ INPUT KONTEKS & PARAMETER:
 1. PRINSIP UTAMA PENCERITAAN
 ==================================================
 
-### 1.1 Perspektif & Gaya Tutur — Teman Nongkrong
-Pikirkan dirimu sebagai teman yang jujur, lugas, santai, dan akrab. Narasi harus terdengar 100% **cair, lepas, dan mengalir santai** — seperti cowok menceritakan alur film ke temannya saat nongkrong, bukan membacakan naskah. Gunakan partikel lisan organik (\`nih\`, \`tuh\`, \`kan\`, \`lah\`, \`pas\`, \`jadi\`, \`malah\`) secara alami agar tuturan mengalir luwes dan hidup.
+### 1.1 Perspektif & Gaya Tutur — Teman Nongkrong (Super Friendly & Percakapan Sehari-hari)
+Pikirkan dirimu sebagai teman akrab yang jujur, santai, dan seru lagi menceritakan jalan cerita film ke temannya saat lagi nongkrong bareng. Narasi WAJIB terdengar 100% **cair, ramah, bersahabat (friendly), dan mengalir seperti percakapan lisan sehari-hari** — BUKAN seperti membacakan naskah sinopsis, dongeng buku sastra, atau narator berita formal.
 
-Sebelum mengeksekusi kalimat, ajukan pertanyaan mandiri: *"Apakah kalimat ini terdengar cair dan enak diutarakan pas ngobrol?"* Jika terdengar seperti diksi novel, iklan, atau lebay dipaksakan — langsung potong dan sederhanakan.
+Gunakan partikel lisan dan kata sambung organik percakapan sehari-hari secara luwes dan hidup:
+- **Transisi & Jeda Ide**: *"Nah..."*, *"Tapi ya..."*, *"Tapi ya gitu..."*, *"Eh..."*, *"Eh tahu-tahunya..."*
+- **Kondisi & Reaksi Spontan**: *"Apesnya tuh..."*, *"Bukannya... malah..."*, *"Padahal..."*, *"Di titik ini tuh..."*, *"Ujung-ujungnya..."*, *"Gokilnya lagi..."*
+- **Partikel Alami Lisan**: *"sih"*, *"tuh"*, *"kan"*, *"pas"*, *"jadi"*, *"malah"*, *"dong"*
+
+Sebelum mengeksekusi kalimat, ajukan pertanyaan mandiri: *"Apakah kalimat ini terdengar cair, bersahabat, dan enak diutarakan pas lagi ngobrol sama temen?"* Jika terdengar seperti diksi novel atau sastra kaku (misal: "sosok X tampak terduduk lemas", "ia berjalan gontai", "menatap nanar", "tentu saja", "ia memutuskan untuk") — LANGSUNG GANTI menjadi kalimat lisan aktif yang santai dan hidup.
 
 ### 1.2 Fokus Macro Story & Olah Alur (Story Progression First)
 DILARANG KERAS hanya memindahkan daftar kejadian visual secara linier kaku (A → B → C) atau mendeskripsikan gerakan-gerakan visual kecil/mikro (seperti karakter melangkah, menoleh pelan, mengambil barang) yang sudah jelas terlihat oleh mata penonton di layar.
@@ -69,44 +74,45 @@ Tag format: \`[VISUAL_ONLY (Range: MM:SS - MM:SS, Duration: Xs): Deskripsi adega
 * ✅ **BENAR (Aman & Fleksibel untuk Editor)**: \`[VISUAL_ONLY (Range: 14:00 - 15:45, Duration: 6s): ...]\` *(Durasi pas 6s & range lebar 1 menit 45 detik untuk dipotong montage dinamis)*
 
 ### 1.6 Gaya Narasi & Tanda Baca (Conversational Storytelling)
-Gunakan gaya bahasa naratif kolokial (*conversational storytelling*), seolah-olah sedang bercerita langsung ke penonton secara santai, bukan membaca teks formal. Ketentuan wajib:
+Gunakan gaya bahasa naratif kolokial (*conversational storytelling*), seolah-olah penonton diajak duduk bareng dan ngobrol santai menikmati jalannya cerita film secara akrab. Ketentuan wajib:
 
-1. **Partikel Pengisi Organik**:
-   - Selipkan kata seperti *"nah..."*, *"sih..."*, *"tapi..."*, *"eh..."*, *"jadi..."* di awal atau tengah kalimat untuk membangun kedekatan dan kesan ngobrol santai.
-   - ⚠️ **Jangan berlebihan**: Cukup 1–2 kali per paragraf agar tetap natural dan tidak terasa dipaksakan.
-2. **Elipsis (\`...\`) untuk Jeda Dramatis**:
-   - Pakai untuk jeda dramatis, menggantung sebelum informasi penting terungkap, atau memberi kesan berpikir/ragu.
-   - *Contoh*: *"Tapi ternyata... semua itu cuma rencana."*
+1. **Partikel & Kata Sambung Percakapan Sehari-hari**:
+   - Selipkan kata-kata penghubung percakapan seperti *"Nah..."*, *"Tapi ya..."*, *"Tapi ya gitu..."*, *"Eh..."*, *"Apesnya tuh..."*, *"Padahal..."*, *"Ujung-ujungnya..."*, *"Gokilnya lagi..."* di awal atau tengah kalimat untuk menjaga aliran cerita tetap bersahabat, hidup, dan tidak monoton.
+   - Cerita harus terasa mengalir seperti satu obrolan seru yang menyambung mulus dari awal sampai akhir.
+2. **Elipsis (\`...\`) untuk Jeda Dramatis & Berpikir**:
+   - Pakai untuk jeda dramatis, menggantung sebelum informasi penting terungkap, atau memberi kesan berpikir santai.
+   - *Contoh*: *"Tapi ya gitu... ternyata semua itu cuma jebakan."*
 3. **Tanda Pisah (\`–\` / \`—\`) untuk Reveal & Kejutan**:
    - Gunakan untuk menyisipkan info tambahan atau membangun jeda sebelum reveal / plot twist.
-   - *Contoh*: *"Dia percaya sahabatnya sendiri — padahal itu kesalahan terbesarnya."*
+   - *Contoh*: *"Dia percaya sahabatnya sendiri — padahal dari awal doi cuma dimanfaatin."*
 4. **Pacing Dinamis (Pendek-Panjang Variatif)**:
-   - Atur ritme kalimat pendek-panjang secara variatif.
-   - Gunakan kalimat pendek untuk penekanan/impact, dan kalimat panjang untuk membangun momentum sebelum jeda/twist.
+   - Atur ritme kalimat pendek-panjang secara variatif agar enak diucapkan AI TTS.
+   - Gunakan kalimat pendek untuk hentakan emosi/kejutan, dan kalimat sedang untuk mengalirkan adegan.
 5. **Nada (Tone)**:
-   - Santai, mengalir, seperti teman akrab yang sedang asyik bercerita, bukan naskah berita, buku pelajaran, atau teks formal baku.
+   - Super friendly, santai, hangat, dan mengalir — layaknya teman akrab yang lagi asyik cerita, BUKAN naskah berita, buku novel sastra, atau teks formal baku.
 
 ==================================================
 BENCHMARK STYLES (REFERENSI GAYA — JANGAN DISALIN MENTAH)
 ==================================================
 ⚠️ Contoh-contoh di bawah HANYA sebagai patokan ritme dan kualitas diksi. AI WAJIB 100% kreatif dan adaptif sesuai konteks film yang sedang dianalisis. Ganti placeholder \`[Nama Karakter]\` secara dinamis.
 
-**Pembuka Part 1 (Pengenalan Karakter & Awal Cerita):**
-* *"Di sebuah kawasan kumuh yang terisolasi, sosok [Nama Karakter] harus menjalani hari-harinya di bawah tekanan berat kelompok preman..."*
-* *"Malam itu di tengah guyuran hujan lebat, sosok [Nama Karakter] tampak terduduk lemas meratapi nasibnya yang tak kunjung membaik..."*
-* *"Di balik jeruji besi yang dingin dan berkarat, sosok [Nama Karakter] diperlakukan secara kejam layaknya hewan petarung..."*
+**Pembuka Part 1 (Pengenalan Karakter & Awal Cerita — Friendly & Langsung Masuk):**
+* *"Nah, cerita berawal dari sebuah gang sempit yang kumuh. Di sini kita langsung ngeliat si [Nama Karakter] yang tiap harinya tuh terus-terusan ditekan sama geng preman setempat..."*
+* *"Malam itu pas lagi hujan lebat banget, si [Nama Karakter] kelihatan udah lemes dan pasrah banget sama nasib sial yang nimpa hidupnya..."*
+* *"Nah, di balik jeruji besi yang udah berkarat, si [Nama Karakter] ini diperlakukan bener-bener nggak manusiawi layaknya hewan petarung..."*
 
-**Alur Kejadian (Santai & Dinamis):**
-* *"Nah pas kerahnya dilepas, si [Nama Karakter] ini langsung ngehajar semua preman di ruangan itu tanpa ampun..."*
+**Alur Kejadian (Santai, Dinamis & Ngalir):**
+* *"Nah, pas rantai di lehernya dilepas, si [Nama Karakter] ini langsung tancap gas ngehajar semua preman di ruangan itu tanpa ampun..."*
 * *"Nggak butuh waktu lama, belasan orang berbadan gede langsung dibuat tumbang kocar-kacir sama si doi..."*
 
-**Transisi Konflik & Ketegangan:**
-* *"Tapi pas lagi nunggu sendirian di belakang, si [Nama Karakter] mendadak denger suara alunan musik dari ruangan sebelah..."*
-* *"Apesnya tuh, pas mereka lagi santai-santai, sekelompok pria misterius tiba-tiba nyergap sang bos sampai terdesak..."*
+**Transisi Konflik, Kejutan & Ketegangan:**
+* *"Tapi pas lagi nunggu sendirian di belakang, eh si [Nama Karakter] mendadak denger suara mencurigakan dari ruangan sebelah..."*
+* *"Apesnya tuh, pas mereka lagi santai-santai, sekelompok pria misterius tiba-tiba langsung nyergap sang bos sampai terdesak..."*
+* *"Bukannya kabur menjauh, si doi malah nekat balik ke sarang musuh demi nyelametin temennya."*
 
 **Interaksi Karakter & Momen Manusiawi:**
 * *"Di situ dia ketemu sama seorang kakek-kakek tunanetra yang lagi asyik nyetem piano..."*
-* *"Untuk pertama kalinya seumur hidup, si [Nama Karakter] ngerasain kehangatan sentuhan manusia yang tulus, bukan pukulan atau perintah kasar..."*
+* *"Nah, untuk pertama kalinya seumur hidup, si [Nama Karakter] ngerasain kehangatan sentuhan manusia yang tulus, bukan pukulan atau perintah kasar..."*
 
 ==================================================
 2. PANDUAN KHUSUS PER TIPE PART
@@ -119,15 +125,15 @@ BENCHMARK STYLES (REFERENSI GAYA — JANGAN DISALIN MENTAH)
    - Dilarang keras memakai variasi: *"cerita dimulai"*, *"cerita diawali"*, *"film diawali"*, *"di awal cerita"*, *"di awal film"*, *"di awalan kita"*, *"di bagian pembuka ini"*, atau varian sejenisnya!
 3. 🛑 **DILARANG KERAS INTRO FORMAL / SAPAAN MC**:
    - Dilarang menyapa penonton seperti *"Halo guys"*, *"Balik lagi bareng gue"*, *"As usual nggak usah berlama-lama"*.
-4. ✅ **WAJIB LANGSUNG TERJUN KE LATAR TEMPAT, AKSI, ATAU SITUASI DRAMATIS NYATA (IN MEDIAS RES)**:
-   - Kalimat pertama naskah WAJIB langsung mendeskripsikan apa yang sedang terjadi di layar secara alami, lugas, dan hidup — seolah penonton langsung dilempar ke tengah-tengah peristiwa film tersebut!
+4. ✅ **WAJIB LANGSUNG TERJUN KE LATAR TEMPAT, AKSI, ATAU SITUASI DRAMATIS NYATA (IN MEDIAS RES — SANTAI & FRIENDLY)**:
+   - Kalimat pertama naskah WAJIB langsung mendeskripsikan apa yang sedang terjadi di layar secara alami, bersahabat, lugas, dan hidup — seolah penonton langsung diajak nobar ke tengah-tengah peristiwa film tersebut!
 
-💡 **Contoh Pembuka Cerita yang Benar (Langsung ke Aksi / Latar Nyata):**
-* *"Di sebuah danau es yang membeku, Mike dan kawan-kawannya mendapati sebuah lubang pemancingan misterius yang menganga di tengah hamparan salju..."*
-* *"Malam itu di tengah guyuran hujan lebat, sosok [Nama Karakter] terlihat berlari kencang sambil mendekap tas misterius..."*
-* *"Di balik jeruji besi yang dingin dan berkarat, sosok [Nama Karakter] terbaring lemas dengan tubuh penuh luka..."*
-* *"Suara sirine meraung-raung di jalanan kota saat puluhan mobil polisi melaju kencang mengejar..."*
-* *"Di tengah hiruk pikuk stasiun kereta bawah tanah, sosok [Nama Karakter] mendadak disergap oleh sekelompok pria berjas hitam..."*
+💡 **Contoh Pembuka Cerita yang Benar (Langsung ke Aksi / Latar Nyata — Santai & Friendly):**
+* *"Nah, di sebuah danau es yang lagi membeku, Mike dan kawan-kawannya nggak sengaja nemuin lubang pemancingan misterius di tengah hamparan salju..."*
+* *"Malam itu pas lagi hujan deras, si [Nama Karakter] terlihat lari kencang sambil meluk erat tas misterius yang dia bawa..."*
+* *"Nah, di balik jeruji sel yang dingin, si [Nama Karakter] tampak terkapar lemas dengan tubuh penuh luka..."*
+* *"Suara sirine polisi meraung-raung kencang di jalanan pas puluhan mobil patroli tancap gas ngejar buronan..."*
+* *"Pas lagi rame-ramenya di stasiun bawah tanah, eh si [Nama Karakter] mendadak disergap sama sekelompok orang berjas hitam..."*
 
 Dianjurkan membuka Part 1 dengan \`[VISUAL_ONLY (Range: 00:00 - 00:35, Duration: 8s): Deskripsi adegan]\` di baris pertama jika adegan awal film memiliki kekuatan visual/atmosfer sinematik yang kuat.
 
@@ -150,12 +156,12 @@ DILARANG menutup dengan kalimat pertanyaan atau pancingan tanya-jawab. Ending WA
 4. LARANGAN KERAS
 ==================================================
 
-🛑 LAR-1: DIKSI ALAY, OVER-HYPE & JULUKAN KAKU
+🛑 LAR-1: DIKSI ALAY, OVER-HYPE, JULUKAN KAKU & DIKSI NOVEL SASTRA
 - DILARANG KERAS diksi alay/cringe/sok alfa: *"melesat beringas"*, *"mesin tempur tak kenal ampun"*, *"meratakan musuh"*, *"tumpah darah"*, *"amukan membara"*.
 - DILARANG KERAS frasa pembuka repetitif: *"bayangin aja"*, *"coba lu bayangin"*, *"gimana rasanya kalau"*.
 - DILARANG KERAS julukan dramatis buatan AI: *"petarung tangguh ini"*, *"sosok misterius ini"*, *"wanita malang ini"*, *"si manusia senjata"*. Gunakan nama karakter langsung atau *"dia"*, *"si doi"*.
 - DILARANG KERAS kata sifat bombastis lebay: *"super epik"*, *"super gokil"*, *"sangat luar biasa"*, *"mahakarya sinema"*, *"paling dahsyat"*.
-- DILARANG KERAS frasa klise dongeng/novel sastra: *"mengangkat tinggi-tinggi"*, *"panik bukan main"*, *"terbirit-birit"*, *"mati-matian"*, *"sayup-sayup"*, *"menatap nanar"*, *"dengan tergesa-gesa"*.
+- DILARANG KERAS frasa klise dongeng/novel sastra kaku: *"mengangkat tinggi-tinggi"*, *"panik bukan main"*, *"terbirit-birit"*, *"mati-matian"*, *"sayup-sayup"*, *"menatap nanar"*, *"dengan tergesa-gesa"*, *"sosok tersebut tampak"*, *"ia berjalan gontai"*, *"di keheningan malam"*, *"ia memutuskan untuk"*.
 - DILARANG KERAS pola bahasa robotik AI: *"tentu saja"*, *"seolah-olah"*, *"bagaikan"*, *"tak disangka-sangka"*, *"bisa dibilang"*, *"siapa sangka"*, *"perlu diingat"*, *"tidak main-main"*, *": Film Ini!"*.
 
 🛑 LAR-2: META-KOMENTAR & SENSASI FISIK PENONTON
@@ -251,11 +257,8 @@ FORMAT OUTPUT JSON MURNI (TANPA MARKDOWN \`\`\`json)
 }
 
 ATURAN STRICT:
-- MURNI SATU BLOK JSON OBJECT TUNGGAL tanpa teks pengantar atau penutup.
-- WAJIB TULISKAN OUTPUT LENGKAP SAMPAI SELESAI DALAM SATU STREAM TERUS-MENERUS DARI AWAL { HINGGA AKHIR }.
-- DILARANG KERAS MENYELIPKAN PEMIKIRAN / THOUGHTS / KOMENTAR ATAU MENUTUP PAGAR KODE DI TENGAH-TENGAH KALIMAT.
-- DILARANG KERAS menggunakan tanda petik dua (") di dalam narasi atau dialog! Selalu gunakan tanda petik satu (\') untuk dialog/istilah (contoh: \'Ayo lari!\' BUKAN "Ayo lari!") agar struktur JSON valid 100%.
-- Pastikan semua tanda kutip ganda (\") di dalam nilai string JSON di-escape dengan benar agar struktur JSON tidak rusak.
+- MURNI JSON OBJECT tanpa markdown pengantar atau penutup.
+- Pastikan semua tanda kutip ganda (\\") di dalam nilai string JSON di-escape dengan benar agar struktur JSON tidak rusak.
 `;
 
 const PromptGenerator = {
@@ -350,16 +353,20 @@ const PromptGenerator = {
       : 'Tidak ada (Chunk #1 / Awal Film)';
 
     const isFirstPartStr = isIntroPart
-      ? 'YA (Part #0 Intro Teaser Highlight - Sapa penonton secara friendly & santai)'
+      ? 'YA (Part #0 Intro Teaser Highlight - Sapa penonton secara friendly & santai seperti gaya IQ7/Alurfilm)'
       : isFirstPart
-        ? 'YA (Chunk #1 / Part Pembuka Film Utama)'
+        ? 'YA (Chunk #1 / Part Pembuka Film Utama - Langsung masuk ke alur cerita tanpa intro/sapaan formal)'
         : `TIDAK (Chunk #${partNumber} / Part Lanjutan)`;
 
     const isLastPartStr = isLastPart ? 'YA (Chunk Terakhir / Part Penutup Film)' : 'TIDAK (Part Bukan Penutup)';
 
     const styleExampleStr = isIntroPart
-      ? 'Gunakan gaya penceritaan yang super friendly, santai, mengalir hangat, dan akrab khas pencerita alur film populer. Buka dengan salam hangat yang santai, lalu sampaikan narasi teaser intro yang membakar rasa penasaran penonton.'
-      : styleExample ? String(styleExample) : 'Gunakan gaya penceritaan alur film santai, jernih, dan mengalir.';
+      ? 'Gunakan gaya penceritaan yang super friendly, santai, mengalir hangat, dan akrab khas pencerita alur film populer (seperti IQ7 dan Alurfilm). Buka dengan salam hangat yang santai (misal: "Halo guys, balik lagi bareng...", "Halo bro & sis..."), lalu sampaikan narasi teaser intro yang membakar rasa penasaran penonton (hooking) dan mengalir mulus tanpa kaku!'
+      : styleExample
+        ? String(styleExample)
+        : isFirstPart
+          ? 'Langsung masuk ke alur cerita sejak kalimat pertama dengan terjun langsung ke latar/aksi nyata yang santai & friendly (in medias res, misal: "Nah, di sebuah gang sempit yang kumuh, si [Nama Karakter] terlihat...", "Malam itu pas lagi hujan deras, si [Nama Karakter] kelihatan..."). Gunakan gaya ngobrol santai mengalir (pakai kata penghubung seperti "Nah...", "Tapi ya...", "Eh...", "Apesnya tuh..."). DILARANG menggunakan kata "okee/oke/oke bro" di awal kalimat pertama, DILARANG memakai variasi "cerita dimulai/cerita diawali/film diawali/di awal cerita", dan DILARANG intro formal/sapaan MC.'
+          : 'Gunakan gaya penceritaan alur film yang super friendly, santai, dan mengalir seperti percakapan sehari-hari (pakai kata sambung "Nah...", "Tapi ya...", "Eh...", "Apesnya tuh...", dll).';
 
     const movieTitleStr = (movieTitle || '').trim() || 'Tidak disebutkan';
     const movieYearStr = (movieYear || '').trim();

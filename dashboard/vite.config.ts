@@ -6,6 +6,8 @@ export default defineConfig({
   plugins: [react()],
   envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
   server: {
+    port: 5173,
+    strictPort: true,
     proxy: {
       '/api': 'http://localhost:3001',
       '/input': 'http://localhost:3001',

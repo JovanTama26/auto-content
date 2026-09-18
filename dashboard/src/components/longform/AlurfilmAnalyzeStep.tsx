@@ -413,8 +413,8 @@ const AlurfilmAnalyzeStep: React.FC = () => {
         const isLastPartStr = isLastPart ? 'YA (Chunk Terakhir / Part Penutup Film)' : 'TIDAK (Part Bukan Penutup)';
         const prevCtxStr = prevContext ? JSON.stringify(prevContext, null, 2) : 'Tidak ada (Awal Film)';
         const styleExampleStr = partNum === 1
-          ? 'Langsung masuk ke alur cerita sejak kalimat pertama dengan terjun langsung ke latar/aksi nyata (in medias res, misal: "Di sebuah kawasan terpencil, sosok [Nama Karakter] terlihat...", "Malam itu di tengah guyuran hujan lebat, sosok [Nama Karakter] tampak..."). DILARANG menggunakan kata "okee/oke/oke bro" di awal, DILARANG memakai variasi "cerita dimulai/cerita diawali/film diawali/di awal cerita", dan DILARANG intro formal/sapaan MC.'
-          : 'Gunakan gaya penceritaan alur film santai, jernih, dan mengalir.';
+          ? 'Langsung masuk ke alur cerita sejak kalimat pertama dengan terjun langsung ke latar/aksi nyata yang santai & friendly (in medias res, misal: "Nah, di sebuah gang sempit yang kumuh, si [Nama Karakter] terlihat...", "Malam itu pas lagi hujan deras, si [Nama Karakter] kelihatan..."). Gunakan gaya ngobrol santai mengalir (pakai kata penghubung seperti "Nah...", "Tapi ya...", "Eh...", "Apesnya tuh..."). DILARANG menggunakan kata "okee/oke/oke bro" di awal kalimat pertama, DILARANG memakai variasi "cerita dimulai/cerita diawali/film diawali/di awal cerita", dan DILARANG intro formal/sapaan MC.'
+          : 'Gunakan gaya penceritaan alur film yang super friendly, santai, dan mengalir seperti percakapan sehari-hari (pakai kata sambung "Nah...", "Tapi ya...", "Eh...", "Apesnya tuh...", dll).';
 
         formattedPrompt = (promptTpl || '')
           .replace(/\{\{chunk_part\}\}/g, String(partNum))
