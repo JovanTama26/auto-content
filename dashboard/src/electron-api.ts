@@ -252,6 +252,10 @@ export interface RenderSettings {
   logoMargin: number;
   logoScale: number;
   introEnabled?: boolean;
+  introType?: 'cinematic_title' | 'channel_video';
+  introChannelPath?: string;
+  introFadeInStory?: boolean;
+  introFadeDuration?: number;
   introTitleText?: string;
   introSubtitleText?: string;
   introStylePreset?: 'cinematic_gold' | 'silver_epic' | 'neon_thriller';

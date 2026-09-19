@@ -14,6 +14,10 @@ const DEFAULT_SETTINGS: RenderSettings = {
   logoMargin: 40,
   logoScale: 60,
   introEnabled: true,
+  introType: 'cinematic_title',
+  introChannelPath: 'assets/intro-chanel.mp4',
+  introFadeInStory: true,
+  introFadeDuration: 1.0,
   introTitleText: 'UNDER THE DOME',
   introSubtitleText: 'ALUR CERITA FILM',
   introStylePreset: 'cinematic_gold',
@@ -289,7 +293,8 @@ const AlurfilmRenderStep: React.FC = () => {
     }
 
     // MANDATORY INTRO CHECK BEFORE PARTIAL RENDER
-    if (settings.introEnabled !== false && !introResult?.filePath) {
+    const isChannelIntro = settings.introType === 'channel_video';
+    if (settings.introEnabled !== false && !isChannelIntro && !introResult?.filePath) {
       addLog(`[STEP 0] 🎬 Mandatory Intro Check: Intro belum dirender! Me-render Intro sinematik terlebih dahulu...`, 'step');
       const introRes = await handleRenderIntro();
       if (!introRes.success) {
@@ -380,25 +385,32 @@ const AlurfilmRenderStep: React.FC = () => {
 
       setRenderingPart(null);
 
-      // Step 2: Regenerate intro video with latest settings and delete stale ones
+      // Step 2: Prepare intro video (channel video or cinematic title)
       let finalIntroPath: string | undefined = undefined;
       if (settings.introEnabled !== false) {
         setRenderStageStep(3);
-        addLog(`[STEP 3/4] 🎬 Generate ulang Cinematic Title Intro dengan setting terbaru: "${settings.introTitleText || 'UNDER THE DOME'}" (${settings.introSubtitleText || 'ALUR CERITA FILM'})...`, 'step');
-        setFullRenderProgress(`Me-render ulang Cinematic Title Intro: "${settings.introTitleText || 'UNDER THE DOME'}"...`);
-        const introRes = await handleRenderIntro();
-        if (introRes.success && introRes.filePath) {
-          finalIntroPath = introRes.filePath;
-          addLog(`✅ Cinematic Title Intro terbaru siap: ${finalIntroPath.split(/[\/\\]/).pop()}`, 'success');
+        if (settings.introType === 'channel_video') {
+          const channelPath = settings.introChannelPath || 'assets/intro-chanel.mp4';
+          finalIntroPath = channelPath;
+          addLog(`[STEP 3/4] 🎬 Menggunakan Video Intro Channel: "${channelPath}"...`, 'step');
+          setFullRenderProgress(`Menggunakan Video Intro Channel: "${channelPath}"...`);
         } else {
-          addLog(`⚠️ Intro render failed (${introRes.error}), proceeding with concat...`, 'warn');
+          addLog(`[STEP 3/4] 🎬 Generate ulang Cinematic Title Intro dengan setting terbaru: "${settings.introTitleText || 'UNDER THE DOME'}" (${settings.introSubtitleText || 'ALUR CERITA FILM'})...`, 'step');
+          setFullRenderProgress(`Me-render ulang Cinematic Title Intro: "${settings.introTitleText || 'UNDER THE DOME'}"...`);
+          const introRes = await handleRenderIntro();
+          if (introRes.success && introRes.filePath) {
+            finalIntroPath = introRes.filePath;
+            addLog(`✅ Cinematic Title Intro terbaru siap: ${finalIntroPath.split(/[\/\\]/).pop()}`, 'success');
+          } else {
+            addLog(`⚠️ Intro render failed (${introRes.error}), proceeding with concat...`, 'warn');
+          }
         }
       } else {
         addLog('[STEP 3/4] ⏩ Intro title skipped (disabled in settings).', 'info');
       }
 
       setRenderStageStep(4);
-      addLog(`[STEP 4/4] 🎵 Concatenating all ${allParts.length} parts with BGM, VO boost (${settings.narrationVolume}x), and Logo Watermark...`, 'step');
+      addLog(`[STEP 4/4] 🎵 Concatenating all ${allParts.length} parts with Intro, Fade-In (${settings.introFadeInStory !== false ? `${settings.introFadeDuration || 1.0}s` : 'OFF'}), BGM, VO boost (${settings.narrationVolume}x), and Logo Watermark...`, 'step');
       setFullRenderProgress(`Merging all ${allParts.length} parts with BGM & Logo...`);
 
       if (api.concatAlurfilmFinalVideo) {
@@ -668,11 +680,11 @@ const AlurfilmRenderStep: React.FC = () => {
               </div>
             </div>
 
-            {/* Cinematic Intro Card */}
+            {/* Cinematic / Channel Intro Card */}
             <div className="bg-gray-950/80 border border-amber-900/50 p-4 rounded-xl space-y-3">
               <div className="flex items-center justify-between pb-2 border-b border-gray-800">
                 <h4 className="font-bold text-amber-300 flex items-center gap-1.5">
-                  <span>🎬</span> Title Intro Sinematik
+                  <span>🎬</span> Intro Video Recap
                 </h4>
                 <input
                   type="checkbox"
@@ -682,88 +694,163 @@ const AlurfilmRenderStep: React.FC = () => {
                 />
               </div>
 
-              {/* Title Text */}
+              {/* Intro Type Dropdown */}
               <div className="space-y-1">
-                <div className="flex justify-between items-center text-[11px]">
-                  <label className="text-gray-300">Judul Intro (Title):</label>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      if (api.getAlurfilmMetadata) {
-                        const meta = await api.getAlurfilmMetadata(contentId || undefined);
-                        if (meta) {
-                          const titleToUse = meta.selectedTitle || (meta.titles && meta.titles[0]?.title);
-                          if (titleToUse) {
-                            setSettings((prev) => ({ ...prev, introTitleText: titleToUse.toUpperCase() }));
-                            showToast(`✨ Judul Intro diisi dari Metadata: "${titleToUse}"`);
-                            return;
-                          }
-                        }
-                      }
-                      showToast('⚠️ Metadata judul belum tersedia.');
-                    }}
-                    className="text-[10px] text-amber-400 hover:underline font-mono"
-                  >
-                    ✨ Auto-Fill Metadata
-                  </button>
-                </div>
-                <input
-                  type="text"
-                  value={settings.introTitleText || ''}
-                  onChange={(e) => setSettings({ ...settings, introTitleText: e.target.value })}
-                  placeholder="UNDER THE DOME"
-                  className="w-full bg-gray-900 border border-gray-700 text-white rounded-lg p-2 text-[11px] font-mono focus:border-amber-500 focus:outline-none uppercase"
-                />
-              </div>
-
-              {/* Subtitle Text */}
-              <div className="space-y-1">
-                <label className="text-[11px] text-gray-400 block">Subjudul Intro (Subtitle):</label>
-                <input
-                  type="text"
-                  value={settings.introSubtitleText || ''}
-                  onChange={(e) => setSettings({ ...settings, introSubtitleText: e.target.value })}
-                  placeholder="ALUR CERITA FILM"
-                  className="w-full bg-gray-900 border border-gray-700 text-white rounded-lg p-2 text-[11px] font-mono focus:border-amber-500 focus:outline-none uppercase"
-                />
-              </div>
-
-              {/* Style Preset */}
-              <div className="space-y-1">
-                <label className="text-[11px] text-gray-400 block">Preset Gaya Sinematik:</label>
+                <label className="text-[11px] text-gray-400 block font-bold">Pilihan Tipe Intro:</label>
                 <select
-                  value={settings.introStylePreset || 'cinematic_gold'}
-                  onChange={(e) => setSettings({ ...settings, introStylePreset: e.target.value as any })}
-                  className="w-full bg-gray-900 border border-gray-700 text-white rounded-lg p-1.5 text-[11px] font-mono focus:border-amber-500 focus:outline-none"
+                  value={settings.introType || 'cinematic_title'}
+                  onChange={(e) => setSettings({ ...settings, introType: e.target.value as any })}
+                  className="w-full bg-gray-900 border border-amber-600/50 text-white rounded-lg p-2 text-[11px] font-mono focus:border-amber-400 focus:outline-none"
                 >
-                  <option value="cinematic_gold">🏆 Cinematic Gold (Emas Sinematik)</option>
-                  <option value="silver_epic">⚔️ Silver Epic (Perak Epik)</option>
-                  <option value="neon_thriller">⚡ Neon Thriller (Neon Misteri)</option>
+                  <option value="cinematic_title">🏆 Intro Biasa (Title Sinematik)</option>
+                  <option value="channel_video">📺 Video Intro Channel (assets/intro-chanel.mp4)</option>
                 </select>
               </div>
 
-              {/* Duration & Impact Timestamp */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-[11px] text-gray-400 block">Durasi (s):</label>
+              {settings.introType === 'channel_video' ? (
+                /* Channel Intro Video Path */
+                <div className="space-y-2 pt-1">
+                  <div className="space-y-1">
+                    <label className="text-[11px] text-gray-400 block">Path File Intro Channel:</label>
+                    <input
+                      type="text"
+                      value={settings.introChannelPath || 'assets/intro-chanel.mp4'}
+                      onChange={(e) => setSettings({ ...settings, introChannelPath: e.target.value })}
+                      placeholder="assets/intro-chanel.mp4"
+                      className="w-full bg-gray-900 border border-gray-700 text-white rounded-lg p-2 text-[11px] font-mono focus:border-amber-500 focus:outline-none"
+                    />
+                  </div>
+                  <div className="p-2.5 bg-emerald-950/60 border border-emerald-800/80 rounded-lg space-y-1">
+                    <span className="text-[11px] text-emerald-300 font-bold flex items-center gap-1">
+                      <span>✅</span> Mode Video Intro Channel Aktif
+                    </span>
+                    <p className="text-[10px] text-gray-300">
+                      File default: <code className="text-amber-300">assets/intro-chanel.mp4</code>. Saat full render, video intro ini akan otomatis di-scale ke 1080p 30fps dan digabungkan di awal video recap.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                /* Cinematic Title Inputs */
+                <>
+                  {/* Title Text */}
+                  <div className="space-y-1">
+                    <div className="flex justify-between items-center text-[11px]">
+                      <label className="text-gray-300">Judul Intro (Title):</label>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (api.getAlurfilmMetadata) {
+                            const meta = await api.getAlurfilmMetadata(contentId || undefined);
+                            if (meta) {
+                              const titleToUse = meta.selectedTitle || (meta.titles && meta.titles[0]?.title);
+                              if (titleToUse) {
+                                setSettings((prev) => ({ ...prev, introTitleText: titleToUse.toUpperCase() }));
+                                showToast(`✨ Judul Intro diisi dari Metadata: "${titleToUse}"`);
+                                return;
+                              }
+                            }
+                          }
+                          showToast('⚠️ Metadata judul belum tersedia.');
+                        }}
+                        className="text-[10px] text-amber-400 hover:underline font-mono"
+                      >
+                        ✨ Auto-Fill Metadata
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      value={settings.introTitleText || ''}
+                      onChange={(e) => setSettings({ ...settings, introTitleText: e.target.value })}
+                      placeholder="UNDER THE DOME"
+                      className="w-full bg-gray-900 border border-gray-700 text-white rounded-lg p-2 text-[11px] font-mono focus:border-amber-500 focus:outline-none uppercase"
+                    />
+                  </div>
+
+                  {/* Subtitle Text */}
+                  <div className="space-y-1">
+                    <label className="text-[11px] text-gray-400 block">Subjudul Intro (Subtitle):</label>
+                    <input
+                      type="text"
+                      value={settings.introSubtitleText || ''}
+                      onChange={(e) => setSettings({ ...settings, introSubtitleText: e.target.value })}
+                      placeholder="ALUR CERITA FILM"
+                      className="w-full bg-gray-900 border border-gray-700 text-white rounded-lg p-2 text-[11px] font-mono focus:border-amber-500 focus:outline-none uppercase"
+                    />
+                  </div>
+
+                  {/* Style Preset */}
+                  <div className="space-y-1">
+                    <label className="text-[11px] text-gray-400 block">Preset Gaya Sinematik:</label>
+                    <select
+                      value={settings.introStylePreset || 'cinematic_gold'}
+                      onChange={(e) => setSettings({ ...settings, introStylePreset: e.target.value as any })}
+                      className="w-full bg-gray-900 border border-gray-700 text-white rounded-lg p-1.5 text-[11px] font-mono focus:border-amber-500 focus:outline-none"
+                    >
+                      <option value="cinematic_gold">🏆 Cinematic Gold (Emas Sinematik)</option>
+                      <option value="silver_epic">⚔️ Silver Epic (Perak Epik)</option>
+                      <option value="neon_thriller">⚡ Neon Thriller (Neon Misteri)</option>
+                    </select>
+                  </div>
+
+                  {/* Duration & Impact Timestamp */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[11px] text-gray-400 block">Durasi (s):</label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        value={settings.introDuration || 6.0}
+                        onChange={(e) => setSettings({ ...settings, introDuration: parseFloat(e.target.value) || 6.0 })}
+                        className="w-full bg-gray-900 border border-gray-700 text-white rounded-lg p-1.5 text-xs font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] text-gray-400 block">Impact (s):</label>
+                      <input
+                        type="number"
+                        step="0.05"
+                        value={settings.introImpactTimestamp || 0.48}
+                        onChange={(e) => setSettings({ ...settings, introImpactTimestamp: parseFloat(e.target.value) || 0.48 })}
+                        className="w-full bg-gray-900 border border-gray-700 text-white rounded-lg p-1.5 text-xs font-mono"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Fade-in Transition to Story Settings */}
+              <div className="pt-2.5 border-t border-gray-800/80 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-300 text-[11px] font-semibold flex items-center gap-1.5">
+                    <span>✨</span> Fade Masuk Cerita (Gelap ke Visual):
+                  </span>
                   <input
-                    type="number"
-                    step="0.5"
-                    value={settings.introDuration || 6.0}
-                    onChange={(e) => setSettings({ ...settings, introDuration: parseFloat(e.target.value) || 6.0 })}
-                    className="w-full bg-gray-900 border border-gray-700 text-white rounded-lg p-1.5 text-xs font-mono"
+                    type="checkbox"
+                    checked={settings.introFadeInStory ?? true}
+                    onChange={(e) => setSettings({ ...settings, introFadeInStory: e.target.checked })}
+                    className="accent-amber-500 w-4 h-4 rounded cursor-pointer"
                   />
                 </div>
-                <div className="space-y-1">
-                  <label className="text-[11px] text-gray-400 block">Impact (s):</label>
-                  <input
-                    type="number"
-                    step="0.05"
-                    value={settings.introImpactTimestamp || 0.48}
-                    onChange={(e) => setSettings({ ...settings, introImpactTimestamp: parseFloat(e.target.value) || 0.48 })}
-                    className="w-full bg-gray-900 border border-gray-700 text-white rounded-lg p-1.5 text-xs font-mono"
-                  />
-                </div>
+                {(settings.introFadeInStory ?? true) && (
+                  <div className="space-y-1 bg-gray-900/60 p-2.5 rounded-lg border border-gray-800/80">
+                    <div className="flex justify-between items-center font-mono text-[11px]">
+                      <label className="text-gray-400">Durasi Fade-in:</label>
+                      <span className="text-amber-400 font-bold">{settings.introFadeDuration || 1.0} detik</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.3"
+                      max="2.5"
+                      step="0.1"
+                      value={settings.introFadeDuration || 1.0}
+                      onChange={(e) => setSettings({ ...settings, introFadeDuration: parseFloat(e.target.value) || 1.0 })}
+                      className="w-full accent-amber-500 h-1.5 bg-gray-800 rounded-lg cursor-pointer"
+                    />
+                    <p className="text-[10px] text-gray-400">
+                      Menghilangkan kesan kaku/patah saat pergantian dari intro menuju visual pembuka alur cerita.
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -779,7 +866,11 @@ const AlurfilmRenderStep: React.FC = () => {
             <h3 className="text-sm font-bold text-white tracking-wide">
               Intro Studio & Mandatory Preview
             </h3>
-            {introResult?.filePath ? (
+            {settings.introType === 'channel_video' ? (
+              <span className="px-2 py-0.5 bg-emerald-950/90 text-emerald-400 border border-emerald-800 text-[10px] font-mono font-bold rounded-full flex items-center gap-1">
+                <span>✅</span> CHANNEL INTRO READY
+              </span>
+            ) : introResult?.filePath ? (
               <span className="px-2 py-0.5 bg-emerald-950/90 text-emerald-400 border border-emerald-800 text-[10px] font-mono font-bold rounded-full flex items-center gap-1">
                 <span>✅</span> INTRO READY
               </span>
@@ -789,7 +880,9 @@ const AlurfilmRenderStep: React.FC = () => {
               </span>
             )}
             <span className="text-[11px] font-mono text-amber-300/80 hidden md:inline">
-              "{settings.introTitleText || 'UNDER THE DOME'}" ({settings.introDuration || 6}s)
+              {settings.introType === 'channel_video'
+                ? `${settings.introChannelPath || 'assets/intro-chanel.mp4'} (Video Channel)`
+                : `"${settings.introTitleText || 'UNDER THE DOME'}" (${settings.introDuration || 6}s)`}
             </span>
           </div>
 
@@ -802,19 +895,26 @@ const AlurfilmRenderStep: React.FC = () => {
               <span>{showIntroStudio ? 'Sembunyikan Panel' : 'Buka Preview & Setting'}</span>
               <span>{showIntroStudio ? '▲' : '▼'}</span>
             </button>
-            <button
-              type="button"
-              onClick={handleRenderIntro}
-              disabled={isRenderingIntro}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5 border ${
-                isRenderingIntro
-                  ? 'bg-amber-800/80 border-amber-700 text-amber-200 cursor-not-allowed animate-pulse'
-                  : 'bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 border-amber-400 text-black shadow-amber-600/20'
-              }`}
-            >
-              <span>{isRenderingIntro ? '⌛' : '⚡'}</span>
-              <span>{isRenderingIntro ? 'Rendering Intro...' : 'Render Intro Only'}</span>
-            </button>
+            {settings.introType === 'channel_video' ? (
+              <span className="px-3.5 py-1.5 rounded-xl text-xs font-mono font-semibold bg-emerald-950/80 border border-emerald-700/80 text-emerald-300 flex items-center gap-1.5 shadow-md">
+                <span>📺</span>
+                <span>Video Channel Siap</span>
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={handleRenderIntro}
+                disabled={isRenderingIntro}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5 border ${
+                  isRenderingIntro
+                    ? 'bg-amber-800/80 border-amber-700 text-amber-200 cursor-not-allowed animate-pulse'
+                    : 'bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 border-amber-400 text-black shadow-amber-600/20'
+                }`}
+              >
+                <span>{isRenderingIntro ? '⌛' : '⚡'}</span>
+                <span>{isRenderingIntro ? 'Rendering Intro...' : 'Render Intro Only'}</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -824,24 +924,51 @@ const AlurfilmRenderStep: React.FC = () => {
             {/* Left Side: Info & Controls */}
             <div className="flex-1 space-y-3">
               <p className="text-[11px] text-gray-300 leading-relaxed">
-                Intro sinematik 16:9 wajib dirender sebelum me-render part video lainnya. Anda dapat me-render dan memutar preview Intro secara independen di sini.
+                {settings.introType === 'channel_video'
+                  ? 'Intro video channel MP4 langsung digabungkan ke bagian depan video recap secara otomatis saat full render. Anda dapat melihat pratinjaunya di pemutar samping.'
+                  : 'Intro sinematik 16:9 wajib dirender sebelum me-render part video lainnya. Anda dapat me-render dan memutar preview Intro secara independen di sini.'}
               </p>
 
               {/* Settings Quick Bar */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-gray-950/80 p-2.5 rounded-xl border border-gray-800 text-xs font-mono">
-                <div>
-                  <span className="text-gray-400 text-[10px] block">TITLE:</span>
-                  <span className="text-amber-300 font-bold truncate block">{settings.introTitleText || 'UNDER THE DOME'}</span>
+              {settings.introType === 'channel_video' ? (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-gray-950/80 p-2.5 rounded-xl border border-emerald-900/40 text-xs font-mono">
+                  <div>
+                    <span className="text-gray-400 text-[10px] block">TIPE INTRO:</span>
+                    <span className="text-emerald-300 font-bold truncate block">📺 Video Intro Channel</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-400 text-[10px] block">FILE PATH:</span>
+                    <span className="text-amber-300 block truncate">{settings.introChannelPath || 'assets/intro-chanel.mp4'}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-400 text-[10px] block">TRANSISI MASUK:</span>
+                    <span className="text-purple-300 block truncate">
+                      {settings.introFadeInStory !== false ? `✨ Fade (${settings.introFadeDuration || 1.0}s)` : 'Cut Langsung'}
+                    </span>
+                  </div>
                 </div>
-                <div>
-                  <span className="text-gray-400 text-[10px] block">SUBTITLE:</span>
-                  <span className="text-gray-200 block truncate">{settings.introSubtitleText || 'ALUR CERITA FILM'}</span>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 bg-gray-950/80 p-2.5 rounded-xl border border-gray-800 text-xs font-mono">
+                  <div>
+                    <span className="text-gray-400 text-[10px] block">TITLE:</span>
+                    <span className="text-amber-300 font-bold truncate block">{settings.introTitleText || 'UNDER THE DOME'}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-400 text-[10px] block">SUBTITLE:</span>
+                    <span className="text-gray-200 block truncate">{settings.introSubtitleText || 'ALUR CERITA FILM'}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-400 text-[10px] block">PRESET / DURATION:</span>
+                    <span className="text-purple-300 block truncate">{settings.introStylePreset || 'cinematic_gold'} ({settings.introDuration || 6}s)</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-400 text-[10px] block">TRANSISI MASUK:</span>
+                    <span className="text-emerald-400 block truncate">
+                      {settings.introFadeInStory !== false ? `✨ Fade (${settings.introFadeDuration || 1.0}s)` : 'Cut Langsung'}
+                    </span>
+                  </div>
                 </div>
-                <div>
-                  <span className="text-gray-400 text-[10px] block">PRESET / DURATION:</span>
-                  <span className="text-purple-300 block truncate">{settings.introStylePreset || 'cinematic_gold'} ({settings.introDuration || 6}s)</span>
-                </div>
-              </div>
+              )}
 
               {/* Progress bar if rendering intro */}
               {isRenderingIntro && (
@@ -868,7 +995,13 @@ const AlurfilmRenderStep: React.FC = () => {
 
             {/* Right Side: Intro Video Player Preview */}
             <div className="w-full lg:w-72 aspect-video bg-black rounded-xl border border-amber-500/20 overflow-hidden flex flex-col justify-center items-center relative shrink-0">
-              {introResult?.mediaUrl ? (
+              {settings.introType === 'channel_video' ? (
+                <video
+                  src={api.getMediaUrl ? api.getMediaUrl(settings.introChannelPath || 'assets/intro-chanel.mp4') : `media://content-auto/${encodeURIComponent(settings.introChannelPath || 'assets/intro-chanel.mp4')}`}
+                  controls
+                  className="w-full h-full object-contain bg-black"
+                />
+              ) : introResult?.mediaUrl ? (
                 <video
                   src={introResult.mediaUrl}
                   controls
@@ -906,7 +1039,7 @@ const AlurfilmRenderStep: React.FC = () => {
               Render Full Movie Recap (All {chunks.length} Parts)
               {settings.introEnabled && (
                 <span className="px-2 py-0.5 bg-amber-950/80 text-amber-300 text-[10px] font-mono rounded-full border border-amber-500/30 flex items-center gap-1">
-                  <span>🎬</span> Intro Title: {settings.introTitleText || 'ACTIVE'}
+                  <span>🎬</span> Intro: {settings.introType === 'channel_video' ? 'Channel Video' : (settings.introTitleText || 'ACTIVE')}
                 </span>
               )}
               <span className="px-2 py-0.5 bg-purple-600/30 text-purple-300 text-[10px] font-mono rounded-full border border-purple-500/30">
