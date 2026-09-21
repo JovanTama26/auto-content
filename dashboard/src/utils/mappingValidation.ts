@@ -164,7 +164,29 @@ export function validateAlurfilmMapping(
           message: `Kalimat #${sNum} klip #${clipIdx + 1}: Durasi klip tidak valid (${cDur}s).`,
           fixable: true,
         });
-      } else if (cDur > 6.5 && clip.type !== 'freeze_frame_with_zoom') {
+      } else if (clip.type === 'slow_motion' && cDur > 9.0) {
+        issues.push({
+          id: `long-slowmo-dur-${sNum}-${clipIdx}`,
+          type: 'INVALID_CLIP_DURATION',
+          severity: 'warning',
+          sentenceIndex: sNum,
+          clipIndex: clipIdx,
+          message: `Kalimat #${sNum} klip #${clipIdx + 1}: Durasi slow motion sangat panjang (${cDur.toFixed(1)}s > 9.0s).`,
+          details: 'Disarankan membagi menjadi 2 klip dengan sudut berbeda agar penonton tetap antusias.',
+          fixable: false,
+        });
+      } else if (clip.type === 'video_cut' && cDur > 2.5) {
+        issues.push({
+          id: `long-raw-cut-dur-${sNum}-${clipIdx}`,
+          type: 'INVALID_CLIP_DURATION',
+          severity: 'warning',
+          sentenceIndex: sNum,
+          clipIndex: clipIdx,
+          message: `Kalimat #${sNum} klip #${clipIdx + 1}: Durasi video_cut normal melebihi batas aman Content ID (${cDur.toFixed(1)}s > 2.5s).`,
+          details: 'Gunakan slow_motion atau batasi video_cut maksimal 2.0 detik agar kebal deteksi copyright.',
+          fixable: false,
+        });
+      } else if (cDur > 6.5 && clip.type !== 'slow_motion' && clip.type !== 'freeze_frame_with_zoom') {
         issues.push({
           id: `long-clip-dur-${sNum}-${clipIdx}`,
           type: 'INVALID_CLIP_DURATION',
@@ -172,19 +194,19 @@ export function validateAlurfilmMapping(
           sentenceIndex: sNum,
           clipIndex: clipIdx,
           message: `Kalimat #${sNum} klip #${clipIdx + 1}: Durasi klip bergerak sangat panjang (${cDur.toFixed(1)}s > 6.5s).`,
-          details: 'Disarankan memecah klip agar alur visual bergerak lebih dinamis.',
+          details: 'Disarankan menggunakan slow_motion atau memecah klip agar alur visual bergerak lebih dinamis.',
           fixable: false,
         });
-      } else if (cDur > 12.0 && clip.type === 'freeze_frame_with_zoom') {
+      } else if (clip.type === 'freeze_frame_with_zoom') {
         issues.push({
-          id: `long-freeze-dur-${sNum}-${clipIdx}`,
-          type: 'INVALID_CLIP_DURATION',
+          id: `freeze-frame-warning-${sNum}-${clipIdx}`,
+          type: 'FAIR_USE_VARIETY_WARNING',
           severity: 'warning',
           sentenceIndex: sNum,
           clipIndex: clipIdx,
-          message: `Kalimat #${sNum} klip #${clipIdx + 1}: Durasi freeze frame melebihi 12.0s (${cDur.toFixed(1)}s).`,
-          details: 'Batas ideal freeze frame adalah 3.0s - 8.0s agar penonton tidak mengira video macet.',
-          fixable: false,
+          message: `Kalimat #${sNum} klip #${clipIdx + 1}: Menggunakan freeze_frame_with_zoom (foto diam).`,
+          details: 'Sesuai konfigurasi baru, disarankan mengganti ke pure slow_motion (faktor 0.25-0.35) agar visual tidak kaku/macet.',
+          fixable: true,
         });
       }
 
@@ -245,20 +267,19 @@ export function validateAlurfilmMapping(
         type: 'FAIR_USE_VARIETY_WARNING',
         severity: 'warning',
         sentenceIndex: null,
-        message: `Peringatan Fair-Use: Seluruh ${totalVisualClips} klip hanya menggunakan 1 tipe visual (${usedTypes[0]}). Variasikan 5 tipe efek untuk bypass Content ID.`,
+        message: `Peringatan Fair-Use: Seluruh ${totalVisualClips} klip hanya menggunakan 1 tipe visual (${usedTypes[0]}). Variasikan tipe efek (slow_motion, mirror_cut, video_cut, pan_and_zoom_cut) untuk bypass Content ID.`,
         fixable: false,
       });
     }
 
     const freezeCount = effectTypeCounts['freeze_frame_with_zoom'] || 0;
-    const freezePct = (freezeCount / totalVisualClips) * 100;
-    if (freezePct > 45) {
+    if (freezeCount > 0) {
       issues.push({
-        id: 'fair-use-overused-freeze-frame',
+        id: 'fair-use-freeze-frame-detected',
         type: 'FAIR_USE_VARIETY_WARNING',
         severity: 'warning',
         sentenceIndex: null,
-        message: `Frekuensi Freeze Frame Cukup Tinggi (${freezePct.toFixed(0)}% klip): Terdeteksi ${freezeCount} klip freeze frame. Pastikan tetap dipadukan dengan slow motion & video cut agar visual dinamis.`,
+        message: `Terdeteksi ${freezeCount} klip freeze frame (foto diam). Sesuai konfigurasi baru, disarankan 100% video bergerak (pure slow motion & dynamic cut) agar alur tidak kaku.`,
         fixable: false,
       });
     }
@@ -341,8 +362,12 @@ export function autoFixAlurfilmMapping(
         },
       ];
     } else {
-      // Fix invalid clip fields
+      // Fix invalid clip fields & convert legacy freeze frames to pure slow-mo
       sentence.visuals.forEach((clip, cIdx) => {
+        if (clip.type === 'freeze_frame_with_zoom') {
+          clip.type = 'slow_motion';
+          clip.slow_mo_factor = clip.slow_mo_factor || 0.35;
+        }
         if (!clip.type || !VALID_VISUAL_TYPES.includes(clip.type)) {
           clip.type = cIdx % 2 === 0 ? 'slow_motion' : 'mirror_cut';
         }

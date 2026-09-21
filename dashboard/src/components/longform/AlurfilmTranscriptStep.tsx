@@ -120,6 +120,7 @@ const AlurfilmTranscriptStep: React.FC = () => {
   const [alignStage, setAlignStage] = useState<string>('preparing');
   const [alignLogs, setAlignLogs] = useState<string[]>([]);
   const [showAlignModal, setShowAlignModal] = useState<boolean>(false);
+  const [isProcessingManual, setIsProcessingManual] = useState<boolean>(false);
   const logContainerRef = useRef<HTMLDivElement | null>(null);
 
   // Batch Sequential Alignment State
@@ -364,6 +365,53 @@ const AlurfilmTranscriptStep: React.FC = () => {
     } catch (err: any) {
       console.error('Save Transcript Error:', err);
       setError(`Failed to save transcript: ${err.message || String(err)}`);
+    }
+  };
+
+  // Process Manual Raw Transcript & Auto-Splice Audio
+  const handleProcessManualTranscript = async () => {
+    if (!pasteJsonInput.trim()) return;
+    setError(null);
+    setIsProcessingManual(true);
+    setIsAligning(true);
+    setIsBatchRunning(false);
+    setAlignProgress(10);
+    setAlignStage('preparing');
+    setAlignLogs([
+      `🚀 MEMULAI PROSES MANUAL TRANSCRIPT & AUDIO SPLICING (Part #${activePart})`,
+      `📄 Input text length: ${pasteJsonInput.length} karakter`,
+      `⚙️ Engine: Exact Timestamp Follower + FFmpeg Lossless Audio Splicer`,
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
+    ]);
+    setShowImportModal(false);
+    setShowAlignModal(true);
+
+    try {
+      if (!api.processAlurfilmManualTranscript) {
+        throw new Error('API processAlurfilmManualTranscript tidak tersedia di preload');
+      }
+
+      const res = await api.processAlurfilmManualTranscript(activePart, pasteJsonInput.trim());
+      if (res && res.success) {
+        setAlignLogs((prev) => [
+          ...prev,
+          `✅ SUKSES: Part #${activePart} berhasil diproses!`,
+          `💬 Transkrip: ${res.entries?.length || 0} baris`,
+          `🔊 Audio Spliced: ${res.audioSpliced ? 'Ya (jeda hening disisipkan)' : 'Tidak (tanpa tag visual only)'}`
+        ]);
+        setAlignStage('done');
+        setAlignProgress(100);
+        showToast(`🎉 Part #${activePart} transkrip & audio berhasil diproses!`);
+        await loadData(true);
+      }
+    } catch (err: any) {
+      console.error('Manual Transcript Process Error:', err);
+      setAlignLogs((prev) => [...prev, `❌ ERROR: ${err.message || String(err)}`]);
+      setAlignStage('error');
+      setError(`Proses transkrip manual gagal: ${err.message || String(err)}`);
+    } finally {
+      setIsProcessingManual(false);
+      setIsAligning(false);
     }
   };
 
@@ -925,9 +973,9 @@ const AlurfilmTranscriptStep: React.FC = () => {
               <button
                 onClick={handleOpenImportModal}
                 className="py-1.5 px-3 bg-indigo-900/50 hover:bg-indigo-600 text-indigo-200 hover:text-white rounded-xl text-xs font-bold border border-indigo-700/50 transition-all flex items-center justify-center gap-1.5 shadow-sm"
-                title="Paste atau edit output format SRT Subtitle / JSON"
+                title="Paste raw transcript audio, deteksi adegan [VISUAL_ONLY] & potong audio dengan jeda hening"
               >
-                <span>📥</span> Paste JSON / SRT
+                <span>📥</span> Paste & Auto-Splice
               </button>
             </div>
           </div>
@@ -1269,6 +1317,17 @@ const AlurfilmTranscriptStep: React.FC = () => {
                     <span className="text-[10px] text-gray-400 block">Copy Prompt, proses di Google AI Studio, lalu Paste JSON.</span>
                   </div>
                 </div>
+
+                <div
+                  onClick={handleOpenImportModal}
+                  className="p-3 bg-cyan-950/30 hover:bg-cyan-950/50 border border-cyan-800/50 rounded-xl cursor-pointer transition-all flex items-center gap-3 group"
+                >
+                  <span className="p-2 bg-cyan-500/20 text-cyan-400 rounded-lg text-lg group-hover:scale-110 transition-all">✂️</span>
+                  <div>
+                    <span className="text-xs font-bold text-cyan-300 block">Metode 3: Paste Raw Transcript & Audio Splicer (Manual Presisi)</span>
+                    <span className="text-[10px] text-gray-400 block">Paste transkrip raw audio ([Speaker 0]). Sistem otomatis mendeteksi posisi [VISUAL_ONLY], memotong audio raw, dan menyisipkan hening.</span>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -1278,10 +1337,29 @@ const AlurfilmTranscriptStep: React.FC = () => {
       {/* Paste / Edit SRT or JSON Modal */}
       {showImportModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-gray-900 border border-gray-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <span>📋</span> Paste / Edit Transcript Subtitle SRT / JSON (Part #{activePart})
-            </h3>
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-gray-800">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <span>📋</span> Paste Transcript & Audio Splicer Studio (Part #{activePart})
+              </h3>
+              <button
+                onClick={() => setShowImportModal(false)}
+                className="text-gray-500 hover:text-white text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Smart Feature Callout */}
+            <div className="p-3 bg-gradient-to-r from-emerald-950/40 to-teal-950/40 border border-emerald-800/50 rounded-xl text-[11px] text-emerald-200 space-y-1">
+              <p className="font-bold flex items-center gap-1.5">
+                <span>⚡</span> Auto-Detect [VISUAL_ONLY] & Audio Splicer Aktif:
+              </p>
+              <p className="text-gray-300 text-[10px] leading-relaxed">
+                Paste hasil transkrip raw audio berformat <code>00:00:00,140 --&gt; 00:00:33,260 [Speaker 0]</code>.
+                Sistem otomatis mencocokkan naskah Step 2, memotong audio raw, menyisipkan jeda hening sesuai durasi visual, dan menyesuaikan timeline 100% presisi!
+              </p>
+            </div>
 
             {currentAudio?.parts && currentAudio.parts.length > 1 && (
               <div className="p-3 bg-purple-950/40 border border-purple-800/50 rounded-xl text-[11px] text-purple-300 space-y-1">
@@ -1289,7 +1367,7 @@ const AlurfilmTranscriptStep: React.FC = () => {
                   <span>💡</span> Fitur Multi-Part Audio Auto-Split Active:
                 </p>
                 <p className="text-gray-300 text-[10px]">
-                  Kamu bisa paste format <strong>SRT Subtitle</strong> atau <strong>JSON Object</strong>. Sistem akan otomatis memecah & memetakan transkrip ke Parts #{currentAudio.parts.join(', #')}!
+                  Kamu juga bisa paste format <strong>JSON Object</strong> untuk multi-part Parts #{currentAudio.parts.join(', #')}.
                 </p>
               </div>
             )}
@@ -1297,12 +1375,37 @@ const AlurfilmTranscriptStep: React.FC = () => {
             <textarea
               value={pasteJsonInput}
               onChange={(e) => setPasteJsonInput(e.target.value)}
-              placeholder={`Format SRT Subtitle:\n1\n00:00:00,500 --> 00:00:03,800\nBapak ini terkejut saat melihat si doi datang.\n\n2\n00:00:04,100 --> 00:00:07,200\nTernyata si doi membawa pesan rahasia...`}
-              className="w-full h-64 bg-gray-950 text-gray-200 text-xs font-mono p-3 rounded-xl border border-gray-800 focus:border-purple-500 focus:outline-none resize-none"
+              placeholder={`Format Raw Transcript yang didukung:\n00:00:00,140 --> 00:00:33,260 [Speaker 0]\nDemi mencari petunjuk sekaligus persenjataan...\n\n00:00:36,540 --> 00:00:48,780 [Speaker 0]\nAlih-alih gentar menghadapi kepungan puluhan lawan...\n\n(Atau format SRT Subtitle / JSON standard)`}
+              className="w-full h-64 bg-gray-950 text-gray-200 text-xs font-mono p-3 rounded-xl border border-gray-800 focus:border-purple-500 focus:outline-none resize-none custom-scrollbar"
             />
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setShowImportModal(false)} className="px-4 py-2 bg-gray-800 text-gray-300 rounded-xl text-xs font-medium">Batal</button>
-              <button onClick={handleSaveImportedJson} className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold">Save Transcript</button>
+
+            <div className="flex items-center justify-between gap-2 pt-2 border-t border-gray-800 flex-wrap">
+              <button
+                onClick={() => setShowImportModal(false)}
+                className="px-3.5 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl text-xs font-medium transition-all"
+              >
+                Batal
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleSaveImportedJson}
+                  className="px-3.5 py-2 bg-purple-900/50 hover:bg-purple-600 text-purple-200 hover:text-white rounded-xl text-xs font-semibold border border-purple-700/50 transition-all shadow-sm"
+                  title="Simpan transkrip langsung tanpa memotong file audio"
+                >
+                  💾 Simpan Biasa
+                </button>
+
+                <button
+                  onClick={handleProcessManualTranscript}
+                  disabled={!pasteJsonInput.trim() || isProcessingManual}
+                  className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold border border-emerald-400/40 shadow-lg shadow-emerald-600/20 transition-all flex items-center gap-1.5 hover:scale-[1.02] active:scale-[0.98]"
+                  title="Deteksi posisi [VISUAL_ONLY], potong audio raw & sisipkan audio hening via FFmpeg"
+                >
+                  <span>⚡</span>
+                  <span>Proses & Potong Audio (Auto-Splice)</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -878,12 +878,12 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
         : `TIDAK (Chunk #${chunkPart} / Part Lanjutan)`;
     const isLastPartStr = isLastPart ? 'YA (Chunk Terakhir / Part Penutup Film)' : `TIDAK (Part Bukan Penutup)`;
     const styleExampleStr = isIntroPart
-      ? 'Gunakan gaya penceritaan yang super friendly, santai, mengalir hangat, dan akrab khas pencerita alur film populer (seperti IQ7 dan Alurfilm). Buka dengan salam hangat yang santai (misal: "Halo guys, balik lagi bareng...", "Halo bro & sis..."), lalu sampaikan narasi teaser intro yang membakar rasa penasaran penonton (hooking) dan mengalir mulus tanpa kaku!'
+      ? 'Gunakan gaya penceritaan yang super friendly, santai, mengalir hangat, dan akrab khas pencerita alur film populer. Sampaikan narasi teaser intro yang membakar rasa penasaran penonton (hooking) dan mengalir mulus tanpa kaku!'
       : styleExample
         ? String(styleExample)
         : isFirstPart
-          ? 'Langsung masuk ke alur cerita sejak kalimat pertama dengan terjun langsung ke latar/aksi nyata yang santai & friendly (in medias res, misal: "Nah, di sebuah gang sempit yang kumuh, si [Nama Karakter] terlihat...", "Malam itu pas lagi hujan deras, si [Nama Karakter] kelihatan..."). Gunakan gaya ngobrol santai mengalir (pakai kata penghubung seperti "Nah...", "Tapi ya...", "Eh...", "Apesnya tuh..."). DILARANG menggunakan kata "okee/oke/oke bro" di awal kalimat pertama, DILARANG memakai variasi "cerita dimulai/cerita diawali/film diawali/di awal cerita", dan DILARANG intro formal/sapaan MC.'
-          : 'Gunakan gaya penceritaan alur film yang super friendly, santai, dan mengalir seperti percakapan sehari-hari (pakai kata sambung "Nah...", "Tapi ya...", "Eh...", "Apesnya tuh...", dll).';
+          ? 'Buka langsung dengan premis & ancaman/kondisi nyata (misal: "Cerita dimulai pada [tahun/tempat] di mana kita diperlihatkan dengan [ancaman/kondisi besar]..."). Gunakan gaya semi-formal sinematik yang runut, mengalir enak di telinga, dan berbasis aksi fisik nyata (sambungkan antarklausa dengan: "di mana...", "yang membuat...", "hingga...", "sebab...", "namun sayangnya..."). DILARANG diksi gaul alay (si doi, bapak ini, apesnya tuh) dan DILARANG renungan puitis ngawang.'
+          : 'Gunakan gaya penceritaan alur film semi-formal sinematik yang runut, mengalir, dan berbasis aksi nyata (sambungkan antarklausa dengan "di mana...", "yang membuat...", "hingga...", "sebab...", "namun sayangnya..."). DILARANG diksi gaul alay (si doi, bapak ini, apesnya tuh) dan DILARANG renungan puitis ngawang.';
     const movieTitleStr = String(opts.movieTitle || opts.movie_title || opts.title || '').trim() || 'Tidak disebutkan';
     const movieYearStr = String(opts.movieYear || opts.movie_year || opts.year || '').trim();
     const movieYearFormatted = movieYearStr ? `tahun ${movieYearStr}` : '';
@@ -1056,7 +1056,16 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
     try {
       const data = JSON.parse(fs.readFileSync(mappingFile, 'utf-8'));
       const validAudios = (data.audios || []).filter(item => fs.existsSync(item.filePath));
-      return validAudios;
+      const enrichedAudios = await Promise.all(validAudios.map(async item => {
+        if (!item.duration) {
+          try {
+            const meta = await ffmpeg.getVideoMetaHelper(item.filePath);
+            if (meta && meta.duration) item.duration = Number(meta.duration.toFixed(2));
+          } catch { }
+        }
+        return item;
+      }));
+      return enrichedAudios;
     } catch {
       return [];
     }
@@ -1904,6 +1913,34 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
     return { success: true, savedResults, multiPartMap };
   });
 
+  // ─── Process Manual Transcript & Auto-Splice Audio ─────
+  ipcMain.handle('process-alurfilm-manual-transcript', async (event, { part, rawTranscriptText }) => {
+    const contentId = p.getOrGenerateContentId('longform');
+    const pt = Number(part) || 1;
+
+    function sendProgress(stage, progress, log) {
+      if (event && event.sender) {
+        event.sender.send('alurfilm-alignment-progress', { stage, progress, log });
+      }
+    }
+
+    try {
+      const result = await audioSplicer.processManualTranscriptWorkflow({
+        contentId,
+        part: pt,
+        rawTranscriptText,
+        sendProgress,
+        ffmpeg,
+        paths: p,
+        media
+      });
+      return result;
+    } catch (err) {
+      sendProgress('error', 0, `❌ ERROR: ${err.message || String(err)}`);
+      throw err;
+    }
+  });
+
   // ─── List Alurfilm Transcripts ─────────────────────────
   ipcMain.handle('list-alurfilm-transcripts', async (_event, modeContentId) => {
     const contentId = modeContentId || p.getOrGenerateContentId('longform');
@@ -2246,7 +2283,7 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
   });
 
 
-  function normalizeMappingObj(obj, defaultPart = 1, realChunkDur = 0) {
+  function normalizeMappingObj(obj, defaultPart = 1, realChunkDur = 0, realAudioDur = 0) {
     if (!obj) return null;
     let target = obj;
     if (Array.isArray(obj)) {
@@ -2297,8 +2334,18 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
       }
       target.mappings = deduplicated.map((m, idx) => {
         const s = typeof m.start === 'number' ? m.start : 0;
-        const e = typeof m.end === 'number' ? m.end : s;
+        let e = typeof m.end === 'number' ? m.end : s;
+        const isLastSentence = idx === deduplicated.length - 1;
+
+        // If this is the last sentence and real audio duration is longer, align end to real audio
+        if (isLastSentence && realAudioDur > 0 && e < realAudioDur) {
+          e = Number(realAudioDur.toFixed(2));
+        }
+
         let dur = typeof m.duration === 'number' ? m.duration : (e - s);
+        if (isLastSentence && realAudioDur > 0 && e > s) {
+          dur = Number((e - s).toFixed(2));
+        }
         if (dur <= 0) dur = e > s ? Number((e - s).toFixed(2)) : 0.1;
         if (dur <= 0) dur = 0.1;
 
@@ -2369,17 +2416,42 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
 
           if (sanitizedVisuals.length === 0) {
             sanitizedVisuals = [{ type: 'video_cut', duration: Number(dur.toFixed(2)), source_start_seconds: 0 }];
+          } else {
+            // Re-scale visuals within narration sentence so their sum matches sentence duration dur
+            const sumVis = Number(sanitizedVisuals.reduce((acc, c) => acc + (c.duration || 0), 0).toFixed(2));
+            if (sumVis > 0 && Math.abs(sumVis - dur) > 0.05) {
+              const scale = dur / sumVis;
+              sanitizedVisuals.forEach((c, cIdx) => {
+                if (cIdx === sanitizedVisuals.length - 1) {
+                  const otherSum = sanitizedVisuals.slice(0, cIdx).reduce((acc, x) => acc + (x.duration || 0), 0);
+                  c.duration = Number(Math.max(0.2, dur - otherSum).toFixed(2));
+                } else {
+                  c.duration = Number(Math.max(0.2, (c.duration || 0) * scale).toFixed(2));
+                }
+              });
+            }
           }
         }
 
         return {
           ...m,
+          start: s,
+          end: e,
           type: isVisualOnly ? 'visual_only' : (m.type || 'narration'),
           sentence_index: idx,
           duration: Number(dur.toFixed(2)),
           visuals: sanitizedVisuals,
         };
       });
+
+      // Align BGM timeline ending with the final mapping end time
+      if (Array.isArray(target.bgm_timeline) && target.bgm_timeline.length > 0 && target.mappings.length > 0) {
+        const finalSentEnd = target.mappings[target.mappings.length - 1].end || 0;
+        const lastBgm = target.bgm_timeline[target.bgm_timeline.length - 1];
+        if (lastBgm && lastBgm.end < finalSentEnd) {
+          lastBgm.end = Number(finalSentEnd.toFixed(2));
+        }
+      }
     }
 
     return target;
@@ -2431,7 +2503,7 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
           if (match) pNum = parseInt(match[1], 10);
         }
 
-        // Dynamically probe real chunk video duration using ffprobe
+        // Dynamically probe real chunk video and audio duration
         let realChunkDur = 0;
         const partStr = String(pNum).padStart(2, '0');
         const searchDirs = [p.ALURFILM_CHUNKS_DIR, p.ALURFILM_COMPRESS_DIR, p.ALURFILM_DIR].filter(d => d && fs.existsSync(d));
@@ -2449,7 +2521,19 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
           } catch { }
         }
 
-        const normalizedItem = normalizeMappingObj(item, pNum, realChunkDur);
+        let realAudioDur = 0;
+        if (fs.existsSync(p.ALURFILM_AUDIO_DIR)) {
+          try {
+            const aFiles = fs.readdirSync(p.ALURFILM_AUDIO_DIR);
+            const matchedA = aFiles.find(f => (f.includes(`audio_part_${partStr}`) || f.includes(`audio_parts_${partStr}`)) && f.endsWith('.wav'));
+            if (matchedA) {
+              const aMeta = await ffmpeg.getVideoMetaHelper(path.join(p.ALURFILM_AUDIO_DIR, matchedA));
+              if (aMeta && aMeta.duration) realAudioDur = aMeta.duration;
+            }
+          } catch { }
+        }
+
+        const normalizedItem = normalizeMappingObj(item, pNum, realChunkDur, realAudioDur);
         if (normalizedItem) {
           const partStr = String(pNum).padStart(2, '0');
           const outputName = `${contentId}_mapping_part_${partStr}.json`;
@@ -2471,7 +2555,7 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
         if (match) pNum = parseInt(match[1], 10);
       }
 
-      // Dynamically probe real chunk video duration using ffprobe
+      // Dynamically probe real chunk video and audio duration
       let realChunkDur = 0;
       const partStr = String(pNum).padStart(2, '0');
       const searchDirs = [p.ALURFILM_CHUNKS_DIR, p.ALURFILM_COMPRESS_DIR, p.ALURFILM_DIR].filter(d => d && fs.existsSync(d));
@@ -2489,7 +2573,19 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
         } catch { }
       }
 
-      const normalizedData = normalizeMappingObj(parsed, pNum, realChunkDur) || parsed;
+      let realAudioDur = 0;
+      if (fs.existsSync(p.ALURFILM_AUDIO_DIR)) {
+        try {
+          const aFiles = fs.readdirSync(p.ALURFILM_AUDIO_DIR);
+          const matchedA = aFiles.find(f => (f.includes(`audio_part_${partStr}`) || f.includes(`audio_parts_${partStr}`)) && f.endsWith('.wav'));
+          if (matchedA) {
+            const aMeta = await ffmpeg.getVideoMetaHelper(path.join(p.ALURFILM_AUDIO_DIR, matchedA));
+            if (aMeta && aMeta.duration) realAudioDur = aMeta.duration;
+          }
+        } catch { }
+      }
+
+      const normalizedData = normalizeMappingObj(parsed, pNum, realChunkDur, realAudioDur) || parsed;
       const outputName = `${contentId}_mapping_part_${partStr}.json`;
       const destPath = path.join(p.ALURFILM_DIR, outputName);
       fs.writeFileSync(destPath, JSON.stringify(normalizedData, null, 2), 'utf-8');

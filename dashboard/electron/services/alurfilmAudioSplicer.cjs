@@ -11,6 +11,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const { parseSrtToEntries } = require('../shared/subtitle-utils.cjs');
 
 /**
  * Parses [VISUAL_ONLY...] tag string for duration, timecode range, and description.
@@ -545,6 +546,350 @@ async function executeFfmpegSplicing({
   }
 }
 
+/**
+ * Tokenize text into lowercase alphanumeric words for robust text matching.
+ */
+function cleanWords(txt) {
+  return (txt || '')
+    .toLowerCase()
+    .replace(/[^\w\s]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+/**
+ * Matches manual transcript entries with script visual only tags.
+ * If transcriptEntries already contains visual only elements, maps them directly.
+ */
+function matchTranscriptWithScriptVisualOnly(transcriptEntries, scriptText) {
+  // Check if transcript entries already contain visual_only tags
+  const hasExistingVisual = transcriptEntries.some(t => 
+    t.type === 'visual_only' ||
+    /\[VISUAL_ONLY/i.test(t.text || '') ||
+    (t.speaker && /visual/i.test(t.speaker))
+  );
+
+  if (hasExistingVisual) {
+    let secCounter = 0;
+    return transcriptEntries.map((t) => {
+      const isVis = t.type === 'visual_only' || /\[VISUAL_ONLY/i.test(t.text || '') || (t.speaker && /visual/i.test(t.speaker));
+      if (isVis) {
+        secCounter++;
+        const parsedVis = parseVisualOnlyTag(t.text);
+        return {
+          type: 'visual_only',
+          text: t.text || `[VISUAL_ONLY (Range: ${parsedVis.sourceRange}, Duration: ${parsedVis.outputDuration}s): ${parsedVis.description}]`,
+          description: parsedVis.description,
+          duration: parsedVis.outputDuration,
+          sourceRange: parsedVis.sourceRange,
+          sourceStartSeconds: parsedVis.sourceStartSeconds,
+          sourceEndSeconds: parsedVis.sourceEndSeconds,
+          sectionIndex: secCounter
+        };
+      }
+      return {
+        type: 'narration',
+        text: t.text,
+        start: t.start_seconds,
+        end: t.end_seconds,
+        speech_start: t.start_seconds,
+        speech_end: t.end_seconds,
+        firstWordStart: t.start_seconds,
+        lastWordEnd: t.end_seconds,
+        speaker: t.speaker || 'Narator',
+        sectionIndex: secCounter,
+        words: t.words || []
+      };
+    });
+  }
+
+  const scriptElements = parseScriptToElements(scriptText || '');
+  const visualOnlyElements = [];
+
+  for (let i = 0; i < scriptElements.length; i++) {
+    if (scriptElements[i].type === 'visual_only') {
+      let beforeWords = [];
+      for (let j = i - 1; j >= 0; j--) {
+        if (scriptElements[j].type === 'narration') {
+          const w = cleanWords(scriptElements[j].text);
+          beforeWords = w.concat(beforeWords);
+          if (beforeWords.length >= 30) break;
+        }
+      }
+      let afterWords = [];
+      for (let j = i + 1; j < scriptElements.length; j++) {
+        if (scriptElements[j].type === 'narration') {
+          const w = cleanWords(scriptElements[j].text);
+          afterWords = afterWords.concat(w);
+          if (afterWords.length >= 30) break;
+        }
+      }
+
+      visualOnlyElements.push({
+        element: scriptElements[i],
+        beforeTail: beforeWords.slice(-15).join(' '),
+        afterHead: afterWords.slice(0, 15).join(' '),
+      });
+    }
+  }
+
+  if (visualOnlyElements.length === 0) {
+    return transcriptEntries.map(t => ({
+      type: 'narration',
+      text: t.text,
+      start: t.start_seconds,
+      end: t.end_seconds,
+      speech_start: t.start_seconds,
+      speech_end: t.end_seconds,
+      firstWordStart: t.start_seconds,
+      lastWordEnd: t.end_seconds,
+      speaker: t.speaker || 'Narator',
+      sectionIndex: 0,
+      words: t.words || []
+    }));
+  }
+
+  const matchedBoundaries = [];
+  let minBoundary = 0;
+
+  for (let vIdx = 0; vIdx < visualOnlyElements.length; vIdx++) {
+    const vis = visualOnlyElements[vIdx];
+    let bestScore = -1;
+    let bestK = minBoundary;
+
+    for (let k = minBoundary; k < transcriptEntries.length; k++) {
+      const entryBefore = transcriptEntries[k];
+      const entryAfter = k + 1 < transcriptEntries.length ? transcriptEntries[k + 1] : null;
+
+      const wordsBeforeEntry = cleanWords(entryBefore.text).slice(-15).join(' ');
+      const wordsAfterEntry = entryAfter ? cleanWords(entryAfter.text).slice(0, 15).join(' ') : '';
+
+      let score = 0;
+      if (vis.beforeTail && wordsBeforeEntry) {
+        const targetWords = vis.beforeTail.split(' ');
+        for (const tw of targetWords) {
+          if (wordsBeforeEntry.includes(tw)) score += 2;
+        }
+      }
+      if (vis.afterHead && wordsAfterEntry) {
+        const targetWords = vis.afterHead.split(' ');
+        for (const tw of targetWords) {
+          if (wordsAfterEntry.includes(tw)) score += 2;
+        }
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestK = k;
+      }
+    }
+
+    matchedBoundaries.push({
+      afterTranscriptIndex: bestK,
+      visualElement: vis.element
+    });
+    minBoundary = bestK + 1;
+  }
+
+  const alignedElements = [];
+  let secCounter = 0;
+
+  for (let i = 0; i < transcriptEntries.length; i++) {
+    const t = transcriptEntries[i];
+    alignedElements.push({
+      type: 'narration',
+      text: t.text,
+      start: t.start_seconds,
+      end: t.end_seconds,
+      speech_start: t.start_seconds,
+      speech_end: t.end_seconds,
+      firstWordStart: t.start_seconds,
+      lastWordEnd: t.end_seconds,
+      speaker: t.speaker || 'Narator',
+      sectionIndex: secCounter,
+      words: t.words || []
+    });
+
+    const scheduled = matchedBoundaries.filter(m => m.afterTranscriptIndex === i);
+    for (const item of scheduled) {
+      secCounter++;
+      alignedElements.push({
+        ...item.visualElement,
+        sectionIndex: secCounter
+      });
+    }
+  }
+
+  return alignedElements;
+}
+
+/**
+ * End-to-end workflow for processing manual transcript and splicing audio.
+ */
+async function processManualTranscriptWorkflow({
+  contentId,
+  part,
+  rawTranscriptText,
+  sendProgress,
+  ffmpeg,
+  paths: p,
+  media
+}) {
+  const log = (stage, prog, msg) => {
+    if (sendProgress) sendProgress(stage, prog, msg);
+  };
+
+  log('preparing', 10, `Parsing raw transcript untuk Part #${part}...`);
+
+  let transcriptEntries = parseSrtToEntries(rawTranscriptText);
+  if (!transcriptEntries || transcriptEntries.length === 0) {
+    throw new Error('Gagal membaca format transkrip. Pastikan format timestamp valid (00:00:00,140 --> 00:00:33,260 [Speaker 0]).');
+  }
+
+  log('preparing', 25, `Berhasil membaca ${transcriptEntries.length} baris kalimat dari transkrip.`);
+
+  // Load Step 2 script analysis
+  const partStr = String(part).padStart(2, '0');
+  let scriptText = '';
+  const searchDirs = [p.ALURFILM_DIR, path.join(p.ALURFILM_DIR, 'analysis')].filter(Boolean);
+  for (const d of searchDirs) {
+    const p1 = path.join(d, `${contentId}_analysis_part_${partStr}.json`);
+    const p2 = path.join(d, `${contentId}_analysis_part_${part}.json`);
+    if (fs.existsSync(p1)) {
+      try {
+        const data = JSON.parse(fs.readFileSync(p1, 'utf-8'));
+        scriptText = data.naskah_voiceover?.script_text || data.script_text || '';
+        break;
+      } catch {}
+    } else if (fs.existsSync(p2)) {
+      try {
+        const data = JSON.parse(fs.readFileSync(p2, 'utf-8'));
+        scriptText = data.naskah_voiceover?.script_text || data.script_text || '';
+        break;
+      } catch {}
+    }
+  }
+
+  log('mapping', 40, `Mencocokkan posisi [VISUAL_ONLY] dengan naskah acuan Step 2...`);
+  const alignedElements = matchTranscriptWithScriptVisualOnly(transcriptEntries, scriptText);
+  const visualGaps = alignedElements.filter(el => el.type === 'visual_only');
+
+  log('mapping', 50, `Terdeteksi ${visualGaps.length} adegan Visual-Only pada Part #${part}.`);
+
+  // Resolve target raw audio
+  let targetAudioPath = null;
+  const mappingFile = path.join(p.ALURFILM_AUDIO_DIR, `${contentId}_audio_mappings.json`);
+  let targetAudioEntry = null;
+
+  if (fs.existsSync(mappingFile)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(mappingFile, 'utf-8'));
+      targetAudioEntry = (data.audios || []).find(item => item.parts && item.parts.includes(part));
+    } catch {}
+  }
+
+  if (targetAudioEntry) {
+    const candidate = targetAudioEntry.rawFilePath || targetAudioEntry.originalFilePath;
+    if (candidate && fs.existsSync(candidate)) {
+      targetAudioPath = candidate;
+    } else if (targetAudioEntry.filePath && fs.existsSync(targetAudioEntry.filePath)) {
+      targetAudioPath = targetAudioEntry.filePath;
+    }
+  }
+
+  let finalPartAudioPath = targetAudioPath;
+  let audioSplits = [];
+  let audioSpliced = false;
+  const timestamp = Date.now();
+
+  if (visualGaps.length > 0 && targetAudioPath && fs.existsSync(targetAudioPath)) {
+    log('splicing_audio', 65, `Menghitung titik potong audio raw (${path.basename(targetAudioPath)})...`);
+    const audioMeta = await ffmpeg.getVideoMetaHelper(targetAudioPath);
+    const totalRawAudioDur = (audioMeta && audioMeta.duration) ? audioMeta.duration : (transcriptEntries[transcriptEntries.length - 1].end_seconds + 5.0);
+
+    const splitResult = calculateAudioSplits(alignedElements, totalRawAudioDur);
+    audioSplits = splitResult.audioSplits;
+
+    if (audioSplits.length > 0) {
+      const outputSplicedName = `${contentId}_audio_part_${partStr}_spliced_${timestamp}.wav`;
+      const splicedOutPath = path.join(p.ALURFILM_AUDIO_DIR, outputSplicedName);
+
+      log('splicing_audio', 75, `Memotong audio raw & menyisipkan ${visualGaps.length} jeda hening...`);
+      await executeFfmpegSplicing({
+        audioPath: targetAudioPath,
+        audioSplits,
+        outputPath: splicedOutPath,
+        ffmpegPath: ffmpeg.ffmpegPath,
+        tempDir: p.ALURFILM_AUDIO_DIR,
+        sendProgress: (stage, prog, msg) => log(stage, prog, `Part #${part}: ${msg}`)
+      });
+
+      if (fs.existsSync(splicedOutPath)) {
+        finalPartAudioPath = splicedOutPath;
+        audioSpliced = true;
+
+        if (fs.existsSync(mappingFile)) {
+          try {
+            const mapData = JSON.parse(fs.readFileSync(mappingFile, 'utf-8'));
+            if (Array.isArray(mapData.audios)) {
+              const audioItem = mapData.audios.find(item => item.parts && item.parts.includes(part));
+              if (audioItem) {
+                const splicedStat = fs.statSync(splicedOutPath);
+                if (!audioItem.rawFilePath) {
+                  audioItem.rawFilePath = targetAudioPath;
+                }
+                if (!audioItem.originalFilePath) {
+                  audioItem.originalFilePath = targetAudioPath;
+                }
+                audioItem.filePath = splicedOutPath;
+                audioItem.name = outputSplicedName;
+                audioItem.url = media ? media.mediaUrl(splicedOutPath) : '';
+                audioItem.size = splicedStat.size;
+                audioItem.isSpliced = true;
+                audioItem.splicedFilePath = splicedOutPath;
+                audioItem.splicedAt = new Date().toISOString();
+                fs.writeFileSync(mappingFile, JSON.stringify(mapData, null, 2), 'utf-8');
+              }
+            }
+          } catch (mapErr) {
+            console.warn(`Part #${part}: Failed to update audio mapping:`, mapErr.message);
+          }
+        }
+      }
+    }
+  }
+
+  log('mapping', 90, `Memetakan timeline akhir 1:1 sinkron...`);
+  const finalEntries = mapElementsToSplicedTimeline(alignedElements, audioSplits, audioSpliced);
+
+  // Save transcript JSON
+  const targetDir = p.ALURFILM_TRANSCRIPTS_DIR || path.join(p.ALURFILM_DIR, 'transcripts');
+  if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+
+  const outputName = `${contentId}_transcript_part_${partStr}.json`;
+  const destPath = path.join(targetDir, outputName);
+  fs.writeFileSync(destPath, JSON.stringify(finalEntries, null, 2), 'utf-8');
+
+  // Also clean any legacy file in ALURFILM_DIR root
+  const rootLegacyPath = path.join(p.ALURFILM_DIR, outputName);
+  if (fs.existsSync(rootLegacyPath)) {
+    try { fs.unlinkSync(rootLegacyPath); } catch {}
+  }
+
+  log('done', 100, `Selesai! Part #${part} berhasil diproses (${finalEntries.length} baris, ${visualGaps.length} Visual Only).`);
+
+  return {
+    success: true,
+    part,
+    name: outputName,
+    filePath: destPath,
+    data: finalEntries,
+    entries: finalEntries,
+    audioSpliced,
+    splicedAudioPath: finalPartAudioPath
+  };
+}
+
 module.exports = {
   parseVisualOnlyTag,
   parseScriptToElements,
@@ -552,4 +897,7 @@ module.exports = {
   calculateAudioSplits,
   mapElementsToSplicedTimeline,
   executeFfmpegSplicing,
+  cleanWords,
+  matchTranscriptWithScriptVisualOnly,
+  processManualTranscriptWorkflow,
 };

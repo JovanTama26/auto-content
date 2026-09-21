@@ -165,6 +165,7 @@ export interface AlurfilmAudioResult {
   url: string;
   mediaUrl?: string;
   size: number;
+  duration?: number;
   createdAt?: string;
 }
 
@@ -300,6 +301,7 @@ export interface ElectronAPI {
   saveAlurfilmTranscript: (contentIdOrPart: string | number, partOrData?: number | any, jsonTextOrPart?: any) => Promise<AlurfilmTranscriptResult>;
   listAlurfilmTranscripts: (modeContentId?: string) => Promise<AlurfilmTranscriptResult[]>;
   runAlurfilmWhisperXAlignment?: (parts: number[], audioPath?: string) => Promise<{ success: boolean; savedResults?: any[]; multiPartMap?: any }>;
+  processAlurfilmManualTranscript?: (part: number, rawTranscriptText: string) => Promise<{ success: boolean; part: number; entries: any[]; audioSpliced: boolean; splicedAudioPath?: string }>;
   onAlurfilmAlignmentProgress?: (callback: (data: AlurfilmAlignmentProgressPayload) => void) => () => void;
   getAlurfilmMappingPrompt: (chunkPart: number, totalChunks?: number, contentId?: string) => Promise<string>;
   getAllAlurfilmMappingPrompts?: (contentId?: string) => Promise<{

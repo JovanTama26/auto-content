@@ -51,7 +51,8 @@ function cleanPunct(word) {
  */
 function parseSrtTimestampToSeconds(tsStr) {
   if (!tsStr) return 0;
-  const clean = tsStr.replace(',', '.').trim();
+  const tsClean = String(tsStr).replace(/\[.*?\]/g, '').trim();
+  const clean = tsClean.replace(',', '.').trim();
   const parts = clean.split(':');
   if (parts.length === 3) {
     const hrs = parseFloat(parts[0]) || 0;
@@ -97,6 +98,12 @@ function parseSrtToEntries(srtContent) {
     const parts = timeLine.split('-->');
     if (parts.length < 2) continue;
 
+    let speaker = 'Narator';
+    const speakerMatch = timeLine.match(/\[([^\]]+)\]/);
+    if (speakerMatch) {
+      speaker = speakerMatch[1].trim();
+    }
+
     const startSec = parseSrtTimestampToSeconds(parts[0]);
     const endSec = parseSrtTimestampToSeconds(parts[1]);
 
@@ -117,7 +124,7 @@ function parseSrtToEntries(srtContent) {
       end_seconds: Number(endSec.toFixed(3)),
       timestamp_minute: tsMin,
       text: text,
-      speaker: 'Narator',
+      speaker: speaker,
     });
   }
 

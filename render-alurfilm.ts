@@ -266,6 +266,40 @@ program
     const logoMargin = parseInt(opts.logoMargin || String(jsonSettings.logoMargin ?? '40'), 10) || 40;
     const logoScale = parseInt(opts.logoScale || String(jsonSettings.logoScale ?? '60'), 10) || 60;
 
+    // Probe actual voiceover audio duration BEFORE building timeline so mapping aligns with real audio length
+    let maxAudioDurationSec = 0;
+    if (resolvedAudioFinal && fs.existsSync(resolvedAudioFinal)) {
+      try {
+        const voMeta = await getVideoMeta(resolvedAudioFinal);
+        if (voMeta && voMeta.duration && voMeta.duration > 0) {
+          maxAudioDurationSec = voMeta.duration;
+          console.log(`🎙️ [Alurfilm Engine] Voiceover Audio Duration: ${maxAudioDurationSec.toFixed(2)}s`);
+        }
+      } catch (err: any) {
+        console.warn(`⚠️ Could not probe audio metadata: ${err?.message}`);
+      }
+    }
+
+    // Inspect actual source video chunk duration to prevent EOF boundary overflow
+    let sourceVideoDuration = 0;
+    try {
+      const vidMeta = await getVideoMeta(resolvedVideo);
+      if (vidMeta && vidMeta.duration && vidMeta.duration > 0) {
+        sourceVideoDuration = vidMeta.duration;
+        console.log(`📹 [Alurfilm Engine] Source Video Chunk Duration: ${sourceVideoDuration.toFixed(2)}s`);
+      }
+    } catch (err: any) {
+      console.warn(`⚠️ Could not probe video chunk metadata: ${err?.message}`);
+    }
+
+    // Outro cushion: add 1.2s of breathing room after voiceover finishes so narration is NEVER abruptly cut off
+    const OUTRO_CUSHION_SEC = 1.2;
+    const minTargetDuration = maxAudioDurationSec > 0
+      ? Number((maxAudioDurationSec + OUTRO_CUSHION_SEC).toFixed(3))
+      : 0;
+    if (minTargetDuration > 0) {
+      console.log(`🎯 [Alurfilm Engine] Target Duration with Outro Cushion: ${minTargetDuration.toFixed(2)}s (${(minTargetDuration / 60).toFixed(2)} min)`);
+    }
 
     // Flatten sentence mappings into individual clip items
     interface FlattenedClip {
@@ -299,9 +333,18 @@ program
         ? sentence.start
         : currentTimelineClock;
 
-      const sentEnd = (nextSentence && typeof nextSentence.start === 'number' && nextSentence.start > sentStart)
-        ? nextSentence.start
-        : (sentence.end && sentence.end > sentStart ? sentence.end : sentStart + (sentence.duration || 3.0));
+      let sentEnd: number;
+      if (nextSentence && typeof nextSentence.start === 'number' && nextSentence.start > sentStart) {
+        sentEnd = nextSentence.start;
+      } else {
+        const naturalEnd = (sentence.end && sentence.end > sentStart)
+          ? sentence.end
+          : sentStart + (sentence.duration || 3.0);
+        // For the final sentence, ensure it covers at least minTargetDuration so it NEVER ends before audio!
+        sentEnd = (sIdx === numSents - 1 && minTargetDuration > 0)
+          ? Math.max(naturalEnd, minTargetDuration)
+          : naturalEnd;
+      }
 
       const targetSentDur = Math.max(0.2, Number((sentEnd - sentStart).toFixed(3)));
 
@@ -329,18 +372,51 @@ program
             runningOffset += adjustedDur;
           }
 
-          clips.push({
-            id: clipIdCounter++,
-            sentenceIndex: sentence.sentence_index,
-            text: sentence.text || '',
-            sourceStart: ss,
-            duration: adjustedDur,
-            type: vis.type || 'video_cut',
-            slowMoFactor: vis.slow_mo_factor,
-            mirrorMode: vis.mirror_mode,
-            colorShift: vis.color_grading_shift,
-            isVisualOnly,
-          });
+          // If this is the final visual clip of the final sentence and adjustedDur is long (e.g. > 4.2s),
+          // split it into a pleasant final narrative cut + slow-motion outro extension
+          if (vIdx === visuals.length - 1 && sIdx === numSents - 1 && adjustedDur > 4.2) {
+            const cut1Dur = Number(Math.min(3.0, (vis.duration || 2.5)).toFixed(3));
+            const outroDur = Number((adjustedDur - cut1Dur).toFixed(3));
+            clips.push({
+              id: clipIdCounter++,
+              sentenceIndex: sentence.sentence_index,
+              text: sentence.text || '',
+              sourceStart: ss,
+              duration: cut1Dur,
+              type: vis.type || 'video_cut',
+              slowMoFactor: vis.slow_mo_factor || (vis.type === 'slow_motion' ? 0.35 : undefined),
+              mirrorMode: vis.mirror_mode,
+              colorShift: vis.color_grading_shift,
+              isVisualOnly,
+            });
+            const safeSs = (sourceVideoDuration > 15)
+              ? Math.max(0, sourceVideoDuration - outroDur - 5)
+              : Math.max(0, ss - outroDur);
+            clips.push({
+              id: clipIdCounter++,
+              sentenceIndex: sentence.sentence_index,
+              text: 'Outro video extension',
+              sourceStart: safeSs,
+              duration: outroDur,
+              type: 'slow_motion',
+              slowMoFactor: 0.35,
+              colorShift: { contrast: 1.04, brightness: 0.005, saturation: 1.05 },
+              isVisualOnly: false,
+            });
+          } else {
+            clips.push({
+              id: clipIdCounter++,
+              sentenceIndex: sentence.sentence_index,
+              text: sentence.text || '',
+              sourceStart: ss,
+              duration: adjustedDur,
+              type: vis.type || 'video_cut',
+              slowMoFactor: vis.slow_mo_factor || (vis.type === 'slow_motion' ? 0.35 : undefined),
+              mirrorMode: vis.mirror_mode,
+              colorShift: vis.color_grading_shift,
+              isVisualOnly,
+            });
+          }
         });
       } else {
         const fallbackSs = (sentence as any).source_start_seconds !== undefined
@@ -361,43 +437,18 @@ program
       currentTimelineClock = sentEnd;
     }
 
-    let maxAudioDurationSec = 0;
-    if (resolvedAudioFinal && fs.existsSync(resolvedAudioFinal)) {
-      try {
-        const voMeta = await getVideoMeta(resolvedAudioFinal);
-        if (voMeta && voMeta.duration && voMeta.duration > 0) {
-          maxAudioDurationSec = voMeta.duration;
-          console.log(`🎙️ [Alurfilm Engine] Voiceover Audio Duration: ${maxAudioDurationSec.toFixed(2)}s`);
-        }
-      } catch (err: any) {
-        console.warn(`⚠️ Could not probe audio metadata: ${err?.message}`);
-      }
-    }
-
-    // Inspect actual source video chunk duration to prevent EOF boundary overflow
-    let sourceVideoDuration = 0;
-    try {
-      const vidMeta = await getVideoMeta(resolvedVideo);
-      if (vidMeta && vidMeta.duration && vidMeta.duration > 0) {
-        sourceVideoDuration = vidMeta.duration;
-        console.log(`📹 [Alurfilm Engine] Source Video Chunk Duration: ${sourceVideoDuration.toFixed(2)}s`);
-      }
-    } catch (err: any) {
-      console.warn(`⚠️ Could not probe video chunk metadata: ${err?.message}`);
-    }
-
     let totalDur = clips.reduce((s, c) => s + c.duration, 0);
 
-    // Anti-Freeze Protection: Ensure total video duration covers 100% of the audio stream
-    if (maxAudioDurationSec > 0 && totalDur < maxAudioDurationSec) {
-      const remainingGap = Number((maxAudioDurationSec - totalDur).toFixed(3));
-      if (remainingGap > 0.1 && clips.length > 0) {
-        console.log(`⚠️ [Alurfilm Engine] Video total duration (${totalDur.toFixed(2)}s) is shorter than audio (${maxAudioDurationSec.toFixed(2)}s). Padding gap: ${remainingGap}s to prevent freeze.`);
+    // Anti-Freeze & Audio-Sync Protection: Ensure total video duration strictly covers 100% of VO + Outro Cushion
+    if (minTargetDuration > 0 && totalDur < minTargetDuration) {
+      const remainingGap = Number((minTargetDuration - totalDur).toFixed(3));
+      if (remainingGap > 0.05 && clips.length > 0) {
+        console.log(`⚠️ [Alurfilm Engine] Video total duration (${totalDur.toFixed(2)}s) is shorter than target (${minTargetDuration.toFixed(2)}s). Extending outro by ${remainingGap}s to prevent audio cut-off.`);
         if (remainingGap <= 2.5) {
           clips[clips.length - 1].duration = Number((clips[clips.length - 1].duration + remainingGap).toFixed(3));
         } else {
           const lastClip = clips[clips.length - 1];
-          const safeSs = (sourceVideoDuration > 10)
+          const safeSs = (sourceVideoDuration > 15)
             ? Math.max(0, sourceVideoDuration - remainingGap - 5)
             : Math.max(0, lastClip.sourceStart - remainingGap);
           clips.push({
@@ -407,7 +458,7 @@ program
             sourceStart: safeSs,
             duration: remainingGap,
             type: 'slow_motion',
-            slowMoFactor: 0.5,
+            slowMoFactor: 0.35,
             colorShift: { contrast: 1.04, brightness: 0.005, saturation: 1.05 },
             isVisualOnly: false,
           });
@@ -415,6 +466,13 @@ program
         totalDur = clips.reduce((s, c) => s + c.duration, 0);
       }
     }
+
+    // Quantize every clip duration to exact 30fps frames to eliminate PTS drift and frame quantization loss
+    clips.forEach((c) => {
+      const frames = Math.max(6, Math.round(c.duration * 30));
+      c.duration = Number((frames / 30).toFixed(4));
+    });
+    totalDur = Number(clips.reduce((s, c) => s + c.duration, 0).toFixed(3));
 
     const width = 1920;
     const height = 1080;
@@ -500,9 +558,9 @@ program
             // Extract first frame at sourceStart, loop, scale/crop, apply smooth subtle zoompan (1.00x -> 1.035x) & limit output to duration with lanczos crisp sharpness
             inputReadDur = '0.5';
             const clipFrames = Math.max(1, Math.round(clip.duration * 30));
-            scaleFilter = `loop=loop=-1:size=1:start=0,scale=${width}:${height}:force_original_aspect_ratio=increase:flags=lanczos,crop=${width}:${height},zoompan=z='1+0.035*(on/${clipFrames})':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${width}x${height}:fps=30,setsar=1${fxChain}`;
+            scaleFilter = `loop=loop=-1:size=1:start=0,scale=${width}:${height}:force_original_aspect_ratio=increase:flags=lanczos,crop=${width}:${height},zoompan=z='1+0.035*(on/${clipFrames})':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${width}x${height}:fps=30,setsar=1${fxChain},fps=fps=30:round=near`;
           } else {
-            scaleFilter = `scale=${scaledWidth}:${scaledHeight}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1${fxChain}`;
+            scaleFilter = `scale=${scaledWidth}:${scaledHeight}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1${fxChain},fps=fps=30:round=near`;
             const baseDur = (clip.type === 'slow_motion' && clip.slowMoFactor && clip.slowMoFactor > 0)
               ? (clip.duration * clip.slowMoFactor)
               : clip.duration;
@@ -690,6 +748,14 @@ program
         }
       }
 
+      // Ensure the last BGM segment strictly extends to totalDur so music covers the entire outro cushion
+      if (bgmSegments.length > 0) {
+        const lastBgm = bgmSegments[bgmSegments.length - 1];
+        if (lastBgm.end < totalDur) {
+          lastBgm.end = totalDur;
+        }
+      }
+
       const bgmStreamIndices: number[] = [];
       for (const seg of bgmSegments) {
         console.log(`🎵 [Alurfilm Engine] BGM Segment: ${path.basename(seg.filePath)} (${seg.start}s - ${seg.end}s)`);
@@ -722,7 +788,7 @@ program
           const seg = bgmSegments[idx];
           const segDur = Math.max(0.5, seg.end - seg.start);
           const delayMs = Math.round(seg.start * 1000);
-          const fadeInSec = 1.2;
+          const fadeInSec = idx === 0 ? 0.8 : 1.2;
           const fadeOutSec = 1.2;
           const fadeOutStart = Math.max(0, segDur - fadeOutSec);
           const tag = `bgm_seg_${idx}`;
@@ -750,7 +816,7 @@ program
           filterParts.push(`[${voIndex}:a]volume=${targetVoVol}[vo]`);
           filterParts.push(`[${movieFxIndex}:a]volume=${targetMovieFxVol}[movie_fx]`);
           filterParts.push(`[bgm_full]volume='if(${visualOnlyConditions}, ${targetVisualOnlyVol}, ${targetBgmVol})':eval=frame[bgm_ducked]`);
-          filterParts.push(`[vo][movie_fx][bgm_ducked]amix=inputs=3:duration=first:dropout_transition=0[aout]`);
+          filterParts.push(`[vo][movie_fx][bgm_ducked]amix=inputs=3:duration=longest:dropout_transition=0,atrim=0:${totalDur.toFixed(3)},asetpts=PTS-STARTPTS[aout]`);
           aMap = '[aout]';
         } else if (voIndex !== null) {
           const numFinalInputs = 2;
@@ -759,7 +825,7 @@ program
 
           filterParts.push(`[${voIndex}:a]volume=${targetVoVol}[vo]`);
           filterParts.push(`[bgm_full]volume=${targetBgmVol}[bgm_ducked]`);
-          filterParts.push(`[vo][bgm_ducked]amix=inputs=2:duration=first:dropout_transition=0[aout]`);
+          filterParts.push(`[vo][bgm_ducked]amix=inputs=2:duration=longest:dropout_transition=0,atrim=0:${totalDur.toFixed(3)},asetpts=PTS-STARTPTS[aout]`);
           aMap = '[aout]';
         } else if (movieFxIndex !== null) {
           const numFinalInputs = 2;
@@ -769,10 +835,10 @@ program
 
           filterParts.push(`[${movieFxIndex}:a]volume=${targetMovieFxVol}[movie_fx]`);
           filterParts.push(`[bgm_full]volume='if(${visualOnlyConditions}, ${targetVisualOnlyVol}, ${targetBgmVol})':eval=frame[bgm_ducked]`);
-          filterParts.push(`[movie_fx][bgm_ducked]amix=inputs=2:duration=first:dropout_transition=0[aout]`);
+          filterParts.push(`[movie_fx][bgm_ducked]amix=inputs=2:duration=longest:dropout_transition=0,atrim=0:${totalDur.toFixed(3)},asetpts=PTS-STARTPTS[aout]`);
           aMap = '[aout]';
         } else {
-          filterParts.push(`[bgm_full]volume=${bgmVolume}[aout]`);
+          filterParts.push(`[bgm_full]volume=${bgmVolume},atrim=0:${totalDur.toFixed(3)},asetpts=PTS-STARTPTS[aout]`);
           aMap = '[aout]';
         }
       } else {
@@ -784,13 +850,13 @@ program
 
           filterParts.push(`[${voIndex}:a]volume=${targetVoVol}[vo]`);
           filterParts.push(`[${movieFxIndex}:a]volume=${targetMovieFxVol}[movie_fx]`);
-          filterParts.push(`[vo][movie_fx]amix=inputs=2:duration=first:dropout_transition=0[aout]`);
+          filterParts.push(`[vo][movie_fx]amix=inputs=2:duration=longest:dropout_transition=0,apad,atrim=0:${totalDur.toFixed(3)},asetpts=PTS-STARTPTS[aout]`);
           aMap = '[aout]';
         } else if (voIndex !== null) {
-          filterParts.push(`[${voIndex}:a]volume=${narrationVolume}[aout]`);
+          filterParts.push(`[${voIndex}:a]volume=${narrationVolume},apad,atrim=0:${totalDur.toFixed(3)},asetpts=PTS-STARTPTS[aout]`);
           aMap = '[aout]';
         } else if (movieFxIndex !== null) {
-          filterParts.push(`[${movieFxIndex}:a]volume=1.8[aout]`);
+          filterParts.push(`[${movieFxIndex}:a]volume=1.8,apad,atrim=0:${totalDur.toFixed(3)},asetpts=PTS-STARTPTS[aout]`);
           aMap = '[aout]';
         }
       }
@@ -815,6 +881,7 @@ program
       }
 
       fargs.push(
+        '-t', totalDur.toFixed(3),
         '-shortest',
         '-movflags', '+faststart',
         '-progress', 'pipe:1', '-nostats',

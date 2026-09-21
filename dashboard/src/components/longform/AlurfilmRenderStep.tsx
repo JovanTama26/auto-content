@@ -26,6 +26,13 @@ const DEFAULT_SETTINGS: RenderSettings = {
   introAudioPath: 'assets/The Final Horizon.mp3',
 };
 
+const formatDuration = (sec: number) => {
+  if (!sec || isNaN(sec) || sec <= 0) return '00:00';
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+};
+
 const AlurfilmRenderStep: React.FC = () => {
   const [contentId, setContentId] = useState<string | null>(null);
   const [chunks, setChunks] = useState<AlurfilmChunk[]>([]);
@@ -454,11 +461,19 @@ const AlurfilmRenderStep: React.FC = () => {
     (acc, s) => acc + (s.visuals && s.visuals.length > 0 ? s.visuals.length : 1),
     0
   );
-  const totalMappingTargetDuration = mappingSentences.reduce(
-    (acc, s) => acc + (s.duration || (s.end && s.start ? s.end - s.start : 0)),
-    0
-  );
+  const lastMappingSentence = mappingSentences.length > 0 ? mappingSentences[mappingSentences.length - 1] : null;
+  const rawMappingEnd = (lastMappingSentence && typeof lastMappingSentence.end === 'number' && lastMappingSentence.end > 0)
+    ? lastMappingSentence.end
+    : mappingSentences.reduce(
+        (acc, s) => acc + (s.duration || (s.end && s.start ? s.end - s.start : 0)),
+        0
+      );
+  const audioDur = (currentAudio as any)?.duration || 0;
+  const totalMappingTargetDuration = audioDur > 0
+    ? Math.max(rawMappingEnd, Number((audioDur + 1.2).toFixed(1)))
+    : rawMappingEnd;
   const hasSlowMo = mappingSentences.some((s) => s.visuals?.some((v) => v.type === 'slow_motion' || (v.slow_mo_factor && v.slow_mo_factor < 1)));
+  const hasMirrorCut = mappingSentences.some((s) => s.visuals?.some((v) => v.type === 'mirror_cut' || v.mirror_mode === 'horizontal'));
   const hasFreezeFrame = mappingSentences.some((s) => s.visuals?.some((v) => v.type === 'freeze_frame_with_zoom'));
   const hasColorGrading = mappingSentences.some((s) => s.visuals?.some((v) => !!v.color_grading_shift));
   const hasVisualOnly = mappingSentences.some((s) => s.type === 'visual_only' || s.text?.includes('[visual_only') || s.text?.includes('VISUAL_ONLY'));
@@ -1284,13 +1299,13 @@ const AlurfilmRenderStep: React.FC = () => {
               <div className="flex items-center justify-between">
                 <span className="text-gray-400">2. Voiceover Audio:</span>
                 <span className={currentAudio ? 'text-emerald-400 font-bold' : 'text-gray-600'}>
-                  {currentAudio ? 'Spliced VO Ready ✓' : '○ Missing'}
+                  {currentAudio ? `Spliced VO Ready (${audioDur > 0 ? audioDur.toFixed(1) + 's' : 'Ready'}) ✓` : '○ Missing'}
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-gray-400">3. Video Cuts Mapping:</span>
                 <span className={currentMapping ? 'text-emerald-400 font-bold' : 'text-gray-600'}>
-                  {currentMapping ? `${totalVisualCuts} Visual Cuts (${totalMappingTargetDuration.toFixed(1)}s) ✓` : '○ Missing'}
+                  {currentMapping ? `${totalVisualCuts} Visual Cuts (${totalMappingTargetDuration.toFixed(1)}s / ${formatDuration(totalMappingTargetDuration)}) ✓` : '○ Missing'}
                 </span>
               </div>
             </div>
@@ -1321,7 +1336,7 @@ const AlurfilmRenderStep: React.FC = () => {
                 </div>
                 <div className="bg-gray-900/80 p-2 rounded-lg border border-gray-800">
                   <span className="text-gray-400 text-[10px] block">TARGET DURATION:</span>
-                  <span className="text-emerald-400 font-bold">{totalMappingTargetDuration.toFixed(1)}s</span>
+                  <span className="text-emerald-400 font-bold">{totalMappingTargetDuration.toFixed(1)}s ({formatDuration(totalMappingTargetDuration)})</span>
                 </div>
                 <div className="bg-gray-900/80 p-2 rounded-lg border border-gray-800">
                   <span className="text-gray-400 text-[10px] block">BGM ACTIVE:</span>
@@ -1335,17 +1350,22 @@ const AlurfilmRenderStep: React.FC = () => {
               <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
                 {hasSlowMo && (
                   <span className="px-2 py-0.5 bg-purple-950 text-purple-300 border border-purple-800/60 rounded text-[10px] font-mono flex items-center gap-1">
-                    <span>⚡</span> Slow Motion (0.4-0.5x)
+                    <span>⚡</span> Pure Slow-Mo (0.20-0.45x)
+                  </span>
+                )}
+                {hasMirrorCut && (
+                  <span className="px-2 py-0.5 bg-teal-950 text-teal-300 border border-teal-800/60 rounded text-[10px] font-mono flex items-center gap-1">
+                    <span>🪞</span> Mirror Flip Cut
                   </span>
                 )}
                 {hasColorGrading && (
                   <span className="px-2 py-0.5 bg-blue-950 text-blue-300 border border-blue-800/60 rounded text-[10px] font-mono flex items-center gap-1">
-                    <span>🎨</span> Color Grading (Content ID Bypass)
+                    <span>🎨</span> Color Grading (Anti-CID)
                   </span>
                 )}
                 {hasFreezeFrame && (
-                  <span className="px-2 py-0.5 bg-amber-950 text-amber-300 border border-amber-800/60 rounded text-[10px] font-mono flex items-center gap-1">
-                    <span>🔍</span> Freeze Frame Zoom
+                  <span className="px-2 py-0.5 bg-amber-950/80 text-amber-400 border border-amber-800/60 rounded text-[10px] font-mono flex items-center gap-1">
+                    <span>⚠️</span> Legacy Freeze Frame
                   </span>
                 )}
                 {hasVisualOnly && (

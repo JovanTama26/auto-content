@@ -144,6 +144,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('list-alurfilm-transcripts', modeContentId),
   runAlurfilmWhisperXAlignment: (parts, audioPath) =>
     ipcRenderer.invoke('run-alurfilm-whisperx-alignment', { parts, audioPath }),
+  processAlurfilmManualTranscript: (part, rawTranscriptText) =>
+    ipcRenderer.invoke('process-alurfilm-manual-transcript', { part, rawTranscriptText }),
   onAlurfilmAlignmentProgress: (callback) => {
     const handler = (_event, data) => callback(data);
     ipcRenderer.on('alurfilm-alignment-progress', handler);

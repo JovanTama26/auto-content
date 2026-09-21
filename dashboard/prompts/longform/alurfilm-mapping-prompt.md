@@ -8,7 +8,7 @@ Data Transkrip Subtitle dari Step 4 (Audio Transcript) di bawah ini adalah **SOU
 - Transkrip membedakan 2 jenis entri secara presisi agar AI TIDAK NGAWANG / TIDAK MENEBAK-NEBAK:
   1. `type: "narration"` (Ucapan Narator VO):
      - Wajib mencocokkan visual 100% dengan kata-kata narasi (`text`).
-     - Gunakan kombinasi: `slow_motion` (40-45%), `freeze_frame_with_zoom` (35-45%), dan max 2.0s untuk `video_cut` / `mirror_cut`.
+     - Gunakan kombinasi 100% video bergerak dinamis (🚫 DILARANG FREEZE FRAME): `slow_motion` (~65-75%), `mirror_cut` (~15-20%), dan `video_cut` max 2.0s (~10-15%). Seluruh visual WAJIB bergerak hidup tanpa ada foto diam!
   2. `type: "visual_only"` (Jeda Hening / No-VO / Suara Asli Film):
      - Merupakan adegan aksi murni film dengan audio asli film (tanpa ucapan narator).
      - AI DILARANG NGAWANG! Gunakan batas detik eksplisit `target_source_start_seconds` s/d `target_source_end_seconds` dan ikuti `visual_description`.
@@ -47,9 +47,9 @@ ATURAN ANTI-FREEZE MUTLAK DI DETIK TERAKHIR:
         * Shot sudut berbeda dari aksi atau rintangan yang baru saja dilewati.
         * Wide shot pemandangan tebing/jalan/lingkungan sekitar babak tersebut.
         * Insert shot perlengkapan, tangan, atau detail objek.
-3. 🛑 **DILARANG MENUMPUK FREEZE FRAME DIAM BERTURUT-TURUT**:
-   - Dilarang menaruh 2 freeze frame 5 detik berturut-turut di akhir part seolah video macet (10 detik diam)!
-   - Gunakan kombinasi sinematik: `slow_motion` (3.5–5 detik) ➔ `video_cut` (2 detik) ➔ max 1 `freeze_frame_with_zoom` singkat (2–3 detik) ➔ `slow_motion` lagi hingga akhir!
+3. 🛑 **DILARANG KERAS MENGGUNAKAN FREEZE FRAME / FOTO DIAM (100% PURE MOTION)**:
+   - 🛑 **MUTLAK 0% FREEZE FRAME**: DILARANG menaruh foto diam (`freeze_frame_with_zoom`)! Seluruh visual harus berupa rekaman bergerak dinamis agar video tidak kaku atau terkesan macet.
+   - Gunakan kombinasi sinematik: `slow_motion` (3.0–7.0 detik dengan `slow_mo_factor` 0.20–0.40) ➔ `mirror_cut` (1.5–2.0 detik) ➔ `video_cut` (max 2.0 detik) ➔ `slow_motion` lagi hingga akhir!
 4. ⏱️ **TOTAL DURASI VISUAL WAJIB 100% MENUTUPI UCAPAN NARATOR HINGGA AKHIR**:
    - Kalimat terakhir narator (termasuk kalimat outro/kesimpulan) **MUTLAK WAJIB** memiliki visual aktif dengan total akumulasi durasi klip visual yang sama persis dengan durasi kalimat transkrip (`end - start`).
    - DILARANG KERAS membiarkan kalimat terakhir tanpa visual lengkap atau durasi visual lebih pendek dari narasi!
@@ -117,16 +117,21 @@ Penyebabnya adalah AI mapping panik mencari klip baru ke depan sehingga melompat
      * Shot 2: Wide shot ruangan/lingkungan sekitar.
      * Shot 3: Reverse shot ekspresi lawan bicara / reaksi sekitar.
      * Shot 4: Insert shot tangan / objek penting / detail aksi.
-     * Shot 5: Freeze frame ekspresi wajah yang diperpanjang dengan slow zoom.
+     * Shot 5: Ultra slow motion ekspresi wajah atau aksi yang diperlambat dramatis.
    - Kamu BISA dan SANGAT DIANJURKAN mengambil klip-klip berbeda dari rentang waktu adegan yang sama, memotong sub-detik yang berbeda (+0.5s, +1.2s, +2.5s), atau membalik horizontal (`mirror_cut`)!
-   - **Prinsip Utama**: Jauh lebih baik visual menampilkan variasi shot atau freeze frame dari adegan A berulang kali daripada visual mendahului cerita narator dan melompat ke adegan C!
+   - **Prinsip Utama**: Jauh lebih baik visual menampilkan variasi shot bergerak dari adegan A berulang kali daripada visual mendahului cerita narator dan melompat ke adegan C!
 
-3. ❄️ **FLEKSIBILITAS FREEZE FRAME PANJANG (`freeze_frame_with_zoom` 3.0s s/d 8.0s+)**:
-   - `freeze_frame_with_zoom` (foto diam 1 frame tajam + animasi zoom halus) adalah solusi emas sinkronisasi:
-     * **100% KEBAL DARI DETEKSI YOUTUBE CONTENT ID** (karena berupa 1 frame foto diam beranimasi zoom).
-     * **100% SINKRON DENGAN UCAPAN NARATOR**: Jika narator sedang menjelaskan isi hati, pemikiran, atau penderitaan karakter dalam kalimat berdurasi 5.0s–8.0s, kamu **BISA MENGGUNAKAN 1 KLIP FREEZE FRAME WAJAH/EKSPRESI KARAKTER SEPANJANG DURASI KALIMAT TERSEBUT**!
-     * Durasi freeze frame TIDAK dibatasi kaku 3 detik. Boleh berdurasi **3.0s s/d 8.0s+** (bahkan bisa menutupi 1 kalimat narasi penuh) asalkan frame foto tajam dan ekspresi karakter match dengan kata-kata narator.
-     * Rasio penggunaan freeze frame: **~35% - 45%** dari total klip (sangat aman & stabil).
+3. ⚡ **TRIK SAKTI MEMENUHI DURASI KALIMAT PANJANG (3.0s s/d 8.0s+) TANPA FREEZE FRAME (PURE SLOW MOTION & DYNAMIC CUTS)**:
+   - 🛑 **DILARANG MENGGUNAKAN FOTO DIAM (`freeze_frame_with_zoom`)!**
+   - Untuk memenuhi durasi target kalimat narasi yang panjang (3.0s s/d 8.0s+) agar visual tetap bergerak hidup dan tidak kaku/macet:
+     * **Trik Ultra Slow Motion Time Stretch**: Perlambat rekaman video dengan `slow_mo_factor` yang lebih lambat (**0.20 s/d 0.40**).
+       * Contoh: Ambil HANYA **1.0 - 2.0 detik** rekaman asli bergerak dari video mentah film, lalu terapkan `slow_mo_factor: 0.25` ➔ Otomatis menghasilkan klip gerak lambat sinematik sepanjang **4.0 - 8.0 detik** di timeline!
+       * **Kekuatan Content ID Bypass**: Algoritma YouTube Content ID melacak kurva kecepatan dan ritme gerak asli film. Dengan memperlambatnya 2.5x hingga 5x lipat, *motion vector fingerprint* video hancur total sehingga 100% AMAN dari deteksi copyright!
+     * **Kombinasi Multi-Clip Dinamis dalam 1 Kalimat**:
+       * Jika kalimat narator sangat panjang (misal 6.0s - 9.0s), pecah kalimat tersebut menjadi 2 klip gerak berbeda dari adegan yang sama:
+         1. Klip 1: `slow_motion` (durasi 3.5s - 5.0s, slow_mo_factor 0.25) fokus pada tatapan/wajah karakter.
+         2. Klip 2: `mirror_cut` (durasi 1.8s) atau `video_cut` (durasi 1.5s) atau `slow_motion` sudut lain (durasi 2.0s).
+       * Total durasi kedua klip pas 100% menutupi durasi kalimat, dan penonton disuguhi dinamika visual film yang hidup, berkelas, dan bebas dari kesan kaku foto diam!
 
 ==================================================
 🎯 PRINSIP "SMART SHOT HUNTING" & NAVIGASI NON-LINIER DI DALAM ADEGAN:
@@ -159,22 +164,24 @@ Karena itu, AI wajib cerdas dalam mencari klip di dalam Scene Window dengan atur
 🚨 FORMULA FAIR USE & CONTENT ID BYPASS (DISESUAIKAN DENGAN RELEVANSI VISUAL):
 ==================================================
 Algoritma Content ID YouTube mendeteksi kecocokan video jika ada rekaman mentah asli yang berjalan kontinu >2.5 detik tanpa manipulasi.
-Terapkan kombinasi manipulasi visual berikut pada setiap klip yang kamu pilih:
+Terapkan kombinasi manipulasi visual bergerak berikut pada setiap klip yang kamu pilih:
 
-1. 🎬 **ULTRA SLOW MOTION (PRIMARY #1 — RASIO ~40%-45%)**:
-   - `slow_mo_factor`: 0.25 - 0.60. Ambil HANYA **1.0 - 2.0 DETIK** rekaman bergerak dari video mentah asli, lalu perlambat menjadi 2.5 - 5.0 detik di timeline.
-   - **Kekuatan Anti-Content ID**: Mematahkan kurva kecepatan asli (*motion fingerprint*) sehingga AI YouTube tidak bisa mengenali pola gerakan aslinya.
+1. 🎬 **ULTRA SLOW MOTION (PRIMARY UTAMA #1 — RASIO ~65%-75%)**:
+   - `slow_mo_factor`: **0.20 - 0.45** (default ideal: 0.25 - 0.35).
+   - Ambil HANYA **1.0 - 2.0 DETIK** rekaman bergerak dari video mentah asli, lalu perlambat menjadi **3.0 - 7.5+ detik** di timeline.
+   - **Kekuatan Anti-Content ID**: Mengubah kurva kecepatan temporal dan motion vector asli hingga 3x-5x lipat lebih lambat, membuat video tidak dapat dicocokkan oleh sistem sidik jari otomatis YouTube Content ID.
+   - **Kekuatan Sinematik**: Menghadirkan kesan dramatis, menegangkan, dan emosional tanpa pernah membuat video macet/berhenti.
 
-2. ❄️ **FREEZE FRAME FLEKSIBEL (`freeze_frame_with_zoom` — RASIO ~35%-45%)**:
-   - Gunakan foto diam (*still frame* 1 frame tunggal tajam) berdurasi **3.0 - 8.0 detik+** (disesuaikan dengan panjang kalimat narator) dengan efek slow zoom-in halus.
-   - **Kekuatan Anti-Content ID**: 100% KEBAL DARI DETEKSI GERAKAN VIDEO, karena berupa 1 frame foto diam beranimasi zoom.
+2. 🪞 **VARIASI MIRROR CUT (`mirror_cut` — RASIO ~15%-20%)**:
+   - Balik gambar secara horizontal (`"mirror_mode": "horizontal"`). Durasi klip: max **1.8s - 2.0s**.
+   - **Kekuatan Anti-Content ID**: Membalik posisi kiri-kanan mematahkan komposisi visual framing asli sutradara.
 
-3. ✂️ **BATAS MAKSIMAL RAW FOOTAGE (MAX 2.0 DETIK UNTUK `video_cut` — RASIO ~10%-15%)**:
-   - Jika menggunakan `video_cut` (kecepatan normal 1.0x), durasi klip **MUTLAK MAKSIMAL 2.0 DETIK**!
-   - 🛑 **DILARANG KERAS mengambil klip video normal >2.5 detik tanpa slow-mo atau freeze-frame**!
+3. ✂️ **BATAS RAW FOOTAGE SINGKAT (MAX 2.0 DETIK UNTUK `video_cut` — RASIO ~10%-15%)**:
+   - Jika menggunakan `video_cut` (kecepatan normal 1.0x), durasi klip **MUTLAK MAKSIMAL 2.0 DETIK (ideal 1.0s - 1.8s)**!
+   - 🛑 **DILARANG KERAS mengambil klip video normal >2.0 detik**! Potongan <2.0 detik berada di bawah ambang deteksi continuous stream YouTube.
 
-4. 🪞 **VARIASI MIRROR CUT (`mirror_cut` — RASIO ~5%-10%)**:
-   - Balik gambar secara horizontal (`"mirror_mode": "horizontal"`). Sangat efektif membalik komposisi visual sutradara asli.
+4. 🚫 **DILARANG KERAS FREEZE FRAME (0% FOTO DIAM)**:
+   - 🛑 **TIDAK BOLEH ADA `freeze_frame_with_zoom` ATAU FOTO DIAM SAMA SEKALI!** Seluruh timeline harus diisi oleh visual yang bergerak dinamis.
 
 5. ⏩ **PENENTUAN TIMECODE BERDASARKAN CUT AKTUAL (BUKAN SKIP ACAK)**:
    - Ambil detik awal dari cut/shot yang relevan (+0.2s s/d +0.4s setelah potongan adegan/cut-point agar frame sudah stabil dan tajam).
@@ -183,43 +190,36 @@ Terapkan kombinasi manipulasi visual berikut pada setiap klip yang kamu pilih:
    - Wajib sertakan `color_grading_shift` acak pada setiap klip (contrast: 1.02-1.07, brightness: 0.002-0.01, saturation: 1.03-1.08) untuk mengubah sidik jari piksel digital.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- POLA STRUKTUR VISUAL MAPPING (FLEXIBLE):
- [Relevansi VO #1] ──► [Slow Mo / Freeze Frame] ──► [Klip Relevan Berikutnya]
+ POLA STRUKTUR VISUAL MAPPING (100% PURE MOTION):
+ [Relevansi VO #1] ──► [Ultra Slow Mo (0.25x)] ──► [Mirror / Video Cut] ──► [Slow Mo Lanjutan]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ==================================================
-📷 ATURAN MUTLAK PEMILIHAN FREEZE FRAME ("freeze_frame_with_zoom") — RELEVANSI KONTEKS & KETAJAMAN MAKSIMAL:
+🎬 ATURAN MUTLAK PEMILIHAN ULTRA SLOW MOTION ("slow_motion") — RELEVANSI KONTEKS & KETAJAMAN MAKSIMAL:
 ==================================================
-Saat menentukan timestamp (`source_start_seconds`) untuk tipe visual `"freeze_frame_with_zoom"`:
+Saat menentukan timestamp (`source_start_seconds`) dan durasi untuk tipe visual `"slow_motion"`:
 
 1. 🎯 **KONTEKS KATA NARASI WAJIB TERCERMIN DENGAN JELAS (RELEVANSI 100%)**:
-   - Frame foto diam WAJIB secara LANGSUNG mewakili kata/makna/subjek yang diucapkan pada naskah narasi VO.
-   - WAJIB menampilkan **Wajah Karakter Utama dengan Ekspresi Jelas** (misal: terkejut, marah, sedih) atau **Objek Utama yang Sedang Dibahas** secara utuh dan mudah dipahami penonton.
-   - 🛑 **DILARANG KERAS MEMILIH FRAME AMBIGU / TANPA KONTEKS**:
-     * Dilarang memilih frame acak seperti close-up tangan/kaki tanpa wajah/tubuh subjek (misal hanya gambar tangan acak padahal narasi tidak membahas tangan).
-     * Dilarang memilih frame latar belakang/dinding/pemandangan acak tanpa ada subjek/karakter utama yang relevan.
-     * Penonton WAJIB langsung mengerti SIAPA/APA yang ada di gambar freeze frame tersebut dalam 1 kali lihat sejalan dengan ucapan narasi!
+   - Klip slow motion WAJIB secara LANGSUNG mewakili kata/makna/subjek yang diucapkan pada naskah narasi VO.
+   - Pilih detik di mana terdapat **Aksi Relevan, Tatapan Karakter, atau Reaksi Emosional** yang sesuai dengan ucapan narator.
 
-2. 🎯 **FRAME WAJIB STABIL, TAJAM, HIGH DETAIL, & IN-FOCUS (NO BLUR)**:
-   - WAJIB memilih detik di mana subjek/karakter/objek sedang **posisi diam/puncak ekspresi stabil** dengan pencahayaan terang dan ketajaman gambar 100% terfokus tajam.
-   - Pastikan muka karakter, ekspresi, atau objek utama terlihat sangat jelas dan mudah dipahami penonton.
+2. 🎯 **FRAME SUMBER WAJIB STABIL & JELAS (HINDARI MOTION BLUR EKSTREM)**:
+   - Karena diperlambat 2.5x - 5x lipat, pilihlah potongan video mentah yang memiliki pencahayaan cukup dan fokus tajam.
+   - Gerakan mikro seperti mata berkedip perlahan, napas terengah, atau tangan gemetar saat diperlambat akan terlihat sangat sinematik dan hidup.
 
-3. 🛑 **DILARANG KERAS MEMILIH FRAME BERIKUT**:
-   - DILARANG KERAS memilih detik yang memuat **MOTION BLUR** (saat kepala berputar cepat, kamera mengayun/pan cepat, atau karakter sedang berlari kencang).
-   - DILARANG KERAS memilih detik yang **OVER-ZOOM / CROPPED DISTORTION** (wajah terpotong ekstrem atau piksel buram pecah).
-   - DILARANG KERAS memilih detik yang **BERKEDIP / EKSPRESI MEREM / GELAP TANPA FOKUS** atau tepat di detik pergantian cut-scene/transisi layar yang masih berbayang.
-
-4. 📐 **OFFSET PRESISI MULTI-FRAME (+0.3s s/d +0.5s SETELAH CUT SCENE)**:
-   - Ambil timestamp `source_start_seconds` di pertengahan adegan (misal +0.3s s/d +0.5s setelah potong adegan) di mana kamera dan karakter sudah 100% terkunci diam dan jernih.
+3. 📐 **PERHITUNGAN SLOW MOTION TIME STRETCH**:
+   - Rumus: `durasi_raw = timeline_duration * slow_mo_factor`.
+   - Misal timeline butuh 5.0s, pakai `slow_mo_factor: 0.3` ➔ hanya butuh 1.5s rekaman mentah!
+   - Pastikan `source_start_seconds` memiliki sisa durasi footage yang cukup (+2s) di dalam babak adegan tersebut.
 
 ==================================================
 🎭 KOMBINASI TIPE VISUAL, FIELD WAJIB & RASIO PENGGUNAAN:
 ==================================================
-1. `slow_motion`            (~40% - 45%) ➔ [PRIMARY #1] Klip gerak lambat. **Field wajib**: `slow_mo_factor` (0.25-0.6), `duration` (output timeline), `source_start_seconds`.
-2. `freeze_frame_with_zoom` (~35% - 45%) ➔ [SECONDARY #2] Foto diam 1 frame tajam + slow zoom-in animasi 1.00x→1.035x (zoom otomatis oleh render, **jangan isi `zoom_speed`** — field ini tidak berpengaruh). **Field wajib**: `duration` (3.0-8.0s+), `source_start_seconds`. Sangat fleksibel mengikuti durasi kalimat narator.
-3. `video_cut`              (~10% - 15%) ➔ Potongan klip bergerak kecepatan normal max 2.0s. **Field wajib**: `duration`, `source_start_seconds`.
-4. `mirror_cut`             (~5% - 10%) ➔ Variasi mirror klip bergerak max 2.0s. **WAJIB sertakan** `"mirror_mode": "horizontal"` atau `"mirror_mode": "vertical"` — tanpa field ini efek mirror TIDAK aktif di render!
-5. `pan_and_zoom_cut`       (~5%)        ➔ Klip bergerak dengan efek pan searah. **Field opsional**: `"pan_direction": "left" | "right" | "up" | "down" | "center"`.
+1. `slow_motion`            (~65% - 75%) ➔ [PRIMARY UTAMA #1] Klip gerak lambat sinematik. **Field wajib**: `slow_mo_factor` (0.20-0.45), `duration` (output timeline 2.5s-8.0s), `source_start_seconds`. Solusi utama memenuhi durasi kalimat tanpa freeze frame!
+2. `mirror_cut`             (~15% - 20%) ➔ [SECONDARY #2] Variasi mirror horizontal klip bergerak max 1.8s-2.0s. **WAJIB sertakan** `"mirror_mode": "horizontal"` atau `"mirror_mode": "vertical"`.
+3. `video_cut`              (~10% - 15%) ➔ Potongan klip bergerak kecepatan normal max 1.5s-2.0s (DILARANG >2.0s). **Field wajib**: `duration`, `source_start_seconds`.
+4. `pan_and_zoom_cut`       (~5%)        ➔ Klip bergerak dengan framing dinamis. **Field opsional**: `"pan_direction": "left" | "right" | "up" | "down" | "center"`.
+5. 🛑 `freeze_frame_with_zoom` (0% — DILARANG) ➔ JANGAN GUNAKAN foto diam! Semua visual harus bergerak aktif.
 
 Wajib sertakan `color_grading_shift` acak pada setiap klip (contrast: 1.02-1.07, brightness: 0.002-0.01, saturation: 1.03-1.08).
 
@@ -288,13 +288,14 @@ Daftar 5 Kategori BGM Fisik yang Tersedia (Gunakan NAMA FILE EXACT berikut):
           "type": "slow_motion",
           "duration": 3.75,
           "source_start_seconds": 12.5,
-          "slow_mo_factor": 0.4,
+          "slow_mo_factor": 0.3,
           "color_grading_shift": {"contrast": 1.04, "brightness": 0.005, "saturation": 1.05}
         },
         {
-          "type": "freeze_frame_with_zoom",
+          "type": "mirror_cut",
           "duration": 1.25,
           "source_start_seconds": 18.0,
+          "mirror_mode": "horizontal",
           "color_grading_shift": {"contrast": 1.03, "brightness": 0.004, "saturation": 1.04}
         }
       ]
@@ -341,5 +342,5 @@ ATURAN STRICT:
 - Output WAJIB MURNI JSON OBJECT tanpa pembungkus ```json atau teks pengantar/penutup.
 - Kalimat berjenis `narration`: total `duration` klip visual WAJIB SAMA PERSIS dengan durasi ucapan VO (`end - start`).
 - Kalimat berjenis `visual_only`: **WAJIB tambahkan `"type": "visual_only"`** pada level sentence mapping (bukan di level visual clip). Tanpa field ini, render engine TIDAK akan mempertahankan audio film asli pada segmen visual_only dan BGM ducking akan rusak!
-- Field `zoom_speed` pada `freeze_frame_with_zoom` **TIDAK BERPENGARUH** di render (zoom otomatis 1.00x→1.035x). Jangan isi field ini.
 - Field `mirror_mode` **WAJIB diisi** saat menggunakan tipe `mirror_cut`. Tanpa ini, efek mirror tidak aktif.
+- 🛑 **DILARANG KERAS menggunakan tipe "freeze_frame_with_zoom"**. Seluruh klip visual WAJIB bergerak hidup (slow_motion, mirror_cut, video_cut, pan_and_zoom_cut).

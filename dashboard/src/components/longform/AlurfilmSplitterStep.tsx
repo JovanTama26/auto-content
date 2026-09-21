@@ -126,7 +126,7 @@ const AlurfilmSplitterStep: React.FC = () => {
           const isFirstPartStr = 'YA (Chunk #1 / Part Pembuka Film Utama)';
           const isLastPartStr = total === 1 ? 'YA (Chunk Terakhir / Part Penutup Film)' : 'TIDAK (Part Bukan Penutup)';
           const prevCtxStr = 'Tidak ada (Chunk #1 / Awal Film)';
-          const styleExampleStr = 'Langsung masuk ke alur cerita sejak kalimat pertama dengan terjun langsung ke latar/aksi nyata (in medias res, misal: "Di sebuah kawasan terpencil, sosok [Nama Karakter] terlihat...", "Malam itu di tengah guyuran hujan lebat, sosok [Nama Karakter] tampak..."). DILARANG menggunakan kata "okee/oke/oke bro" di awal, DILARANG memakai variasi "cerita dimulai/cerita diawali/film diawali/di awal cerita", dan DILARANG intro formal/sapaan MC.';
+          const styleExampleStr = 'Buka langsung dengan premis & ancaman/kondisi nyata (misal: "Cerita dimulai pada [tahun/tempat] di mana kita diperlihatkan dengan [ancaman/kondisi besar]..."). Gunakan gaya semi-formal sinematik yang runut, mengalir enak di telinga, dan berbasis aksi fisik nyata (sambungkan antarklausa dengan: "di mana...", "yang membuat...", "hingga...", "sebab...", "namun sayangnya..."). DILARANG diksi gaul alay (si doi, bapak ini, apesnya tuh) dan DILARANG renungan puitis ngawang.';
 
           return promptTpl
             .replace(/\{\{chunk_part\}\}/g, String(partNum))
