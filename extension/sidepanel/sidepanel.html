@@ -140,10 +140,10 @@
 
     <!-- Tab View: ElevenLabs (Otomasi Signup & Voiceover) -->
     <div id="viewElevenLabs" class="tab-content hidden" role="tabpanel" aria-labelledby="tabBtnElevenLabs">
-      <!-- Auto Signup Section -->
+      <!-- Auto Signup & Voice Setup Section -->
       <section class="section signup-section">
         <div class="section-title">
-          <span>⚡ Auto Signup ElevenLabs</span>
+          <span>⚡ Auto Signup & Setup ElevenLabs</span>
           <span class="count-pill badge-credits">+10.000 Credits</span>
         </div>
 
@@ -161,24 +161,20 @@
             <input type="text" id="inputSignupPassword" class="form-input font-mono" value="Jovan@1224" readonly />
           </div>
 
-          <div class="signup-buttons-container">
-            <button id="btnAutoSignupElevenLabs" class="btn-auto-signup">
-              <span class="btn-icon-spin hidden" id="signupSpinner">🔄</span>
-              <span id="signupBtnText">🚀 Daftar & Simpan ke Supabase</span>
-            </button>
-            <button id="btnFetchLinkOnly" class="btn-fetch-link-only" title="Hanya ambil link verifikasi dari n8n webhook untuk email target di atas tanpa submit ulang form">
-              <span>⚡ Ambil Link Verif Saja (Terisolasi)</span>
-            </button>
-          </div>
+          <!-- PROSES BUTTON HANYA ADA SATU DI ATAS -->
+          <button id="btnAutoSignupElevenLabs" class="btn-auto-signup">
+            <span class="btn-icon-spin hidden" id="signupSpinner">🔄</span>
+            <span id="signupBtnText">🚀 Mulai Proses Otomasi (Signup ➔ Setup Voice)</span>
+          </button>
 
-          <!-- Fallback: Tempel Link Verifikasi Langsung dari Gmail jika sudah terlanjur dibuka -->
-          <div class="manual-verify-container" id="manualVerifyBox">
+          <!-- Fallback: Tempel Link Verifikasi Langsung jika sudah terlanjur dibuka di tab Gmail -->
+          <div class="manual-verify-container" id="manualVerifyBox" style="margin-top: 10px;">
             <div class="manual-verify-label">
-              <span>💡 Email sudah dibuka di Gmail? Tempel link <b>Verify email</b> di sini:</span>
+              <span>💡 Atau tempel link <b>Verify email</b> jika sudah dibuka di Gmail:</span>
             </div>
             <div class="input-with-action">
               <input type="text" id="inputManualVerifyUrl" class="form-input text-xs" placeholder="https://auth.elevenlabs.io/u/verify-email?ticket=..." />
-              <button id="btnProcessManualVerify" class="btn-input-action btn-verify-action" title="Proses Verifikasi & Masuk Dashboard">🚀 Verif</button>
+              <button id="btnProcessManualVerify" class="btn-input-action btn-verify-action" title="Proses Verifikasi & Setup Voice">🚀 Verif</button>
             </div>
           </div>
 
@@ -188,27 +184,30 @@
         </div>
       </section>
 
-      <!-- Saved Accounts List (Supabase) -->
+      <!-- List Naskah Narasi Siap Copy -->
       <section class="section flex-1">
         <div class="section-title">
-          <span>📋 Akun di Supabase Cloud</span>
+          <span>📜 List Narasi Siap Copy</span>
           <div class="title-actions">
-            <span id="accountsCountBadge" class="count-pill">0 Akun</span>
-            <button id="btnRefreshAccounts" class="btn-icon" title="Refresh Daftar Akun">🔄</button>
+            <span id="ttsPartsCountBadge" class="count-pill">0 Part</span>
+            <button id="btnRefreshTtsParts" class="btn-icon" title="Refresh Daftar Script Narasi">🔄</button>
           </div>
         </div>
 
-        <div id="elevenlabsAccountsList" class="accounts-list">
+        <div id="ttsPartsList" class="chunks-list">
           <div class="empty-state">
-            <span>Memuat data akun dari Supabase...</span>
+            <span>Memuat data narasi dari session aktif...</span>
           </div>
         </div>
       </section>
 
       <!-- Footer Action -->
-      <footer class="footer">
-        <button id="btnOpenElevenLabs" class="btn-secondary">
-          <span>🌐 Buka ElevenLabs Studio</span>
+      <footer class="footer" style="display: flex; gap: 8px;">
+        <button id="btnOpenElevenLabs" class="btn-secondary" style="flex: 1;">
+          <span>🌐 Buka ElevenLabs</span>
+        </button>
+        <button id="btnManualSignOutElevenLabs" class="btn-secondary" style="background: rgba(239, 68, 68, 0.12); border-color: rgba(239, 68, 68, 0.35); color: #fca5a5;" title="Logout akun ElevenLabs yang sedang aktif">
+          <span>🚪 Logout UI</span>
         </button>
       </footer>
     </div>

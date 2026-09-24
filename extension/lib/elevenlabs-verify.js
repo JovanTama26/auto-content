@@ -1,142 +1,405 @@
 // extension/lib/elevenlabs-verify.js
-// Client helper untuk ElevenLabs Email Verify API via n8n webhook
-// Endpoint: https://n8n.riztama.my.id/webhook/elevenlabs-verify
+// Client helper & in-browser automation untuk mengambil link verifikasi ElevenLabs langsung dari Gmail
+// 100% di dalam ekstensi via tab Gmail, tanpa looping rumit & tanpa n8n webhook.
 
-// Set untuk melacak oobCode yang sudah pernah dipakai / kadaluarsa agar tidak pernah dipakai ulang
-const usedOobCodes = new Set([
-  'nY-MgWeglzZEQbZJAbWtqpu0jgXRBBjEpoaUcYslbjsAAAGglotM7g' // Stale oobCode dari kemarin
-]);
+const DEFAULT_USED_CODES = [
+  'nY-MgWeglzZEQbZJAbWtqpu0jgXRBBjEpoaUcYslbjsAAAGglotM7g',
+  '8nCwsQblOiZACzOi95yJWRzY9AEbSDGoNj3tkJTikNoAAAGgwAuraQ',
+  'Ru3IkzItA4O4Pu0flY3PGQ5KOCFtJMHH4cHrbu18EtEAAAGgwAJB1A',
+  'ZSTx1xd0OT9mizgB1ihY2teZMWGbMAtkqmVabMn702QAAAGgv_5urQ',
+  '0pWCT1TiAtN8WDrAV38-C9TD86Kw1nVlz4v2uJsdBwQAAAGgvYm5vA',
+  'WvDJSfcGtU5W4BlTptcSRjtcQWU0z3a05YvNdlFtOb4AAAGgvYDjGg',
+  'IZguDPAez8Ync3si2XGutkOnOIYNrH2gZwklG81MRn8AAAGgvW9eEw',
+  'eX4BPBbJKlbZf2vbeE70SgUIo6Fm2a2D1ZQXBXez6-4AAAGgvUzOng',
+  '-rCp362zjYMV3jDe7uKVDk29f8FDjIgwhNCOiPhtR4UAAAGgvLgwNA',
+];
 
-function extractVerifyData(raw) {
-  if (!raw) return null;
-  const item = raw.result || raw;
-  const verifyUrl = item.verifyUrl || null;
-  const oobCode = item.oobCode || null;
-  const success = item.success ?? !!verifyUrl;
-  const isFresh = item.isFresh ?? true;
-  const ageSeconds = item.ageSeconds ?? 0;
-  const message = item.message || '';
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  // Validasi ketat: tautan hanya valid jika fresh (< 5 menit) dan oobCode belum pernah dipakai
-  const isCodeUsed = oobCode ? usedOobCodes.has(oobCode) : false;
-  const isActuallyFresh = isFresh && ageSeconds <= 300 && !isCodeUsed;
-
-  return {
-    success: !!(success && verifyUrl),
-    verifyUrl,
-    oobCode,
-    isFresh: isActuallyFresh,
-    rawIsFresh: isFresh,
-    ageSeconds,
-    isCodeUsed,
-    message,
-    raw: item,
-  };
+/**
+ * Mengambil daftar oobCode yang sudah pernah terpakai dari storage
+ */
+async function getUsedCodes() {
+  try {
+    if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+      const data = await chrome.storage.local.get('elevenlabs_used_oob_codes');
+      const list = data.elevenlabs_used_oob_codes || [];
+      return Array.from(new Set([...DEFAULT_USED_CODES, ...list]));
+    }
+  } catch (e) {
+    console.warn('[ElevenLabsVerify] Error baca storage used codes:', e);
+  }
+  return DEFAULT_USED_CODES;
 }
 
-const ElevenLabsVerify = {
-  ENDPOINT: 'https://n8n.riztama.my.id/webhook/elevenlabs-verify',
-  usedOobCodes,
-
-  markCodeAsUsed(oobCode) {
-    if (oobCode) {
-      usedOobCodes.add(oobCode);
-      console.log(`[ElevenLabsVerify] oobCode ditandai sudah dipakai: ${oobCode}`);
+/**
+ * Menyimpan oobCode baru ke storage agar tidak pernah dipakai ulang
+ */
+async function markCodeAsUsed(oobCode) {
+  if (!oobCode) return;
+  try {
+    if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+      const list = await getUsedCodes();
+      if (!list.includes(oobCode)) {
+        list.push(oobCode);
+        await chrome.storage.local.set({ elevenlabs_used_oob_codes: list });
+        console.log(`[ElevenLabsVerify] oobCode disimpan ke storage sebagai sudah terpakai: ${oobCode}`);
+      }
     }
-  },
+  } catch (e) {
+    console.warn('[ElevenLabsVerify] Error simpan storage used codes:', e);
+  }
+}
 
-  /**
-   * Request link verifikasi ke webhook n8n
-   * @param {string} email - Alamat email tujuan
-   * @returns {Promise<Object>} Response dari webhook
-   */
-  async fetchVerifyEmail(email) {
-    const res = await fetch(this.ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ to: email }),
+/**
+ * Fungsi yang di-inject ke dalam tab Gmail via chrome.scripting.executeScript
+ * Berjalan di konteks DOM tab Gmail untuk memeriksa email masuk dan mengekstrak tautan verifikasi.
+ */
+async function inTabInspectGmail(usedCodes = [], targetEmail = '') {
+  // 1. Deteksi jika belum login
+  const bodyText = (document.body ? document.body.innerText : '').toLowerCase();
+  if (
+    window.location.hostname.includes('accounts.google.com') ||
+    bodyText.includes('sign in to continue to gmail') ||
+    bodyText.includes('masuk untuk melanjutkan ke gmail')
+  ) {
+    return { status: 'not_logged_in', error: 'Sesi Gmail belum login di browser.' };
+  }
+
+  const emailPrefix = targetEmail ? targetEmail.split('@')[0].toLowerCase() : '';
+
+  // 2. Periksa apakah sudah ada link verifikasi di halaman (baik di dalam thread email maupun terbuka)
+  const anchors = Array.from(document.querySelectorAll('a[href]'));
+  const candidates = [];
+
+  for (const a of anchors) {
+    const href = a.href || '';
+    const text = (a.innerText || a.textContent || '').trim().toLowerCase();
+
+    if (
+      (href.includes('elevenlabs.io') || href.includes('auth.elevenlabs.io')) &&
+      (href.includes('verify') ||
+        href.includes('oobCode') ||
+        href.includes('ticket') ||
+        href.includes('token') ||
+        href.includes('action') ||
+        text.includes('verify email') ||
+        text.includes('verify your email') ||
+        text.includes('confirm email') ||
+        text.includes('verify'))
+    ) {
+      let code = '';
+      try {
+        const parsed = new URL(href);
+        code =
+          parsed.searchParams.get('ticket') ||
+          parsed.searchParams.get('oobCode') ||
+          parsed.searchParams.get('token') ||
+          href;
+      } catch {
+        code = href;
+      }
+
+      const isUsed = code ? usedCodes.includes(code) : false;
+      candidates.push({ href, code, isUsed });
+    }
+  }
+
+  // Cari link fresh yang belum pernah dipakai (dari urutan paling bawah / pesan terbaru)
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    const c = candidates[i];
+    if (c.code && !c.isUsed) {
+      return {
+        status: 'found',
+        verifyUrl: c.href,
+        oobCode: c.code,
+      };
+    }
+  }
+
+  // 3. Deteksi jika saat ini sedang di dalam tampilan thread email
+  const h2Subject = document.querySelector('h2.hP');
+  const isInsideEmailThread = !!h2Subject || window.location.hash.split('/').length >= 3;
+
+  if (isInsideEmailThread) {
+    // Buka konten terlipat jika ada
+    const expandables = document.querySelectorAll(
+      'div[role="listitem"] [aria-expanded="false"], span[aria-label*="Expand" i], div[aria-label*="Show trimmed content" i], [aria-label*="Lihat konten yang dipangkas" i]'
+    );
+    expandables.forEach((el) => {
+      try { el.click(); } catch {}
     });
 
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Webhook Error (${res.status}): ${errText}`);
+    const listItems = Array.from(document.querySelectorAll('div[role="listitem"]'));
+    const lastItem = listItems[listItems.length - 1];
+    if (lastItem && lastItem.getAttribute('aria-expanded') === 'false') {
+      try { lastItem.click(); } catch {}
     }
 
-    return await res.json();
-  },
-
-  /**
-   * Eksekusi terisolasi untuk mengambil link verifikasi email
-   * Wajib memastikan link benar-benar fresh dan belum pernah terpakai
-   * @param {string} email
-   */
-  async getVerifyUrl(email, options = {}) {
-    const requireFresh = options.requireFresh ?? true;
-    const raw = await this.fetchVerifyEmail(email);
-    const parsed = extractVerifyData(raw);
-
-    if (parsed && parsed.success && parsed.verifyUrl) {
-      if (requireFresh && (!parsed.isFresh || parsed.isCodeUsed)) {
-        throw new Error(
-          `Link verifikasi di inbox adalah link lama (${parsed.ageSeconds}s lalu / sudah terpakai). Menunggu email baru dari ElevenLabs...`
-        );
+    // Jika thread ini hanya berisi link lama yang sudah terpakai, klik kembali ke daftar pesan
+    if (candidates.length > 0 && candidates.every((c) => c.isUsed)) {
+      const backBtn = document.querySelector(
+        'div[aria-label*="Back" i], div[aria-label*="Kembali" i], div[data-tooltip*="Back" i], div[data-tooltip*="Kembali" i]'
+      );
+      if (backBtn) {
+        try { backBtn.click(); } catch {}
       }
-      this.markCodeAsUsed(parsed.oobCode);
-      return parsed;
+      return { status: 'inside_thread_old' };
     }
-    throw new Error(parsed?.message || `Link verifikasi belum ditemukan untuk ${email}`);
-  },
+
+    return { status: 'inside_thread_waiting' };
+  }
+
+  // 4. Jika sedang di daftar list email (tabel tr.zA)
+  const rows = Array.from(document.querySelectorAll('tr.zA, [role="row"].zA'));
+  let matchedRow = null;
+
+  for (const row of rows) {
+    const rowText = (row.innerText || '').toLowerCase();
+    if (
+      (rowText.includes('elevenlabs') || rowText.includes('eleven labs')) &&
+      (rowText.includes('verify') || rowText.includes('action') || (emailPrefix && rowText.includes(emailPrefix)))
+    ) {
+      matchedRow = row;
+      break;
+    }
+  }
+
+  // Jika di halaman search ada baris email dari ElevenLabs, ambil baris pertama (terbaru)
+  if (!matchedRow && rows.length > 0) {
+    for (const row of rows) {
+      const rowText = (row.innerText || '').toLowerCase();
+      if (rowText.includes('elevenlabs') || rowText.includes('eleven labs')) {
+        matchedRow = row;
+        break;
+      }
+    }
+  }
+
+  if (matchedRow) {
+    const clickTarget = matchedRow.querySelector('.bog, .y6, [role="link"]') || matchedRow;
+    clickTarget.click();
+    return { status: 'clicked_row' };
+  }
+
+  // 5. Jika belum ada row cocok, klik tombol Refresh di toolbar Gmail
+  const refreshBtn = document.querySelector(
+    'div[aria-label*="Refresh" i], div[data-tooltip*="Refresh" i], div[aria-label*="Segarkan" i], div[data-tooltip*="Segarkan" i]'
+  );
+  if (refreshBtn) {
+    try { refreshBtn.click(); } catch {}
+  }
+
+  return { status: 'waiting' };
+}
+
+/**
+ * Eksekusi pencarian link verifikasi dari tab background Gmail.
+ * Dibuka di tab browser, diekstrak, dan langsung ditutup otomatis setelah selesai.
+ */
+async function fetchVerificationFromGmailTab(options = {}) {
+  const maxWaitSeconds = options.maxWaitSeconds || 90;
+  const pollIntervalMs = options.pollIntervalMs || 3000;
+  const targetEmail = options.email || '';
+  const onProgress = options.onProgress || (() => {});
+
+  if (typeof chrome === 'undefined' || !chrome.tabs || !chrome.scripting) {
+    throw new Error('Chrome Extension API (tabs & scripting) tidak tersedia di konteks ini.');
+  }
+
+  // Query pencarian awal sebelum looping: ElevenLabs [prefix]
+  const emailPrefix = targetEmail ? targetEmail.split('@')[0] : '';
+  const searchQuery = emailPrefix
+    ? `ElevenLabs ${emailPrefix}`
+    : (targetEmail ? `ElevenLabs ${targetEmail}` : 'ElevenLabs in:anywhere');
+  const searchUrl = `https://mail.google.com/mail/u/0/#search/${encodeURIComponent(searchQuery)}`;
+
+  onProgress(`Membuka Gmail untuk memeriksa email verifikasi...`);
+
+  // Cari apakah tab Gmail sudah ada atau buat tab baru
+  const existingTabs = await chrome.tabs.query({ url: '*://mail.google.com/*' });
+  let tabId;
+  let shouldCloseTab = false;
+
+  if (existingTabs.length > 0) {
+    tabId = existingTabs[0].id;
+    await chrome.tabs.update(tabId, { url: searchUrl, active: true });
+    if (existingTabs[0].windowId) {
+      try {
+        await chrome.windows.update(existingTabs[0].windowId, { focused: true });
+      } catch {}
+    }
+  } else {
+    const tab = await chrome.tabs.create({ url: searchUrl, active: true });
+    tabId = tab.id;
+    shouldCloseTab = true;
+    if (tab.windowId) {
+      try {
+        await chrome.windows.update(tab.windowId, { focused: true });
+      } catch {}
+    }
+  }
+
+  try {
+    // Tunggu tab selesai memuat awal
+    await new Promise((resolve) => {
+      let timeoutId;
+      function listener(tid, changeInfo) {
+        if (tid === tabId && changeInfo.status === 'complete') {
+          chrome.tabs.onUpdated.removeListener(listener);
+          clearTimeout(timeoutId);
+          resolve();
+        }
+      }
+      chrome.tabs.onUpdated.addListener(listener);
+      timeoutId = setTimeout(() => {
+        chrome.tabs.onUpdated.removeListener(listener);
+        resolve();
+      }, 12000);
+    });
+
+    await sleep(2000);
+
+    const startTime = Date.now();
+    const maxWaitMs = maxWaitSeconds * 1000;
+
+    while (Date.now() - startTime < maxWaitMs) {
+      // Cek apakah tab masih ada
+      try {
+        const checkTab = await chrome.tabs.get(tabId);
+        if (!checkTab) throw new Error('Tab Gmail tertutup.');
+      } catch (tabErr) {
+        throw new Error('Tab Gmail tertutup oleh pengguna.');
+      }
+
+      const usedCodes = await getUsedCodes();
+
+      let results;
+      try {
+        results = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: inTabInspectGmail,
+          args: [usedCodes, targetEmail],
+        });
+      } catch (scriptErr) {
+        console.warn(`[ElevenLabsVerify] Scripting warning:`, scriptErr.message);
+        await sleep(pollIntervalMs);
+        continue;
+      }
+
+      const res = results && results[0] ? results[0].result : null;
+
+      if (res) {
+        if (res.status === 'not_logged_in') {
+          throw new Error('Akun Gmail belum login di browser. Silakan login ke Gmail terlebih dahulu.');
+        }
+
+        if (res.status === 'found' && res.verifyUrl) {
+          onProgress(`Link verifikasi berhasil didapatkan!`);
+          await markCodeAsUsed(res.oobCode);
+          return {
+            success: true,
+            verifyUrl: res.verifyUrl,
+            oobCode: res.oobCode,
+            receivedAt: new Date().toISOString(),
+          };
+        }
+
+        if (res.status === 'clicked_row') {
+          onProgress(`Membuka email verifikasi ElevenLabs...`);
+          await sleep(2500);
+          continue;
+        }
+
+        if (res.status === 'inside_thread_waiting') {
+          onProgress(`Mengekstrak link di dalam email...`);
+          await sleep(1500);
+          continue;
+        }
+      }
+
+      onProgress(`Menunggu email verifikasi masuk ke Gmail (${targetEmail})...`);
+      await sleep(pollIntervalMs);
+    }
+
+    throw new Error(
+      `Link verifikasi ElevenLabs tidak ditemukan di Gmail setelah ${maxWaitSeconds} detik. Pastikan email ElevenLabs benar-benar terkirim ke Gmail.`
+    );
+  } finally {
+    // Jika tab baru dibuka khusus untuk verifikasi, tutup otomatis agar rapi
+    if (shouldCloseTab) {
+      try {
+        await chrome.tabs.remove(tabId);
+      } catch {}
+    }
+  }
+}
+
+/**
+ * Objek utama ElevenLabsVerify yang diekspos ke sidepanel & background
+ */
+const ElevenLabsVerify = {
+  getUsedCodes,
+  markCodeAsUsed,
+  fetchVerificationFromGmailTab,
 
   /**
-   * Polling email verifikasi secara periodik
-   * Hanya mengembalikan link jika BENAR-BENAR FRESH (< 5 menit) dan bukan link terpakai
-   * @param {string} email
-   * @param {Object} options
-   * @param {number} options.maxAttempts - Maksimal polling (default: 35 -> 105 detik)
-   * @param {number} options.intervalMs - Jeda antar polling (default: 3000 ms)
-   * @param {number} options.initialDelayMs - Jeda awal sebelum poll pertama (default: 3000 ms)
-   * @param {Function} options.onProgress - Callback progress log (message, attempt)
+   * Mengambil URL verifikasi dari tab Gmail
+   * Jika dijalankan dari UI (Sidepanel), mengirimkan request ke background service worker
+   * Jika dijalankan dari Service Worker, langsung menjalankan fetchVerificationFromGmailTab
    */
   async pollForVerifyUrl(email, options = {}) {
-    const maxAttempts = options.maxAttempts || 35;
-    const intervalMs = options.intervalMs || 3000;
-    const initialDelayMs = options.initialDelayMs !== undefined ? options.initialDelayMs : 3000;
     const onProgress = options.onProgress || (() => {});
+    const maxWaitSeconds = options.maxWaitSeconds || 90;
+    const pollIntervalMs = options.pollIntervalMs || options.intervalMs || 3000;
+    const initialDelayMs = options.initialDelayMs !== undefined ? options.initialDelayMs : 2500;
 
     if (initialDelayMs > 0) {
-      onProgress(`Menunggu ${Math.round(initialDelayMs / 1000)}s sebelum mengecek inbox Gmail...`, 0);
-      await new Promise((r) => setTimeout(r, initialDelayMs));
+      onProgress(`Menunggu ${Math.round(initialDelayMs / 1000)}s sebelum memeriksa inbox Gmail...`);
+      await sleep(initialDelayMs);
     }
 
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        const elapsedSec = Math.round((attempt * intervalMs) / 1000);
-        onProgress(`Mengecek inbox via n8n webhook (${attempt}/${maxAttempts} - ${elapsedSec}s)... Biarkan email tetap 'Unread' di Gmail`, attempt);
-        const raw = await this.fetchVerifyEmail(email);
-        const parsed = extractVerifyData(raw);
-
-        // Hanya terima jika link fresh (< 5 menit) dan belum pernah digunakan!
-        if (parsed && parsed.success && parsed.verifyUrl) {
-          if (parsed.isFresh && !parsed.isCodeUsed) {
-            this.markCodeAsUsed(parsed.oobCode);
-            return parsed;
+    const isServiceWorker = typeof window === 'undefined';
+    if (!isServiceWorker && typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+      return new Promise((resolve, reject) => {
+        const progressListener = (msg) => {
+          if (msg.action === 'GMAIL_VERIFY_PROGRESS' && msg.payload?.message) {
+            onProgress(msg.payload.message);
           }
-          console.warn(
-            `[ElevenLabsVerify] Menolak link lama/terpakai (age: ${parsed.ageSeconds}s, used: ${parsed.isCodeUsed}). Menunggu email baru...`
-          );
-        }
-      } catch (err) {
-        console.warn(`[ElevenLabsVerify] Attempt ${attempt} warning:`, err.message);
-      }
+        };
 
-      if (attempt < maxAttempts) {
-        await new Promise((r) => setTimeout(r, intervalMs));
-      }
+        chrome.runtime.onMessage.addListener(progressListener);
+
+        chrome.runtime.sendMessage(
+          {
+            action: 'FETCH_GMAIL_VERIFICATION_LINK',
+            payload: { email, maxWaitSeconds, pollIntervalMs },
+          },
+          (response) => {
+            chrome.runtime.onMessage.removeListener(progressListener);
+
+            if (chrome.runtime.lastError) {
+              return reject(new Error(chrome.runtime.lastError.message));
+            }
+            if (!response || !response.success) {
+              return reject(new Error(response?.error || 'Gagal mengambil link verifikasi dari Gmail'));
+            }
+            resolve(response);
+          }
+        );
+      });
     }
 
-    throw new Error(`Email verifikasi baru untuk ${email} belum masuk ke inbox (dicoba ${maxAttempts}x / ${Math.round((maxAttempts * intervalMs) / 1000)}s). Jika email sudah masuk di Gmail, pastikan statusnya 'Belum dibaca' (Unread) atau tempel link verifikasinya secara manual.`);
+    return await fetchVerificationFromGmailTab({
+      email,
+      maxWaitSeconds,
+      pollIntervalMs,
+      onProgress,
+    });
+  },
+
+  async getVerifyUrl(email, options = {}) {
+    return await this.pollForVerifyUrl(email, options);
   },
 };
 

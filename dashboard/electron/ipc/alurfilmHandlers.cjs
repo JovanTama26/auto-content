@@ -872,18 +872,18 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
     const isFirstPart = Number(chunkPart) === 1;
     const isLastPart = Number(chunkPart) > 0 && (Number(chunkPart) === maxPartNum || Number(chunkPart) === computedTotalChunks);
     const isFirstPartStr = isIntroPart
-      ? 'YA (Part #0 Intro Teaser Highlight - Sapa penonton secara friendly & santai seperti gaya IQ7/Alurfilm)'
+      ? 'YA (Part #0 Intro Teaser Highlight - Sapa penonton secara friendly & santai seperti gaya IQ7/Alurfilm. DILARANG menyebut nama/judul film!)'
       : isFirstPart
-        ? 'YA (Chunk #1 / Part Pembuka Film Utama)'
+        ? 'YA (Chunk #1 / Part Pembuka Film Utama - Langsung masuk ke alur cerita tanpa intro formal. DILARANG menyebut nama/judul film!)'
         : `TIDAK (Chunk #${chunkPart} / Part Lanjutan)`;
-    const isLastPartStr = isLastPart ? 'YA (Chunk Terakhir / Part Penutup Film)' : `TIDAK (Part Bukan Penutup)`;
+    const isLastPartStr = isLastPart ? 'YA (Chunk Terakhir / Part Penutup Film - Akhiri tanpa menyebut judul film)' : `TIDAK (Part Bukan Penutup)`;
     const styleExampleStr = isIntroPart
-      ? 'Gunakan gaya penceritaan yang super friendly, santai, mengalir hangat, dan akrab khas pencerita alur film populer. Sampaikan narasi teaser intro yang membakar rasa penasaran penonton (hooking) dan mengalir mulus tanpa kaku!'
+      ? 'Gunakan gaya penceritaan yang super friendly, santai, mengalir hangat, dan akrab khas pencerita alur film populer. Sampaikan narasi teaser intro yang membakar rasa penasaran penonton (hooking) dan mengalir mulus tanpa kaku! DILARANG KERAS menyebutkan nama/judul film (gunakan "film yang satu ini" atau "film seru ini").'
       : styleExample
         ? String(styleExample)
         : isFirstPart
-          ? 'Buka langsung dengan premis & ancaman/kondisi nyata (misal: "Cerita dimulai pada [tahun/tempat] di mana kita diperlihatkan dengan [ancaman/kondisi besar]..."). Gunakan gaya semi-formal sinematik yang runut, mengalir enak di telinga, dan berbasis aksi fisik nyata (sambungkan antarklausa dengan: "di mana...", "yang membuat...", "hingga...", "sebab...", "namun sayangnya..."). DILARANG diksi gaul alay (si doi, bapak ini, apesnya tuh) dan DILARANG renungan puitis ngawang.'
-          : 'Gunakan gaya penceritaan alur film semi-formal sinematik yang runut, mengalir, dan berbasis aksi nyata (sambungkan antarklausa dengan "di mana...", "yang membuat...", "hingga...", "sebab...", "namun sayangnya..."). DILARANG diksi gaul alay (si doi, bapak ini, apesnya tuh) dan DILARANG renungan puitis ngawang.';
+          ? 'Buka naskah secara fleksibel (langsung ke premis aksi karakter ATAU sebutan pengganti seperti "Film yang satu ini menceritakan..."). DILARANG KERAS menyebutkan judul film! Gunakan gaya semi-formal sinematik yang runut, mengalir enak di telinga, dan berbasis aksi fisik nyata (sambungkan antarklausa dengan: "di mana...", "yang membuat...", "hingga...", "sebab...", "namun sayangnya..."). DILARANG diksi gaul alay (si doi, bapak ini, apesnya tuh) dan DILARANG renungan puitis ngawang.'
+          : 'Gunakan gaya penceritaan alur film semi-formal sinematik yang runut, mengalir, dan berbasis aksi nyata (sambungkan antarklausa dengan "di mana...", "yang membuat...", "hingga...", "sebab...", "namun sayangnya..."). DILARANG diksi gaul alay (si doi, bapak ini, apesnya tuh) dan DILARANG renungan puitis ngawang. DILARANG menyebutkan nama/judul film!';
     const movieTitleStr = String(opts.movieTitle || opts.movie_title || opts.title || '').trim() || 'Tidak disebutkan';
     const movieYearStr = String(opts.movieYear || opts.movie_year || opts.year || '').trim();
     const movieYearFormatted = movieYearStr ? `tahun ${movieYearStr}` : '';

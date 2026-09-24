@@ -19,6 +19,12 @@ branch_structure.json
 temp_auto_push.bat
 temp_interactive_push.bat
 
+# Temporary and test artifacts
+downloads/
+scratch/
+test-results/
+playwright/screenshots/
+
 # Environment files
 .env
 .env.*

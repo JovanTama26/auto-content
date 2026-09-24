@@ -649,6 +649,56 @@ function matchTranscriptWithScriptVisualOnly(transcriptEntries, scriptText) {
     }));
   }
 
+  // Pre-split transcript entries if any visualOnly tag belongs in the middle of an entry
+  let workingEntries = [...transcriptEntries];
+  for (const vis of visualOnlyElements) {
+    if (!vis.beforeTail) continue;
+    const targetWords = vis.beforeTail.split(' ').filter(w => w.length > 2);
+    if (targetWords.length < 3) continue;
+
+    for (let i = 0; i < workingEntries.length; i++) {
+      const entry = workingEntries[i];
+      if (entry.type === 'visual_only') continue;
+      const text = entry.text || '';
+      const cleanEntry = cleanWords(text);
+      const lastFewWords = targetWords.slice(-4).join(' ');
+      const cleanFull = cleanEntry.join(' ');
+      const foundIdx = cleanFull.indexOf(lastFewWords);
+
+      // Check if found and not right at the boundary
+      if (foundIdx > 0 && foundIdx + lastFewWords.length < cleanFull.length - 10) {
+        const searchWords = targetWords.slice(-3);
+        let splitCharPos = -1;
+        for (let wIdx = searchWords.length; wIdx >= 2; wIdx--) {
+          const phrase = searchWords.slice(0, wIdx).join(' ');
+          const pIdx = text.toLowerCase().indexOf(phrase);
+          if (pIdx > 0) {
+            splitCharPos = pIdx + phrase.length;
+            while (splitCharPos < text.length && /[\s.,!?;:]/.test(text[splitCharPos])) {
+              splitCharPos++;
+            }
+            break;
+          }
+        }
+
+        if (splitCharPos > 20 && splitCharPos < text.length - 20) {
+          const textA = text.slice(0, splitCharPos).trim();
+          const textB = text.slice(splitCharPos).trim();
+          const totalDur = Math.max(0.1, (entry.end_seconds || entry.end || 0) - (entry.start_seconds || entry.start || 0));
+          const ratio = Math.max(0.1, Math.min(0.9, textA.length / text.length));
+          const splitTime = Number(((entry.start_seconds || entry.start || 0) + totalDur * ratio).toFixed(2));
+
+          const entryA = { ...entry, text: textA, end_seconds: splitTime, end: splitTime };
+          const entryB = { ...entry, text: textB, start_seconds: splitTime, start: splitTime };
+
+          workingEntries.splice(i, 1, entryA, entryB);
+          break;
+        }
+      }
+    }
+  }
+  transcriptEntries = workingEntries;
+
   const matchedBoundaries = [];
   let minBoundary = 0;
 

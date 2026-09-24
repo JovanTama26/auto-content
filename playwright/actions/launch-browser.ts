@@ -88,8 +88,13 @@ export async function launchBrowser(options: LaunchOptions = {}): Promise<Browse
   // Check if official Google Chrome exists on system
   const hasSystemChrome = fs.existsSync('/usr/bin/google-chrome') || fs.existsSync('/usr/bin/google-chrome-stable');
 
+  if (!headed) {
+    // Chrome extension support in headless requires --headless=new
+    launchArgs.push('--headless=new');
+  }
+
   const launchOptions: any = {
-    headless: !headed,
+    headless: false, // Must be false when using --headless=new to load extensions
     viewport: config.viewport,
     args: launchArgs,
     ignoreDefaultArgs: ['--enable-automation'],

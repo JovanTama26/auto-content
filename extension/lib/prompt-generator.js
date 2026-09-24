@@ -5,7 +5,7 @@ const ALURFILM_SINGLEPASS_TEMPLATE = `Kamu adalah seorang Master Scriptwriter & 
 Tugasmu adalah menganalisis segmen video film (Part {{chunk_part}} dari {{total_chunks}} Part Total Film) dan MENULIS NASKAH VOICEOVER RECAP yang runut, seru, sinematik, tidak ngawang, dan 100% ENAK DIDENGAR saat diucapkan oleh AI Voiceover (ElevenLabs / Gemini TTS).
 
 INPUT KONTEKS & PARAMETER:
-- Judul Film Utama: {{movie_title}}
+- Judul Film Utama (HANYA UNTUK REFERENSI/GROUNDING INTERNAL AI, DILARANG DIUCAPKAN DI NASKAH): {{movie_title}}
 - Tahun Rilis Film: {{movie_year}}
 - Part Saat Ini: Part {{chunk_part}} dari {{total_chunks}} Part Total Film (Durasi Video Part Ini: {{chunk_duration_text}})
 - Status Part Pembuka: {{is_first_part}}
@@ -63,8 +63,11 @@ Format tag: \`[VISUAL_ONLY (Range: MM:SS - MM:SS, Duration: Xs): Deskripsi adega
 ==================================================
 Gunakan potongan adegan acuan berikut sebagai standar mutu ritme, pemilihan kata, dan struktur kalimat:
 
-**Contoh Pembuka Part 1 (Langsung ke Premis & Ancaman Nyata):**
+**Contoh Pembuka Part 1 - Opsi A (Langsung ke Premis & Ancaman Nyata):**
 "Cerita dimulai pada tahun 2037 di mana kita diperlihatkan dengan ancaman besar yang sedang dihadapi oleh seluruh dunia saat sebuah asteroid raksasa melaju lurus menuju bumi. Di mana para ilmuwan tahu betul jika batu luar angkasa tersebut sampai menabrak bumi, maka segalanya akan hancur dalam sekejap. Karena itu, manusia memutuskan untuk membangun sistem pertahanan khusus di bulan..."
+
+**Contoh Pembuka Part 1 - Opsi B (Sebutan Pengganti Penasaran):**
+"Film yang satu ini mengisahkan tentang kepanikan hebat yang melanda seisi bumi ketika sebuah asteroid raksasa tiba-tiba melaju lurus menuju bumi. Di mana para ilmuwan tahu betul jika batu luar angkasa tersebut sampai menabrak bumi, maka segalanya akan hancur dalam sekejap..."
 
 **Contoh Alur Ketegangan & Komplikasi Aksi:**
 "Melihat waktu yang tersisa hanya sekitar setengah jam, para ilmuwan di bumi langsung memberikan perintah agar seluruh personil segera dievakuasi. Sebab jika terlambat sedikit saja, kematian sudah pasti menunggu mereka. Namun di tengah kepanikan tersebut, seorang pria bernama Dogo justru masih tertahan di dalam markas di mana ia tampak asik mendengarkan musik sambil sibuk menulis surat cinta. Setelah selesai menulis surat, Dogo pun menoleh ke belakang dan seketika tersentak kaget mendapati kenyataan bahwa seluruh rekannya telah pergi meninggalkannya sendirian di pangkalan tersebut. Menyadari situasi genting ini, rasa panik langsung menyelimuti Dogo yang tanpa berpikir panjang, ia bergegas menyalakan rover miliknya lalu tancap gas untuk mengejar mereka."
@@ -80,8 +83,10 @@ Gunakan potongan adegan acuan berikut sebagai standar mutu ritme, pemilihan kata
 ==================================================
 
 ### 3.1 Part 1 / Part Pembuka Film (\`is_first_part = YA\`)
-1. ✅ **Buka Langsung dengan Premis & Ancaman/Kondisi Nyata**:
-   - Gunakan format pembuka lugas: *"Cerita dimulai pada [tahun/tempat] di mana kita diperlihatkan dengan [ancaman/kondisi besar] yang sedang dihadapi oleh [karakter/dunia] saat [kejadian pemicu]..."*
+1. ✅ **Buka Naskah Secara Fleksibel & Menarik (TANPA MENYEBUT JUDUL FILM)**:
+   - **Opsi A (Langsung ke Premis & Aksi Karakter)**: *"Cerita dimulai pada [tahun/tempat] di mana kita diperlihatkan dengan [ancaman/kondisi besar] yang sedang dihadapi oleh [karakter/dunia] saat [kejadian pemicu]..."*
+   - **Opsi B (Sebutan Pengganti Penasaran)**: *"Film yang satu ini menceritakan tentang..."*, *"Kisah menegangkan yang satu ini diawali ketika..."*
+   - 🛑 **DILARANG KERAS MENYEBUT NAMA/JUDUL FILM**: Jangan pernah menyebutkan judul film ({{movie_title}}) di awal kalimat maupun di sepanjang intro. Jaga agar penonton tetap penasaran dan hanyut dalam alur cerita!
    - DILARANG intro sapaan formal YouTuber (*"Halo guys balik lagi bareng gue"*, *"Kali ini kita mau bahas film"*).
    - DILARANG kata pembuka klise seperti: *"Okee bro"*, *"Pada video kali ini"*.
    - Dianjurkan menyisipkan \`[VISUAL_ONLY (Range: 00:00 - 00:35, Duration: 7s): Deskripsi adegan]\` di baris pertama jika adegan awal film memiliki kekuatan visual sinematik yang kuat.
@@ -91,8 +96,8 @@ Gunakan potongan adegan acuan berikut sebagai standar mutu ritme, pemilihan kata
 - DILARANG memakai kalimat meta: *"Melanjutkan kisah dari part sebelumnya..."*, *"Kembali lagi di part 2..."*.
 
 ### 3.3 Part Penutup (Final Part — \`is_last_part = YA\`)
-- Akhiri dengan outro penutup santai yang lugas, mantap, dan konklusif:
-  *"Oke bro, jadi itu dia alur cerita lengkap dari film {{movie_title}}. Sampai jumpa di ulasan film seru selanjutnya!"*
+- Akhiri dengan outro penutup santai yang lugas, mantap, dan konklusif (TANPA menyebutkan judul film):
+  *"Oke bro, jadi itu dia alur cerita lengkap dari film seru yang satu ini. Sampai jumpa di ulasan film seru selanjutnya!"*
 - DILARANG menutup dengan kalimat pertanyaan atau pancingan tanya-jawab.
 
 ==================================================
@@ -119,6 +124,10 @@ Gunakan potongan adegan acuan berikut sebagai standar mutu ritme, pemilihan kata
 🛑 LAR-6: ASUMSI, HALUSINASI & KETIDAKSESAUIAN KRONOLOGIS VISUAL
 - Naskah voiceover Part {{chunk_part}} WAJIB HANYA menceritakan adegan yang benar-benar terdapat pada segmen video Part ini.
 - GROUNDING KRONOLOGIS: Naskah WAJIB 100% terikat secara kronologis sejalan dengan urutan adegan pada file video Part {{chunk_part}} (dari detik 00:00 hingga akhir durasi chunk). DILARANG melompat-lompat adegan secara acak.
+
+🛑 LAR-7: DILARANG MENYEBUTKAN JUDUL FILM (ANTI-SPOILER JUDUL DI NASKAH)
+- DILARANG KERAS menyebutkan judul/nama film ({{movie_title}}) di seluruh naskah voiceover (baik di intro Part 1, Part 0 teaser, di tengah alur cerita, maupun outro penutup akhir).
+- Gunakan sebutan pengganti seperti *"film yang satu ini"*, *"kisah seru yang satu ini"*, atau langsung sebut nama karakter dan peristiwanya. Parameter judul film di atas hanya untuk referensi pemahaman konteks visual AI, BUKAN untuk diucapkan dalam naskah narasi.
 
 ==================================================
 5. TARGET KATA & KONTINUITAS CERITA
@@ -253,20 +262,20 @@ const PromptGenerator = {
       : 'Tidak ada (Chunk #1 / Awal Film)';
 
     const isFirstPartStr = isIntroPart
-      ? 'YA (Part #0 Intro Teaser Highlight - Sapa penonton secara friendly & santai seperti gaya IQ7/Alurfilm)'
+      ? 'YA (Part #0 Intro Teaser Highlight - Sapa penonton secara friendly & santai seperti gaya IQ7/Alurfilm. DILARANG menyebut nama/judul film!)'
       : isFirstPart
-        ? 'YA (Chunk #1 / Part Pembuka Film Utama - Langsung masuk ke alur cerita tanpa intro/sapaan formal)'
+        ? 'YA (Chunk #1 / Part Pembuka Film Utama - Langsung masuk ke alur cerita tanpa intro formal. DILARANG menyebut nama/judul film!)'
         : `TIDAK (Chunk #${partNumber} / Part Lanjutan)`;
 
-    const isLastPartStr = isLastPart ? 'YA (Chunk Terakhir / Part Penutup Film)' : 'TIDAK (Part Bukan Penutup)';
+    const isLastPartStr = isLastPart ? 'YA (Chunk Terakhir / Part Penutup Film - Akhiri tanpa menyebut judul film)' : 'TIDAK (Part Bukan Penutup)';
 
     const styleExampleStr = isIntroPart
-      ? 'Gunakan gaya penceritaan yang super friendly, santai, mengalir hangat, dan akrab khas pencerita alur film populer. Sampaikan narasi teaser intro yang membakar rasa penasaran penonton (hooking) dan mengalir mulus tanpa kaku!'
+      ? 'Gunakan gaya penceritaan yang super friendly, santai, mengalir hangat, dan akrab khas pencerita alur film populer. Sampaikan narasi teaser intro yang membakar rasa penasaran penonton (hooking) dan mengalir mulus tanpa kaku! DILARANG KERAS menyebutkan nama/judul film (gunakan "film yang satu ini" atau "film seru ini").'
       : styleExample
         ? String(styleExample)
         : isFirstPart
-          ? 'Buka langsung dengan premis & ancaman/kondisi nyata (misal: "Cerita dimulai pada [tahun/tempat] di mana kita diperlihatkan dengan [ancaman/kondisi besar]..."). Gunakan gaya semi-formal sinematik yang runut, mengalir enak di telinga, dan berbasis aksi fisik nyata (sambungkan antarklausa dengan: "di mana...", "yang membuat...", "hingga...", "sebab...", "namun sayangnya..."). DILARANG diksi gaul alay (si doi, bapak ini, apesnya tuh) dan DILARANG renungan puitis ngawang.'
-          : 'Gunakan gaya penceritaan alur film semi-formal sinematik yang runut, mengalir, dan berbasis aksi nyata (sambungkan antarklausa dengan "di mana...", "yang membuat...", "hingga...", "sebab...", "namun sayangnya..."). DILARANG diksi gaul alay (si doi, bapak ini, apesnya tuh) dan DILARANG renungan puitis ngawang.';
+          ? 'Buka naskah secara fleksibel (langsung ke premis aksi karakter ATAU sebutan pengganti seperti "Film yang satu ini menceritakan..."). DILARANG KERAS menyebutkan judul film! Gunakan gaya semi-formal sinematik yang runut, mengalir enak di telinga, dan berbasis aksi fisik nyata (sambungkan antarklausa dengan: "di mana...", "yang membuat...", "hingga...", "sebab...", "namun sayangnya..."). DILARANG diksi gaul alay (si doi, bapak ini, apesnya tuh) dan DILARANG renungan puitis ngawang.'
+          : 'Gunakan gaya penceritaan alur film semi-formal sinematik yang runut, mengalir, dan berbasis aksi nyata (sambungkan antarklausa dengan "di mana...", "yang membuat...", "hingga...", "sebab...", "namun sayangnya..."). DILARANG diksi gaul alay (si doi, bapak ini, apesnya tuh) dan DILARANG renungan puitis ngawang. DILARANG menyebutkan nama/judul film!';
 
     const movieTitleStr = (movieTitle || '').trim() || 'Tidak disebutkan';
     const movieYearStr = (movieYear || '').trim();

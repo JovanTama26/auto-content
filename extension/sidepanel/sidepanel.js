@@ -20,21 +20,21 @@ document.addEventListener('DOMContentLoaded', async () => {
   const viewAiStudio = document.getElementById('viewAiStudio');
   const viewElevenLabs = document.getElementById('viewElevenLabs');
   const btnOpenElevenLabs = document.getElementById('btnOpenElevenLabs');
+  const btnManualSignOutElevenLabs = document.getElementById('btnManualSignOutElevenLabs');
 
   const inputSignupEmail = document.getElementById('inputSignupEmail');
   const inputSignupPassword = document.getElementById('inputSignupPassword');
   const btnRegenEmail = document.getElementById('btnRegenEmail');
   const btnAutoSignupElevenLabs = document.getElementById('btnAutoSignupElevenLabs');
-  const btnFetchLinkOnly = document.getElementById('btnFetchLinkOnly');
   const inputManualVerifyUrl = document.getElementById('inputManualVerifyUrl');
   const btnProcessManualVerify = document.getElementById('btnProcessManualVerify');
   const signupSpinner = document.getElementById('signupSpinner');
   const signupBtnText = document.getElementById('signupBtnText');
   const signupLiveStatus = document.getElementById('signupLiveStatus');
   const signupStepLog = document.getElementById('signupStepLog');
-  const elevenlabsAccountsList = document.getElementById('elevenlabsAccountsList');
-  const accountsCountBadge = document.getElementById('accountsCountBadge');
-  const btnRefreshAccounts = document.getElementById('btnRefreshAccounts');
+  const ttsPartsList = document.getElementById('ttsPartsList');
+  const ttsPartsCountBadge = document.getElementById('ttsPartsCountBadge');
+  const btnRefreshTtsParts = document.getElementById('btnRefreshTtsParts');
   let isSigningUpElevenLabs = false;
 
   // Bulk action elements
@@ -196,6 +196,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           btnAutoProgressMapping.disabled = true;
           btnAutoProgressMapping.title = 'Belum ada chunk video.';
         }
+        renderTtsPartsList();
         return;
       }
 
@@ -268,7 +269,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       }
 
-      renderChunksList();
+      try {
+        renderChunksList();
+      } catch (renderErr) {
+        console.warn('[SidePanel] Error renderChunksList:', renderErr);
+      }
+
+      try {
+        renderTtsPartsList();
+      } catch (ttsErr) {
+        console.warn('[SidePanel] Error renderTtsPartsList:', ttsErr);
+      }
     } catch (err) {
       console.error('[SidePanel] Load chunks error:', err);
       chunksList.innerHTML = `<div class="empty-state">Gagal memuat chunks: ${err.message}</div>`;
@@ -1601,7 +1612,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       viewAiStudio?.classList.add('hidden');
       viewElevenLabs?.classList.remove('hidden');
 
-      loadElevenLabsAccounts();
+      if ((!currentChunks || currentChunks.length === 0) && sessionSelect?.value) {
+        loadChunks(sessionSelect.value);
+      } else {
+        renderTtsPartsList();
+      }
     } else {
       tabBtnElevenLabs?.classList.remove('active');
       tabBtnElevenLabs?.setAttribute('aria-selected', 'false');
@@ -1623,17 +1638,53 @@ document.addEventListener('DOMContentLoaded', async () => {
   tabBtnElevenLabs?.addEventListener('click', () => switchTab('elevenlabs'));
 
   if (btnOpenElevenLabs) {
-    btnOpenElevenLabs.addEventListener('click', () => {
+    btnOpenElevenLabs.addEventListener('click', async () => {
       const url = 'https://elevenlabs.io/app/speech-synthesis';
-      if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.create) {
-        chrome.tabs.create({ url });
+      if (typeof chrome !== 'undefined' && chrome.tabs) {
+        try {
+          const tabs = await chrome.tabs.query({});
+          const existing = tabs.find((t) => t.url && t.url.toLowerCase().includes('elevenlabs.io'));
+          if (existing && existing.id) {
+            await chrome.tabs.update(existing.id, { active: true });
+            if (existing.windowId) {
+              await chrome.windows.update(existing.windowId, { focused: true }).catch(() => {});
+            }
+            return;
+          }
+          await chrome.tabs.create({ url });
+        } catch (e) {
+          window.open(url, '_blank');
+        }
       } else {
         window.open(url, '_blank');
       }
     });
   }
 
+  if (btnManualSignOutElevenLabs) {
+    btnManualSignOutElevenLabs.addEventListener('click', async () => {
+      btnManualSignOutElevenLabs.disabled = true;
+      btnManualSignOutElevenLabs.textContent = '⏳ Logout...';
+      setSignupStatus('🚪 Mengirim perintah logout UI ke tab ElevenLabs aktif...', 'warn');
+      try {
+        const res = await chrome.runtime.sendMessage({ action: 'SIGN_OUT_ELEVENLABS' });
+        if (res && res.success) {
+          setSignupStatus('✅ Berhasil Logout dari UI ElevenLabs! Sesi akun ditutup.', 'success');
+        } else {
+          setSignupStatus(`⚠️ Selesai: ${res?.error || 'Tab mungkin sudah di /sign-in'}`, 'warn');
+        }
+      } catch (err) {
+        setSignupStatus(`❌ Gagal Logout: ${err.message}`, 'error');
+      } finally {
+        btnManualSignOutElevenLabs.disabled = false;
+        btnManualSignOutElevenLabs.innerHTML = '<span>🚪 Logout UI</span>';
+      }
+    });
+  }
+
   // --- ElevenLabs Auto-Signup & Account Management Logic ---
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
   function generateRandomEmail() {
     const roots = [
       'jovan', 'tama', 'rizky', 'bima', 'satria', 'fajar', 'bayu', 'indra',
@@ -1704,102 +1755,164 @@ document.addEventListener('DOMContentLoaded', async () => {
     signupStepLog.textContent = text;
   }
 
-  async function loadElevenLabsAccounts() {
-    if (!elevenlabsAccountsList) return;
-    try {
-      if (btnRefreshAccounts) btnRefreshAccounts.disabled = true;
-      const accounts = await window.SupabaseBridge.getElevenLabsAccounts();
+  /**
+   * Konversi semua tag kurung siku [...] (seperti [VISUAL_ONLY], [pause], dll) menjadi [pauses]
+   * Persis seperti yang ada di aplikasi Electron (convertToElevenLabsTtsScript)
+   */
+  function convertTagsToElevenLabsPauses(rawScript) {
+    if (!rawScript || typeof rawScript !== 'string') return '';
 
-      if (!accounts || accounts.length === 0) {
-        if (accountsCountBadge) accountsCountBadge.textContent = '0 Akun';
-        elevenlabsAccountsList.innerHTML = `
-          <div class="empty-state">
-            <span>Belum ada akun ElevenLabs tersimpan. Klik tombol di atas untuk mendaftarkan akun baru.</span>
-          </div>`;
-        return;
+    let result = rawScript;
+
+    // 1. Ubah semua tag [VISUAL_ONLY...] menjadi [pauses]
+    result = result.replace(/\[VISUAL_ONLY[^\]]*\]/gi, '[pauses]');
+
+    // 2. Ubah semua tag dalam kurung siku [...] lainnya menjadi [pauses]
+    result = result.replace(/\[[^\]]+\]/g, '[pauses]');
+
+    // 3. Bersihkan tag HTML/SSML (misal <break time="..."/>) jika ada
+    result = result.replace(/<[^>]+>/g, '');
+
+    // 4. Gabungkan duplikasi jeda [pauses] yang berurutan agar rapi dengan format paragraf
+    result = result.replace(/(\s*\[pauses\]\s*)+/gi, '\n\n[pauses]\n\n');
+
+    // 5. Rapikan spasi berlebih
+    result = result
+      .replace(/[ \t]+/g, ' ')
+      .replace(/\n\s*\n\s*\n+/g, '\n\n')
+      .trim();
+
+    return result;
+  }
+
+  /**
+   * Ekstraksi teks naskah narasi voiceover dari output JSON Gemini AI Studio
+   */
+  function extractScriptText(scriptOutput) {
+    if (!scriptOutput) return '';
+    let parsed = scriptOutput;
+    if (typeof scriptOutput === 'string') {
+      try {
+        parsed = JSON.parse(scriptOutput);
+      } catch (e) {
+        return convertTagsToElevenLabsPauses(scriptOutput.trim());
       }
-
-      if (accountsCountBadge) accountsCountBadge.textContent = `${accounts.length} Akun`;
-
-      elevenlabsAccountsList.innerHTML = accounts.map((acc) => {
-        const isPending = acc.status === 'pending_verification';
-        const badgeClass = isPending ? 'pending' : 'active';
-        const badgeText = isPending ? '⏳ Pending Verif' : '✅ Active';
-        const credits = (acc.credits_remaining !== undefined && acc.credits_remaining !== null)
-          ? `${Number(acc.credits_remaining).toLocaleString('id-ID')} Credits`
-          : '10.000 Credits';
-        const createdDate = acc.created_at ? new Date(acc.created_at).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' }) : '-';
-
-        const verifyBtnHtml = isPending
-          ? `<button class="btn-verify-account" data-verify-email="${acc.email}" title="Cek webhook n8n untuk link verifikasi email ini">⚡ Ambil Link Verif</button>`
-          : '';
-
-        const verifyLinkHtml = acc.verification_link
-          ? `<a href="${acc.verification_link}" target="_blank" class="link-verify-url" title="${acc.verification_link}">🔗 Buka Link Verif</a>`
-          : '<span style="color: #64748b; font-size: 10px;">Link belum ada</span>';
-
-        return `
-          <div class="account-card" data-account-id="${acc.id || ''}">
-            <div class="account-header">
-              <span class="account-email">${acc.email}</span>
-              <span class="account-status-badge ${badgeClass}">${badgeText}</span>
-            </div>
-            <div class="account-meta">
-              <span>Pass: <strong style="color: #cbd5e1;">${acc.password || 'Jovan@1224'}</strong></span>
-              <span class="account-credits">${credits}</span>
-              <span>${createdDate}</span>
-            </div>
-            <div class="account-actions">
-              ${verifyLinkHtml}
-              ${verifyBtnHtml}
-            </div>
-          </div>
-        `;
-      }).join('');
-
-      // Pasang listener untuk tombol Ambil Link Verif pada akun-akun yang pending
-      elevenlabsAccountsList.querySelectorAll('.btn-verify-account').forEach((btn) => {
-        btn.addEventListener('click', async (e) => {
-          const emailToVerify = e.currentTarget.getAttribute('data-verify-email');
-          if (emailToVerify) {
-            await handleManualVerify(emailToVerify, e.currentTarget);
-          }
-        });
-      });
-
-      // Pasang listener jika user mengklik manual link verifikasi
-      elevenlabsAccountsList.querySelectorAll('.link-verify-url').forEach((link) => {
-        link.addEventListener('click', async () => {
-          const card = link.closest('.account-card');
-          const email = card?.querySelector('.account-email')?.textContent?.trim();
-          if (typeof chrome !== 'undefined' && chrome.storage?.local) {
-            await chrome.storage.local.set({
-              elevenlabs_auto_flow: {
-                active: true,
-                email: email || '',
-                password: 'Jovan@1224',
-                startedAt: Date.now(),
-              },
-            });
-          }
-        });
-      });
-    } catch (err) {
-      console.error('[ElevenLabs] Gagal memuat akun dari Supabase:', err);
-      if (accountsCountBadge) accountsCountBadge.textContent = 'Error';
-      const isMissingTable = err.message && (err.message.includes('relation') || err.message.includes('404') || err.message.includes('does not exist'));
-      if (isMissingTable) {
-        elevenlabsAccountsList.innerHTML = `
-          </div>`;
-      } else {
-        elevenlabsAccountsList.innerHTML = `
-          <div class="empty-state" style="color: #f87171;">
-            Gagal memuat akun: ${err.message}
-          </div>`;
-      }
-    } finally {
-      if (btnRefreshAccounts) btnRefreshAccounts.disabled = false;
     }
+
+    let raw = '';
+    if (parsed.naskah_voiceover) {
+      const nv = parsed.naskah_voiceover;
+      if (typeof nv === 'string') raw = nv.trim();
+      else if (Array.isArray(nv)) {
+        raw = nv.map((s) => s.narasi || s.text || s.script_text || s.dialog || '').filter(Boolean).join(' ').trim();
+      } else if (typeof nv === 'object') {
+        if (nv.script_text && typeof nv.script_text === 'string') raw = nv.script_text.trim();
+        else if (nv.narasi && typeof nv.narasi === 'string') raw = nv.narasi.trim();
+        else if (nv.text && typeof nv.text === 'string') raw = nv.text.trim();
+      }
+    }
+
+    if (!raw && parsed.script_text && typeof parsed.script_text === 'string') {
+      raw = parsed.script_text.trim();
+    }
+    if (!raw && parsed.narasi && typeof parsed.narasi === 'string') {
+      raw = parsed.narasi.trim();
+    }
+    if (!raw && parsed.voiceover && typeof parsed.voiceover === 'string') {
+      raw = parsed.voiceover.trim();
+    }
+    if (!raw && parsed.naskah && typeof parsed.naskah === 'string') {
+      raw = parsed.naskah.trim();
+    }
+
+    if (!raw && (Array.isArray(parsed.scenes) || Array.isArray(parsed.segments))) {
+      const arr = parsed.scenes || parsed.segments;
+      raw = arr.map((s) => s.narasi || s.voiceover || s.text || s.script_text || '').filter(Boolean).join(' ').trim();
+    }
+
+    return convertTagsToElevenLabsPauses(raw);
+  }
+
+  /**
+   * Sesuai request: List yang dibawah HANYA list narasi aja yang siap copy biar lebih mudah.
+   */
+  function renderTtsPartsList() {
+    if (!ttsPartsList) return;
+    ttsPartsList.innerHTML = '';
+
+    if (!currentChunks || currentChunks.length === 0) {
+      if (ttsPartsCountBadge) ttsPartsCountBadge.textContent = '0 Part';
+      ttsPartsList.innerHTML = `
+        <div class="empty-state">
+          <span>Belum ada chunk part untuk session ini. Pilih session di tab AI Studio terlebih dahulu.</span>
+        </div>`;
+      return;
+    }
+
+    const readyCount = currentChunks.filter((c) => !!extractScriptText(c.script_output)).length;
+    if (ttsPartsCountBadge) {
+      ttsPartsCountBadge.textContent = `${readyCount}/${currentChunks.length} Script Ready`;
+    }
+
+    currentChunks.forEach((chunk) => {
+      const scriptText = extractScriptText(chunk.script_output);
+      const hasScript = scriptText.length > 0;
+      const charCount = scriptText.length;
+      const wordCount = hasScript ? scriptText.split(/\s+/).filter(Boolean).length : 0;
+      const snippet = hasScript
+        ? (scriptText.length > 150 ? scriptText.slice(0, 150) + '...' : scriptText)
+        : 'Script narasi belum digenerate di AI Studio. Buka tab AI Studio lalu klik Generate Script.';
+
+      const card = document.createElement('div');
+      card.className = `chunk-card ${hasScript ? 'is-uploaded' : ''}`;
+      card.id = `tts-chunk-card-${chunk.part_number}`;
+
+      const statusTagClass = hasScript ? 'uploaded' : 'pending';
+      const statusTagText = hasScript ? `✓ ${charCount} Karakter` : '⏳ Belum Ada Script';
+
+      card.innerHTML = `
+        <div class="chunk-top">
+          <div style="display: flex; align-items: center; gap: 6px; min-width: 0;">
+            <span class="chunk-part">Part #${chunk.part_number}</span>
+            <span class="chunk-name" title="${chunk.filename}">${chunk.filename}</span>
+          </div>
+          <span class="status-tag ${statusTagClass}">${statusTagText}</span>
+        </div>
+        <div class="tts-script-snippet" style="font-size: 11px; line-height: 1.4; color: ${hasScript ? '#cbd5e1' : '#64748b'}; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 6px; padding: 6px 8px; margin: 4px 0; max-height: 70px; overflow-y: auto;">
+          ${snippet}
+        </div>
+        <div class="chunk-details" style="margin-top: 4px; display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 10px; color: #94a3b8;">${hasScript ? `📝 ${wordCount} kata` : 'Generate di Tab AI Studio'}</span>
+          <div class="chunk-actions">
+            ${hasScript ? `
+              <button class="btn-copy btn-tts-copy" data-part="${chunk.part_number}" style="padding: 4px 12px; font-size: 11px; font-weight: 600; background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.5); color: #93c5fd; border-radius: 5px; cursor: pointer;" title="Salin naskah narasi ([pauses] formatted) ke clipboard">📋 Salin Narasi</button>
+            ` : `
+              <span style="font-size: 10px; color: #64748b;">(Belum ada script)</span>
+            `}
+          </div>
+        </div>
+      `;
+
+      // Event listener: Copy Naskah langsung siap paste
+      const btnCopy = card.querySelector('.btn-tts-copy');
+      if (btnCopy) {
+        btnCopy.addEventListener('click', async () => {
+          await navigator.clipboard.writeText(scriptText);
+          btnCopy.textContent = '✓ Tersalin!';
+          btnCopy.style.background = 'rgba(16, 185, 129, 0.25)';
+          btnCopy.style.color = '#6ee7b7';
+          btnCopy.style.borderColor = 'rgba(16, 185, 129, 0.6)';
+          setTimeout(() => {
+            btnCopy.textContent = '📋 Salin Narasi';
+            btnCopy.style.background = 'rgba(59, 130, 246, 0.2)';
+            btnCopy.style.color = '#93c5fd';
+            btnCopy.style.borderColor = 'rgba(59, 130, 246, 0.5)';
+          }, 1800);
+        });
+      }
+
+      ttsPartsList.appendChild(card);
+    });
   }
 
   /**
@@ -1842,253 +1955,190 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  async function handleDirectVerifyUrl(verifyUrl, email) {
-    const url = (verifyUrl || inputManualVerifyUrl?.value || '').trim();
-    if (!url || !url.startsWith('http')) {
-      setSignupStatus('Format URL verifikasi tidak valid. Salin tautan lengkap dari tombol "Verify email" di Gmail.', 'error');
-      return;
-    }
-    const targetEmail = (email || inputSignupEmail?.value || '').trim();
-    if (btnProcessManualVerify) btnProcessManualVerify.disabled = true;
-    setSignupStatus(`1/3 Memproses verifikasi manual untuk ${targetEmail || 'akun ElevenLabs'}...`, 'warn');
-
-    try {
-      if (targetEmail) {
-        await window.SupabaseBridge.updateElevenLabsAccount(targetEmail, {
-          verification_link: url,
-        });
-      }
-
-      const dashboardPromise = waitForDashboardCompletion(targetEmail, 85000);
-      setSignupStatus(`2/3 Membuka tab verifikasi di browser, konfirmasi akun, login otomatis & melewati onboarding...`, 'warn');
-
-      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-        await chrome.runtime.sendMessage({
-          action: 'VERIFY_ELEVENLABS_ACCOUNT',
-          payload: {
-            verifyUrl: url,
-            email: targetEmail,
-            password: 'Jovan@1224',
-          },
-        });
-      } else {
-        window.open(url, '_blank');
-      }
-
-      const dashboardResult = await dashboardPromise;
-      if (targetEmail) {
-        await window.SupabaseBridge.updateElevenLabsAccount(targetEmail, {
-          status: 'active',
-        });
-      }
-
-      if (dashboardResult.success) {
-        setSignupStatus(`🎉 3/3 SUKSES TOTAL! Akun ${targetEmail || ''} telah terverifikasi, onboarding dilewati, & masuk ke Dashboard ElevenLabs!`, 'success');
-      } else {
-        setSignupStatus(`🎉 Link verifikasi diproses & akun diaktifkan! Selesaikan onboarding di tab browser jika ada.`, 'success');
-      }
-      if (inputManualVerifyUrl) inputManualVerifyUrl.value = '';
-      await loadElevenLabsAccounts();
-    } catch (err) {
-      console.error('[DirectVerify Error]', err);
-      setSignupStatus(`❌ Gagal memproses verifikasi: ${err.message}`, 'error');
-    } finally {
-      if (btnProcessManualVerify) btnProcessManualVerify.disabled = false;
-    }
-  }
-
-  async function handleManualVerify(email, btnEl) {
-    if (btnEl) btnEl.disabled = true;
-    setSignupStatus(`1/4 Mengambil link verifikasi dari n8n webhook untuk ${email}...`, 'warn');
-
-    try {
-      if (!window.ElevenLabsVerify) {
-        throw new Error('Modul ElevenLabsVerify belum siap.');
-      }
-
-      // Gunakan pollForVerifyUrl: 35 attempts x 3s = 105s
-      const res = await window.ElevenLabsVerify.pollForVerifyUrl(email, {
-        initialDelayMs: 500,
-        maxAttempts: 35,
-        intervalMs: 3000,
-        onProgress: (m) => setSignupStatus(`1/4 ${m}`, 'warn'),
-      });
-
-      if (res && res.verifyUrl) {
-        setSignupStatus(`2/4 Link verifikasi valid ditemukan! Membuka browser & auto-skip onboarding sampai dashboard...`, 'warn');
-
-        // 1. Simpan link verifikasi ke Supabase
-        await window.SupabaseBridge.updateElevenLabsAccount(email, {
-          verification_link: res.verifyUrl,
-        });
-
-        // 2. Pasang listener penantian onboarding dashboard
-        const dashboardPromise = waitForDashboardCompletion(email, 85000);
-
-        // 3. Buka tab verifikasi & jalankan auto-skip onboarding
-        setSignupStatus(`3/4 Memverifikasi email, login otomatis, & melewati onboarding...`, 'warn');
-        if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-          await chrome.runtime.sendMessage({
-            action: 'VERIFY_ELEVENLABS_ACCOUNT',
-            payload: {
-              verifyUrl: res.verifyUrl,
-              email,
-              password: 'Jovan@1224',
-            },
-          });
-        } else {
-          window.open(res.verifyUrl, '_blank');
-        }
-
-        // Tunggu tab menyelesaikan seluruh onboarding sampai ke dashboard
-        const dashboardResult = await dashboardPromise;
-
-        // 4. Update status di Supabase menjadi active
-        await window.SupabaseBridge.updateElevenLabsAccount(email, {
-          status: 'active',
-        });
-
-        if (dashboardResult.success) {
-          setSignupStatus(`🎉 4/4 BERHASIL TOTAL! Akun ${email} telah diverifikasi, login, melewati onboarding, & masuk Dashboard ElevenLabs!`, 'success');
-        } else {
-          setSignupStatus(`🎉 Link verifikasi diproses & akun diaktifkan di Supabase! Selesaikan sisa onboarding di tab ElevenLabs jika masih ada.`, 'success');
-        }
-
-        await loadElevenLabsAccounts();
-      } else {
-        throw new Error('Link verifikasi kosong dari webhook n8n.');
-      }
-    } catch (err) {
-      console.error('[Manual Verify Error]', err);
-      setSignupStatus(`❌ Gagal verifikasi ${email}: ${err.message}`, 'error');
-    } finally {
-      if (btnEl) btnEl.disabled = false;
-    }
-  }
-
+  /**
+   * Alur jelas & stabil pendaftaran akun ElevenLabs:
+   * Signup ➜ Kirim verify link ➜ Ambil link nya ➜ Login/Aktivasi ➜ Lewati Onboarding ➜ Setup Voice Setting
+   * "Dah itu aja nggak usah yang aneh aneh"
+   */
   async function handleAutoSignupElevenLabs() {
     if (isSigningUpElevenLabs) return;
-    const email = inputSignupEmail?.value?.trim();
-    const password = inputSignupPassword?.value?.trim() || 'Jovan@1224';
 
-    if (!email) {
-      setSignupStatus('Target email tidak boleh kosong.', 'error');
-      return;
+    let email = (inputSignupEmail?.value || '').trim();
+    if (!email || !email.includes('@')) {
+      email = generateRandomEmail();
+      if (inputSignupEmail) inputSignupEmail.value = email;
     }
+    const password = (inputSignupPassword?.value || '').trim() || 'Jovan@1224';
 
     isSigningUpElevenLabs = true;
     if (btnAutoSignupElevenLabs) btnAutoSignupElevenLabs.disabled = true;
     if (signupSpinner) signupSpinner.classList.remove('hidden');
-    if (signupBtnText) signupBtnText.textContent = '1/6 Menyimpan ke DB...';
-    setSignupStatus(`1/6 Menyimpan kredensial ${email} ke Supabase Cloud...`, 'warn');
+    if (signupBtnText) signupBtnText.textContent = '1/5 Menyimpan ke DB...';
+    setSignupStatus(`1/5 Menyimpan kredensial ${email} ke Supabase Cloud...`, 'warn');
 
     try {
-      // 1. Simpan ke Supabase terlebih dahulu (Safety requirement)
-      let dbSaved = false;
+      // 1. Simpan ke Supabase (pending_verification)
       try {
-        await window.SupabaseBridge.createElevenLabsAccount({
+        await window.SupabaseBridge.saveElevenLabsAccount({
           email,
           password,
           status: 'pending_verification',
           credits_remaining: 10000,
         });
-        dbSaved = true;
-        setSignupStatus(`1/6 Kredensial tersimpan di Supabase! Membuka form pendaftaran...`, 'warn');
+        setSignupStatus(`1/5 Kredensial tersimpan di Supabase! Membuka form pendaftaran...`, 'warn');
       } catch (dbErr) {
         console.warn('[ElevenLabs] Warning saat simpan ke Supabase:', dbErr);
-        setSignupStatus(`⚠️ Gagal simpan DB (${dbErr.message}), tetap lanjut proses registrasi di browser...`, 'warn');
+        setSignupStatus(`⚠️ Gagal simpan DB (${dbErr.message}), tetap lanjut registrasi...`, 'warn');
       }
 
-      // 2. Kirim pesan ke background script untuk membuka tab & isi form signup
-      if (signupBtnText) signupBtnText.textContent = '2/6 Mendaftar di form...';
-      setSignupStatus(`2/6 Mengisi form & mendaftar di https://elevenlabs.io/app/sign-up...`, 'warn');
+      // 2. Buka tab & form sign up ElevenLabs
+      if (signupBtnText) signupBtnText.textContent = '2/5 Mendaftar di form...';
+      setSignupStatus(`2/5 Mengisi form & mendaftar di https://elevenlabs.io/app/sign-up...`, 'warn');
 
-      let signupRes;
-      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-        signupRes = await chrome.runtime.sendMessage({
-          action: 'OPEN_AND_SIGNUP_ELEVENLABS',
-          payload: { email, password },
-        });
-      } else {
-        throw new Error('Chrome extension runtime messaging tidak tersedia.');
-      }
+      const signupRes = await chrome.runtime.sendMessage({
+        action: 'OPEN_AND_SIGNUP_ELEVENLABS',
+        payload: { email, password },
+      });
 
       if (!signupRes || !signupRes.success) {
-        throw new Error(signupRes?.error || 'Gagal mengeksekusi otomatisasi sign up di tab ElevenLabs.');
+        if (signupRes?.alreadyExists) {
+          setSignupStatus(`ℹ️ Akun ${email} sudah terdaftar. Melakukan login otomatis...`, 'warn');
+          await chrome.runtime.sendMessage({
+            action: 'NAVIGATE_ELEVENLABS_TAB',
+            payload: { tabId: signupRes.tabId, url: 'https://elevenlabs.io/app/sign-in' },
+          });
+          await sleep(2500);
+          await chrome.runtime.sendMessage({
+            action: 'EXECUTE_ELEVENLABS_SIGNIN',
+            payload: { email, password, tabId: signupRes.tabId },
+          });
+          await sleep(2500);
+        } else {
+          throw new Error(signupRes?.error || 'Gagal mengeksekusi pendaftaran akun di tab ElevenLabs.');
+        }
       }
 
-      // 3. Form terkirim, sekarang hubungi n8n webhook untuk polling link verifikasi email
-      if (signupBtnText) signupBtnText.textContent = '3/6 Menunggu link email...';
-      setSignupStatus(`3/6 Form Sign Up terkirim! Mengambil link verifikasi dari inbox (n8n webhook)...`, 'warn');
+      // 3. Ambil link verifikasi dari inbox Gmail
+      if (signupBtnText) signupBtnText.textContent = '3/5 Mengambil link verifikasi...';
+      setSignupStatus(`3/5 Form terkirim! Membuka Gmail untuk mengambil link verifikasi...`, 'warn');
 
       if (!window.ElevenLabsVerify) {
-        throw new Error('Modul ElevenLabsVerify belum terpasang di window.');
+        throw new Error('Modul ElevenLabsVerify belum terpasang.');
       }
 
       const verifyRes = await window.ElevenLabsVerify.pollForVerifyUrl(email, {
-        initialDelayMs: 2000,
-        maxAttempts: 40,
-        intervalMs: 3000,
-        onProgress: (msg) => setSignupStatus(`3/6 ${msg}`, 'warn'),
+        initialDelayMs: 2500,
+        maxWaitSeconds: 120,
+        pollIntervalMs: 3500,
+        onProgress: (msg) => setSignupStatus(`3/5 ${msg}`, 'warn'),
       });
 
       if (!verifyRes || !verifyRes.verifyUrl) {
-        throw new Error('Link verifikasi tidak ditemukan di inbox Gmail setelah batas waktu.');
+        throw new Error('Link verifikasi tidak ditemukan di inbox.');
       }
 
-      // 4. Simpan link verifikasi ke Supabase
-      if (signupBtnText) signupBtnText.textContent = '4/6 Membuka verifikasi...';
-      setSignupStatus(`4/6 Link verifikasi didapatkan! Menyimpan ke Supabase & membuka aktivasi...`, 'warn');
+      // Simpan link verifikasi ke Supabase
       await window.SupabaseBridge.updateElevenLabsAccount(email, {
         verification_link: verifyRes.verifyUrl,
       });
 
-      // 5. Buka link verifikasi untuk aktivasi akun ElevenLabs & auto-skip onboarding
-      if (signupBtnText) signupBtnText.textContent = '5/6 Onboarding auto-skip...';
-      setSignupStatus(`5/6 Membuka link verifikasi, login otomatis, & melewati onboarding sampai dashboard...`, 'warn');
+      // 4. Buka link verifikasi, login, & lewati onboarding sampai Dashboard
+      if (signupBtnText) signupBtnText.textContent = '4/5 Verifikasi & lewati onboarding...';
+      setSignupStatus(`4/5 Membuka link verifikasi, login, & melewati onboarding sampai Dashboard...`, 'warn');
 
-      // Pasang listener untuk menunggu hingga dashboard selesai dicapai
       const dashboardPromise = waitForDashboardCompletion(email, 85000);
 
       await chrome.runtime.sendMessage({
         action: 'VERIFY_ELEVENLABS_ACCOUNT',
         payload: {
           verifyUrl: verifyRes.verifyUrl,
-          tabId: signupRes.tabId,
+          tabId: signupRes?.tabId,
           email,
           password,
         },
       });
 
-      // Tunggu hingga tab ElevenLabs mengonfirmasi bahwa dashboard telah dicapai
       const dashboardResult = await dashboardPromise;
+      if (!dashboardResult || !dashboardResult.success) {
+        console.warn('[ElevenLabs] Dashboard completion timeout/manual check.');
+      }
 
-      // 6. Update status di Supabase menjadi active
+      // Pastikan tab berada di halaman Text-to-Speech
+      let reachedTts = false;
+      for (let wait = 0; wait < 25; wait++) {
+        const tabCheck = await chrome.runtime.sendMessage({ action: 'GET_ELEVENLABS_STATUS' });
+        if (tabCheck?.status === 'DASHBOARD_TTS') {
+          reachedTts = true;
+          break;
+        }
+        if (tabCheck?.status === 'DASHBOARD_HOME') {
+          setSignupStatus('Mengarahkan ke halaman Text-to-Speech...', 'warn');
+          await chrome.runtime.sendMessage({
+            action: 'NAVIGATE_ELEVENLABS_TAB',
+            payload: { tabId: tabCheck.tabId, url: 'https://elevenlabs.io/app/speech-synthesis/text-to-speech' }
+          });
+          await sleep(2500);
+          reachedTts = true;
+          break;
+        }
+        if (tabCheck?.status === 'ONBOARDING') {
+          setSignupStatus(`Menyelesaikan langkah onboarding ElevenLabs (${wait}s)...`, 'warn');
+          await chrome.runtime.sendMessage({
+            action: 'EXECUTE_POST_VERIFY_ONBOARDING',
+            payload: { tabId: tabCheck.tabId }
+          }).catch(() => {});
+        }
+        await sleep(1200);
+      }
+
+      if (!reachedTts) {
+        await chrome.runtime.sendMessage({
+          action: 'NAVIGATE_ELEVENLABS_TAB',
+          payload: { url: 'https://elevenlabs.io/app/speech-synthesis/text-to-speech' }
+        });
+        await sleep(3000);
+      }
+
+      // 5. Setup voice setting: Dany Saputra, Eleven v3, Robust
+      if (signupBtnText) signupBtnText.textContent = '5/5 Setup voice setting...';
+      setSignupStatus(`5/5 Mengonfigurasi Voice Setting (Dany Saputra, Eleven v3, Robust)...`, 'warn');
+      await sleep(2000);
+
+      try {
+        await chrome.runtime.sendMessage({
+          action: 'CONFIGURE_ELEVENLABS_TTS',
+          payload: {
+            voiceName: 'Dany Saputra',
+            modelName: 'Eleven v3',
+            stability: 'robust',
+          },
+        });
+      } catch (cfgErr) {
+        console.warn('[ElevenLabs] Voice setting warning:', cfgErr.message);
+      }
+
+      // Update akun aktif di Supabase
       await window.SupabaseBridge.updateElevenLabsAccount(email, {
         status: 'active',
       });
 
-      if (dashboardResult.success) {
-        setSignupStatus(`🎉 6/6 SUKSES TOTAL! Akun ${email} telah mendaftar, verifikasi, login, melewati onboarding, dan masuk Dashboard ElevenLabs (10.000 Credits)!`, 'success');
-      } else {
-        setSignupStatus(`🎉 Akun ${email} aktif di Supabase Cloud (10.000 Credits)! Auto-skip verifikasi telah berjalan, silakan cek tab browser jika ada onboarding tersisa.`, 'success');
-      }
-
-      // Refresh daftar akun
-      await loadElevenLabsAccounts();
+      setSignupStatus(
+        `🎉 SELESAI! Akun ${email} aktif, onboarding dilewati, dan Voice Setting (Dany Saputra + Eleven v3 + Robust) telah siap! Silakan salin naskah narasi di bawah.`,
+        'success'
+      );
 
       // Buat email acak baru untuk pendaftaran berikutnya
       if (inputSignupEmail) {
         inputSignupEmail.value = generateRandomEmail();
       }
     } catch (err) {
-      console.error('[ElevenLabs Signup Error]', err);
+      console.error('[ElevenLabs Flow Error]', err);
       setSignupStatus(`❌ Gagal: ${err.message}`, 'error');
     } finally {
       isSigningUpElevenLabs = false;
       if (btnAutoSignupElevenLabs) btnAutoSignupElevenLabs.disabled = false;
-      if (signupSpinner) signupSpinner.classList.remove('hidden');
-      if (signupBtnText) signupBtnText.textContent = '🚀 Daftar & Simpan ke Supabase';
+      if (signupSpinner) signupSpinner.classList.add('hidden');
+      if (signupBtnText) signupBtnText.textContent = '🚀 Mulai Proses Otomasi (Signup ➔ Setup Voice)';
     }
   }
 
@@ -2107,14 +2157,68 @@ document.addEventListener('DOMContentLoaded', async () => {
     await handleAutoSignupElevenLabs();
   });
 
-  btnFetchLinkOnly?.addEventListener('click', async () => {
-    const email = inputSignupEmail?.value?.trim();
-    if (!email) {
-      setSignupStatus('Target email tidak boleh kosong.', 'error');
+  async function handleDirectVerifyUrl() {
+    const url = (inputManualVerifyUrl?.value || '').trim();
+    if (!url || !url.startsWith('http')) {
+      setSignupStatus('Format URL verifikasi tidak valid. Salin tautan lengkap dari tombol "Verify email" di Gmail.', 'error');
       return;
     }
-    await handleManualVerify(email, btnFetchLinkOnly);
-  });
+    const targetEmail = (inputSignupEmail?.value || '').trim();
+    if (btnProcessManualVerify) btnProcessManualVerify.disabled = true;
+    setSignupStatus(`1/3 Memproses verifikasi manual...`, 'warn');
+
+    try {
+      if (targetEmail) {
+        await window.SupabaseBridge.updateElevenLabsAccount(targetEmail, {
+          verification_link: url,
+        });
+      }
+
+      const dashboardPromise = waitForDashboardCompletion(targetEmail, 85000);
+      setSignupStatus(`2/3 Membuka tab verifikasi, konfirmasi akun, login & lewati onboarding...`, 'warn');
+
+      await chrome.runtime.sendMessage({
+        action: 'VERIFY_ELEVENLABS_ACCOUNT',
+        payload: {
+          verifyUrl: url,
+          email: targetEmail,
+          password: (inputSignupPassword?.value || '').trim() || 'Jovan@1224',
+        },
+      });
+
+      const res = await dashboardPromise;
+
+      // Setup Voice Setting: Dany Saputra, Eleven v3, Robust
+      setSignupStatus(`3/3 Menyiapkan Voice Setting (Dany Saputra, Eleven v3, Robust)...`, 'warn');
+      await sleep(2000);
+      try {
+        await chrome.runtime.sendMessage({
+          action: 'CONFIGURE_ELEVENLABS_TTS',
+          payload: {
+            voiceName: 'Dany Saputra',
+            modelName: 'Eleven v3',
+            stability: 'robust',
+          },
+        });
+      } catch (cfgErr) {
+        console.warn('[DirectVerify] Voice setting warning:', cfgErr.message);
+      }
+
+      if (targetEmail) {
+        await window.SupabaseBridge.updateElevenLabsAccount(targetEmail, {
+          status: 'active',
+        });
+      }
+
+      setSignupStatus(`🎉 BERHASIL TOTAL! Akun ${targetEmail || ''} terverifikasi & Voice Setting telah siap!`, 'success');
+      if (inputManualVerifyUrl) inputManualVerifyUrl.value = '';
+    } catch (err) {
+      console.error('[DirectVerify Error]', err);
+      setSignupStatus(`❌ Gagal: ${err.message}`, 'error');
+    } finally {
+      if (btnProcessManualVerify) btnProcessManualVerify.disabled = false;
+    }
+  }
 
   btnProcessManualVerify?.addEventListener('click', async () => {
     await handleDirectVerifyUrl();
@@ -2127,11 +2231,35 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  btnRefreshAccounts?.addEventListener('click', async () => {
-    await loadElevenLabsAccounts();
+  btnRefreshTtsParts?.addEventListener('click', async () => {
+    const targetSession = sessionSelect?.value || (activeSessions?.[0]?.id);
+    if (targetSession) {
+      setSignupStatus('Memperbarui daftar narasi dari Supabase...', 'warn');
+      await loadChunks(targetSession);
+      setSignupStatus('Daftar narasi berhasil diperbarui!', 'success');
+    } else {
+      await loadSessions();
+    }
   });
 
-  // Restore saved active tab
+  btnOpenElevenLabs?.addEventListener('click', () => {
+    chrome.tabs.create({ url: 'https://elevenlabs.io/app/speech-synthesis' });
+  });
+
+  btnManualSignOutElevenLabs?.addEventListener('click', async () => {
+    setSignupStatus('Memproses Sign Out akun ElevenLabs...', 'warn');
+    try {
+      await chrome.runtime.sendMessage({ action: 'SIGN_OUT_ELEVENLABS' });
+      setSignupStatus('Berhasil Sign Out dari ElevenLabs.', 'success');
+    } catch (e) {
+      setSignupStatus(`Gagal Sign Out: ${e.message}`, 'error');
+    }
+  });
+
+  // Initial connection
+  await initConnection();
+
+  // Restore saved active tab after initial data is loaded
   try {
     const saved = await safeStorageGet(['extensionActiveTab']);
     if (saved?.extensionActiveTab === 'elevenlabs') {
@@ -2145,11 +2273,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (msg.action === 'ELEVENLABS_ONBOARDING_COMPLETED') {
         const { email } = msg.payload || {};
         setSignupStatus(`🎉 DASHBOARD TERCAPAI! Akun ${email || ''} telah siap digunakan di ElevenLabs!`, 'success');
-        loadElevenLabsAccounts();
       }
     });
   }
-
-  // Initial connection
-  await initConnection();
 });
+

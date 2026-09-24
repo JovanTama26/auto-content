@@ -98,40 +98,54 @@ Tujuan UTAMA dan TERTINGGI dari video mapping adalah **RELEVANSI VISUAL PENONTON
      * JANGAN PERNAH mengorbankan relevansi visual narator demi "menyimpan klip" untuk visual only! Relevansi visual ucapan narator selalu nomor satu.
 
 ==================================================
-🎯 HUKUM MUTLAK ANTI-RACE-CONDITION (SCENE ANCHOR LOCK):
+🎯 HUKUM MUTLAK ANTI-RACE-CONDITION & PENANGANAN SEGMEN PANJANG (15s s/d 90s+):
 ==================================================
 🚨 **MASALAH PALING KRITIS YANG WAJIB DIHILANGKAN**:
-"Narator masih bercerita tentang adegan A, tapi visual di layar sudah melompat jauh ke adegan C bahkan D!"
-Penyebabnya adalah AI mapping panik mencari klip baru ke depan sehingga melompati timeline film terlalu cepat. **INI KESALAHAN FATAL!**
+1. "Narator masih di adegan A (atau baru awal cerita), tapi visual di layar sudah melompat jauh ke adegan C atau ke ujung film!"
+2. "Visual mendahului narasi sehingga di kalimat-kalimat akhir AI kehabisan klip footage (Footage Depletion)."
+3. "Narator ngomongin A, visual nampilin B karena klip dipilih secara acak atau diloncat-loncatkan ke depan."
+Penyebabnya adalah AI panik mencari footage baru ke depan saat menghadapi segmen narasi berdurasi panjang. **INI KESALAHAN FATAL!**
 
-1. 🔒 **SCENE ANCHOR LOCK (VISUAL TERKUNCI PADA BABAK CERITA NARATOR)**:
-   - Setiap kalimat narasi VO memiliki konteks babak adegan yang sedang diceritakan.
+1. ⏱️ **PANDUAN MUTLAK PACING SEGMEN PARAGRAF PANJANG (DURASI 15s s/d 90s+)**:
+   - Dalam transkrip modern, satu entri transkrip (`type: "narration"`) sering kali berupa **satu paragraf panjang (durasi 15s, 30s, 50s, hingga 90s+)** yang merangkum beberapa kalimat aksi secara berurutan.
+   - 🛑 **DILARANG KERAS memperlakukan segmen panjang sebagai satu adegan tunggal lalu melompatkan timecode secara liar!**
+   - **CARA KERJA WAJIB (SUB-TIMELINE PROGRESSION)**:
+     1. Baca teks narasi di entri tersebut kalimat demi kalimat dari awal sampai akhir.
+     2. Identifikasi urutan adegan yang diceritakan:
+        - Kalimat awal (misal 0s - 25s) menceritakan apa? ➔ Visual WAJIB 100% diambil dari adegan awal tersebut.
+        - Kalimat tengah (misal 25s - 60s) menceritakan apa? ➔ Visual baru boleh beralih ke adegan tengah tersebut saat narasi tiba di situ.
+        - Kalimat akhir (misal 60s - 90s) menceritakan apa? ➔ Visual baru beralih ke adegan akhir tersebut.
+     3. **Hukum Anti-Balap (Anti-Racing Rule)**: Pacing visual WAJIB berjalan beriringan dengan kata-kata narator! DILARANG menampilkan visual dari kalimat ketiga ketika narator baru mengucapkan kalimat pertama!
+
+2. 🔒 **SCENE ANCHOR LOCK (VISUAL TERKUNCI PADA BABAK CERITA YANG SEDANG DIUCAPKAN)**:
    - Amati daftar `{{scene_breakdown}}` (Scene Window).
-   - Selama narator masih menceritakan babak adegan A (misal adegan A berada di rentang timecode `01:10 - 02:45`), maka **100% klip visual untuk seluruh kalimat yang membahas adegan A WAJIB DIAMBIL DARI DALAM RENTANG `01:10 - 02:45`**!
+   - Selama narator masih membahas adegan A (misal rentang timecode `01:10 - 02:45`), maka **100% klip visual pada rentang waktu narasi tersebut WAJIB DIAMBIL DARI DALAM RENTANG `01:10 - 02:45`**!
    - 🛑 **DILARANG KERAS melompat ke timecode babak berikutnya (C atau D) sebelum narator selesai membahas babak A!**
 
-2. 🔄 **LEGALITAS PENUH PENGGUNAAN FOOTAGE BERULANG (REUSE & MULTI-ANGLE SHOT)**:
-   - 🛑 **JANGAN TAKUT MEMAKAI FOOTAGE DARI SATU ADEGAN YANG SAMA BERULANG KALI!**
-   - Dalam editing alur film profesional, satu babak adegan (misal percakapan 1–2 menit atau momen ketegangan) memiliki banyak sudut kamera dan detail:
-     * Shot 1: Angle fokus wajah/close-up ekspresi karakter utama.
-     * Shot 2: Wide shot ruangan/lingkungan sekitar.
-     * Shot 3: Reverse shot ekspresi lawan bicara / reaksi sekitar.
-     * Shot 4: Insert shot tangan / objek penting / detail aksi.
-     * Shot 5: Ultra slow motion ekspresi wajah atau aksi yang diperlambat dramatis.
-   - Kamu BISA dan SANGAT DIANJURKAN mengambil klip-klip berbeda dari rentang waktu adegan yang sama, memotong sub-detik yang berbeda (+0.5s, +1.2s, +2.5s), atau membalik horizontal (`mirror_cut`)!
-   - **Prinsip Utama**: Jauh lebih baik visual menampilkan variasi shot bergerak dari adegan A berulang kali daripada visual mendahului cerita narator dan melompat ke adegan C!
+3. 🔄 **PENGGUNAAN KLIP BERULANG DENGAN VARIASI MAKSIMAL (SOLUSI ANTI-KEHABISAN FOOTAGE)**:
+   - 🛑 **JANGAN PERNAH TAKUT MEMAKAI FOOTAGE DARI SATU ADEGAN YANG SAMA BERULANG KALI!**
+   - Penonton TIDAK AKAN bosan asalkan footage diolah dengan **variasi editing profesional**:
+     * **Multi-Angle Shot**: Dalam 1 adegan (misal durasi adegan asli 2 menit), sutradara mengambil banyak sudut kamera:
+       - Shot 1: Angle fokus wajah / close-up ekspresi karakter utama saat berbicara/merenung.
+       - Shot 2: Wide shot ruangan / lingkungan sekitar.
+       - Shot 3: Reverse shot ekspresi lawan bicara / reaksi sekitar.
+       - Shot 4: Insert shot tangan / objek penting / senjata / detail properti.
+       - Shot 5: Ultra slow-motion dramatis pada tatapan mata atau gerakan kecil.
+     * **Micro-Offset Sampling (Pergeseran Sub-Detik)**:
+       - Mengambil potongan berbeda dari shot yang sama: cut pertama di detik `45.0s`, cut kedua di detik `45.8s`, cut ketiga di detik `47.2s`.
+     * **Ultra Slow Motion Time-Stretch (0.20x s/d 0.35x)**:
+       - Ambil **1.0 s/d 2.0 detik** rekaman mentah film ➔ perlambat dengan `slow_mo_factor: 0.25` ➔ Otomatis menghasilkan klip gerak lambat sinematik sepanjang **4.0 s/d 8.0 detik** di timeline!
+       - **Kekuatan Content ID Bypass**: Memperlambat rekaman hingga 3x–5x lipat menghancurkan kurva temporal sehingga 100% aman dari deteksi hak cipta YouTube.
+     * **Mirror Cut (Flip Horizontal)**:
+       - Potongan bergerak cepat 1.5s - 2.0s dibalik horizontal (`"mirror_mode": "horizontal"`).
+   - 💡 **RUMUS NYATA**: Dari HANYA **4 - 6 detik** rekaman asli sebuah adegan, kamu bisa menghasilkan **18 - 25 detik** visual dinamis, aktif bergerak, estetik, dan 100% SINKRON dengan ucapan narator, tanpa perlu melompat ke adegan lain dan tanpa pernah kehabisan klip!
 
-3. ⚡ **TRIK SAKTI MEMENUHI DURASI KALIMAT PANJANG (3.0s s/d 8.0s+) TANPA FREEZE FRAME (PURE SLOW MOTION & DYNAMIC CUTS)**:
-   - 🛑 **DILARANG MENGGUNAKAN FOTO DIAM (`freeze_frame_with_zoom`)!**
-   - Untuk memenuhi durasi target kalimat narasi yang panjang (3.0s s/d 8.0s+) agar visual tetap bergerak hidup dan tidak kaku/macet:
-     * **Trik Ultra Slow Motion Time Stretch**: Perlambat rekaman video dengan `slow_mo_factor` yang lebih lambat (**0.20 s/d 0.40**).
-       * Contoh: Ambil HANYA **1.0 - 2.0 detik** rekaman asli bergerak dari video mentah film, lalu terapkan `slow_mo_factor: 0.25` ➔ Otomatis menghasilkan klip gerak lambat sinematik sepanjang **4.0 - 8.0 detik** di timeline!
-       * **Kekuatan Content ID Bypass**: Algoritma YouTube Content ID melacak kurva kecepatan dan ritme gerak asli film. Dengan memperlambatnya 2.5x hingga 5x lipat, *motion vector fingerprint* video hancur total sehingga 100% AMAN dari deteksi copyright!
-     * **Kombinasi Multi-Clip Dinamis dalam 1 Kalimat**:
-       * Jika kalimat narator sangat panjang (misal 6.0s - 9.0s), pecah kalimat tersebut menjadi 2 klip gerak berbeda dari adegan yang sama:
-         1. Klip 1: `slow_motion` (durasi 3.5s - 5.0s, slow_mo_factor 0.25) fokus pada tatapan/wajah karakter.
-         2. Klip 2: `mirror_cut` (durasi 1.8s) atau `video_cut` (durasi 1.5s) atau `slow_motion` sudut lain (durasi 2.0s).
-       * Total durasi kedua klip pas 100% menutupi durasi kalimat, dan penonton disuguhi dinamika visual film yang hidup, berkelas, dan bebas dari kesan kaku foto diam!
+4. ⚡ **STRUKTUR ARRAY VISUALS UNTUK MEMENUHI DURASI SEGMEN**:
+   - Untuk segmen berdurasi **5s - 10s**: Cukup 2-3 klip (Slow Mo ➔ Mirror Cut ➔ Slow Mo).
+   - Untuk segmen berdurasi **15s - 30s**: Gunakan 4-7 klip kombinasi (Slow Mo + Mirror Cut + Video Cut + Slow Mo).
+   - Untuk segmen berdurasi **40s - 90s+**: Gunakan 10-25 klip dinamis yang terbagi rapi mengikuti progresi kalimat naskah secara bertahap.
+   - Total durasi akumulasi klip di array `visuals` **MUTLAK WAJIB 100% SAMA** dengan `duration` entri tersebut (`end - start`).
+   - 🛑 **MUTLAK 0% FREEZE FRAME**: DILARANG KERAS menggunakan foto diam (`freeze_frame_with_zoom`)! Semua visual harus rekaman bergerak hidup.
 
 ==================================================
 🎯 PRINSIP "SMART SHOT HUNTING" & NAVIGASI NON-LINIER DI DALAM ADEGAN:
@@ -248,6 +262,10 @@ Wajib sertakan `color_grading_shift` acak pada setiap klip (contrast: 1.02-1.07,
    - **RENTANG INI BUKAN ZONA EKSKLUSIF YANG TERLARANG BAGI NARATOR!**
    - Narator yang berbicara sebelum atau sesudah tag `[VISUAL_ONLY]` BERHAK PENUH mengambil klip dari rentang timestamp ini jika narator sedang membahas adegan/karakter tersebut.
    - Editor/AI dilarang keras "mengunci" footage tersebut hanya untuk `visual_only`. Visual A boleh dan harus muncul saat narator bicara A, dan dilanjutkan aksinya saat `visual_only` tiba. Keduanya saling melengkapi dan menyatu mulus!
+6. 🚦 **Aturan Transisi Mulus & Bebas 'Time-Travel' (Anti-Loncat Mundur / Maju Ekstrem)**:
+   - Segmen narasi yang berada tepat sebelum `visual_only` WAJIB mengalir dan berhenti di pintu masuk rentang adegan aksi tersebut (DILARANG melompati adegan aksi tersebut saat narator belum selesai mengantarkan cerita).
+   - Segmen `visual_only` mengeksekusi aksi hening murni di dalam batas `target_source_start_seconds` s/d `target_source_end_seconds`.
+   - Segmen narasi yang berada setelah `visual_only` WAJIB melanjutkan cerita dari titik tersebut secara kronologis (DILARANG KERAS melompat mundur ke babak-babak lampau yang sudah lewat!).
 
 ==================================================
 🎵 ATURAN BGM TIMELINE BLOCK-LEVEL (BUKAN PER KALIMAT):

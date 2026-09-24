@@ -406,15 +406,19 @@ const AlurfilmAnalyzeStep: React.FC = () => {
         const chunkDurText = chunkDur < 60
           ? `${Math.round(chunkDur)} Detik`
           : `${(chunkDur / 60).toFixed(1)} Menit`;
-        const isFirstPartStr = partNum === 1
-          ? 'YA (Part Pembuka Film Utama - Langsung masuk ke alur cerita tanpa intro/sapaan formal)'
-          : `TIDAK (Chunk #${partNum} / Part Lanjutan)`;
+        const isFirstPartStr = partNum === 0
+          ? 'YA (Part #0 Intro Teaser Highlight - Sapa penonton secara friendly & santai seperti gaya IQ7/Alurfilm. DILARANG menyebut nama/judul film!)'
+          : partNum === 1
+            ? 'YA (Part Pembuka Film Utama - Langsung masuk ke alur cerita tanpa intro formal. DILARANG menyebut nama/judul film!)'
+            : `TIDAK (Chunk #${partNum} / Part Lanjutan)`;
         const isLastPart = partNum > 0 && partNum === maxMainPart;
-        const isLastPartStr = isLastPart ? 'YA (Chunk Terakhir / Part Penutup Film)' : 'TIDAK (Part Bukan Penutup)';
+        const isLastPartStr = isLastPart ? 'YA (Chunk Terakhir / Part Penutup Film - Akhiri tanpa menyebut judul film)' : 'TIDAK (Part Bukan Penutup)';
         const prevCtxStr = prevContext ? JSON.stringify(prevContext, null, 2) : 'Tidak ada (Awal Film)';
-        const styleExampleStr = partNum === 1
-          ? 'Buka langsung dengan premis & ancaman/kondisi nyata (misal: "Cerita dimulai pada [tahun/tempat] di mana kita diperlihatkan dengan [ancaman/kondisi besar]..."). Gunakan gaya semi-formal sinematik yang runut, mengalir enak di telinga, dan berbasis aksi fisik nyata (sambungkan antarklausa dengan: "di mana...", "yang membuat...", "hingga...", "sebab...", "namun sayangnya..."). DILARANG diksi gaul alay (si doi, bapak ini, apesnya tuh) dan DILARANG renungan puitis ngawang.'
-          : 'Gunakan gaya penceritaan alur film semi-formal sinematik yang runut, mengalir, dan berbasis aksi nyata (sambungkan antarklausa dengan "di mana...", "yang membuat...", "hingga...", "sebab...", "namun sayangnya..."). DILARANG diksi gaul alay (si doi, bapak ini, apesnya tuh) dan DILARANG renungan puitis ngawang.';
+        const styleExampleStr = partNum === 0
+          ? 'Gunakan gaya penceritaan yang super friendly, santai, mengalir hangat, dan akrab khas pencerita alur film populer. Sampaikan narasi teaser intro yang membakar rasa penasaran penonton (hooking) dan mengalir mulus tanpa kaku! DILARANG KERAS menyebutkan nama/judul film (gunakan "film yang satu ini" atau "film seru ini").'
+          : partNum === 1
+            ? 'Buka naskah secara fleksibel (langsung ke premis aksi karakter ATAU sebutan pengganti seperti "Film yang satu ini menceritakan..."). DILARANG KERAS menyebutkan judul film! Gunakan gaya semi-formal sinematik yang runut, mengalir enak di telinga, dan berbasis aksi fisik nyata (sambungkan antarklausa dengan: "di mana...", "yang membuat...", "hingga...", "sebab...", "namun sayangnya..."). DILARANG diksi gaul alay (si doi, bapak ini, apesnya tuh) dan DILARANG renungan puitis ngawang.'
+            : 'Gunakan gaya penceritaan alur film semi-formal sinematik yang runut, mengalir, dan berbasis aksi nyata (sambungkan antarklausa dengan "di mana...", "yang membuat...", "hingga...", "sebab...", "namun sayangnya..."). DILARANG diksi gaul alay (si doi, bapak ini, apesnya tuh) dan DILARANG renungan puitis ngawang. DILARANG menyebutkan nama/judul film!';
 
         formattedPrompt = (promptTpl || '')
           .replace(/\{\{chunk_part\}\}/g, String(partNum))
