@@ -7,7 +7,7 @@ const DEFAULT_SETTINGS: RenderSettings = {
   narrationVolume: 1.8,
   bgmVolume: 0.18,
   bgmEnabled: true,
-  bgmPath: 'assets/bgm/05_santai_misteri/Paper Map Morning.mp3',
+  bgmPath: "assets/bgm/05_santai_misteri/'Solace' [Calm Piano & Strings CC-BY] - Scott Buckley.mp3",
   logoEnabled: true,
   logoPath: 'assets/logo.png',
   logoOpacity: 0.6,
@@ -19,7 +19,7 @@ const DEFAULT_SETTINGS: RenderSettings = {
   introFadeInStory: true,
   introFadeDuration: 1.0,
   introTitleText: 'UNDER THE DOME',
-  introSubtitleText: 'ALUR CERITA FILM',
+  introSubtitleText: 'FILM 2024',
   introStylePreset: 'cinematic_gold',
   introDuration: 6.0,
   introImpactTimestamp: 0.48,
@@ -757,10 +757,22 @@ const AlurfilmRenderStep: React.FC = () => {
                           if (api.getAlurfilmMetadata) {
                             const meta = await api.getAlurfilmMetadata(contentId || undefined);
                             if (meta) {
-                              const titleToUse = meta.selectedTitle || (meta.titles && meta.titles[0]?.title);
-                              if (titleToUse) {
-                                setSettings((prev) => ({ ...prev, introTitleText: titleToUse.toUpperCase() }));
-                                showToast(`✨ Judul Intro diisi dari Metadata: "${titleToUse}"`);
+                              const rawTitle = meta.selectedTitle || (meta.titles && meta.titles[0]?.title);
+                              if (rawTitle) {
+                                // Extract year if present, e.g. "Maleficent (2014)" -> title "MALEFICENT", sub "FILM 2014"
+                                const yearMatch = rawTitle.match(/\s*[\(\[]?(\b(19\d\d|20\d\d)\b)[\)\]]?/i);
+                                let cleanTitle = rawTitle;
+                                let year = '';
+                                if (yearMatch) {
+                                  year = yearMatch[1];
+                                  cleanTitle = rawTitle.replace(yearMatch[0], '').trim();
+                                }
+                                setSettings((prev) => ({
+                                  ...prev,
+                                  introTitleText: cleanTitle.toUpperCase(),
+                                  ...(year ? { introSubtitleText: `FILM ${year}` } : {}),
+                                }));
+                                showToast(`✨ Judul Intro diisi: "${cleanTitle.toUpperCase()}"${year ? ` (FILM ${year})` : ''}`);
                                 return;
                               }
                             }
@@ -788,7 +800,7 @@ const AlurfilmRenderStep: React.FC = () => {
                       type="text"
                       value={settings.introSubtitleText || ''}
                       onChange={(e) => setSettings({ ...settings, introSubtitleText: e.target.value })}
-                      placeholder="ALUR CERITA FILM"
+                      placeholder="FILM 2024"
                       className="w-full bg-gray-900 border border-gray-700 text-white rounded-lg p-2 text-[11px] font-mono focus:border-amber-500 focus:outline-none uppercase"
                     />
                   </div>

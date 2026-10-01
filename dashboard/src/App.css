@@ -1,1 +1,11 @@
 /* App-level custom styles — minimal, Tailwind handles most */
+@import url('https://fonts.googleapis.com/css2?family=Dorsa&family=Montserrat:wght@700;800;900&display=swap');
+
+.font-dorsa {
+  font-family: 'Dorsa', sans-serif;
+  letter-spacing: 0.05em;
+}
+
+.font-montserrat {
+  font-family: 'Montserrat', sans-serif;
+}

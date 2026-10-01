@@ -26,35 +26,35 @@ Berikut adalah daftar file audio MP3 yang **benar-benar ada dan aktif digunakan*
 ### 1. 📁 `01_tegang_suspense` (High Tension & Thriller)
 * **Suasana:** Berdebar, intimidasi, ancaman musuh, terdesak waktu, bahaya mengintai.
 * **File MP3 Fisik:**
-  * `assets/bgm/01_tegang_suspense/Black Glass Corridor.mp3`
+  * `assets/bgm/01_tegang_suspense/Somber Fairytale.mp3`
 
 ---
 
 ### 2. 📁 `02_aksi_seru` (Fast Pacing & Fight Scene)
-* **Suasana:** Beat cepat, drum bertenaga, adrenalin tinggi, perkelahian, kejar-kejaran mobil.
+* **Suasana:** Beat cepat, drum bertenaga, adrenalin tinggi, perkelahian, kejar-kejaran seru.
 * **File MP3 Fisik:**
-  * `assets/bgm/02_aksi_seru/Shard of Thunder.mp3`
+  * `assets/bgm/02_aksi_seru/L'Assaut Final.mp3`
 
 ---
 
 ### 3. 📁 `03_sedih_haru` (Tragedy & Underdog Low Point)
-* **Suasana:** Piano melankolis, biola menyayat hati, alunan lambat dan emosional.
+* **Suasana:** Cello/biola melankolis menyayat hati, alunan lambat dan emosional, duka mendalam.
 * **File MP3 Fisik:**
-  * `assets/bgm/03_sedih_haru/Velvet After Rain.mp3`
+  * `assets/bgm/03_sedih_haru/Melancholic Cello Theme.mp3`
 
 ---
 
 ### 4. 📁 `04_kebangkitan_epic` (Heroic Comeback & Climax)
-* **Suasana:** Simfoni megah, membakar semangat, drum bertenaga, nada kemenangan.
+* **Suasana:** Simfoni megah, membakar semangat, drum bertenaga, nada kemenangan dan titik balik heroik.
 * **File MP3 Fisik:**
-  * `assets/bgm/04_kebangkitan_epic/Skyward Triumph.mp3`
+  * `assets/bgm/04_kebangkitan_epic/Triomph de l'Éveil.mp3`
 
 ---
 
-### 5. 📁 `05_santai_misteri` (Default Baseline BGM & Casual / Investigation)
-* **Suasana:** Beat lo-fi/hip-hop santai, piano ringan, atau synth teka-teki.
+### 5. 📁 `05_santai_misteri` (DEFAULT BASELINE / GENERAL BGM)
+* **Suasana:** Piano & strings tenang, santai namun berkelas, misteri elegan, cocok untuk segala narasi alur cerita standar.
 * **File MP3 Fisik:**
-  * `assets/bgm/05_santai_misteri/Paper Map Morning.mp3`
+  * `assets/bgm/05_santai_misteri/'Solace' [Calm Piano & Strings CC-BY] - Scott Buckley.mp3`
 
 ---
 
@@ -62,17 +62,18 @@ Berikut adalah daftar file audio MP3 yang **benar-benar ada dan aktif digunakan*
 
 Untuk menjaga kenyamanan (*retention*) penonton dan mencegah kebisingan audio fatigue:
 
-1. **Scene/Babak Level Tagging (Bukan per Sentence):**
-   * Tagging emosi BGM dilakukan pada skala **Babak / Scene** (bertahan 30 detik – 2 menit per mood). Dilarang mengganti BGM per kalimat agar audio tidak terputus-putus.
-2. **Aturan Durasi Minimal BGM (Guard Rule):**
-   * BGM minimal bertahan **20 – 30 detik** sebelum diizinkan berganti ke emosi lain, kecuali jika terjadi klimaks/turning point ekstrim secara tiba-tiba.
-3. **Dominasi Baseline (`05_santai_misteri`):**
-   * Sekitar 60–70% total durasi video tetap mengalir menggunakan BGM baseline ini saat adegan normal/investigasi/penjelasan.
+1. **Dominasi Mutlak Baseline General (`05_santai_misteri` - Solace):**
+   * Sekitar **70%–85% total durasi video** wajib mengalir menggunakan BGM baseline ini.
+   * **Jangan dikit-dikit ganti BGM!** Dan **jangan dikit-dikit pakai BGM emosional** hanya karena ada 1-2 kalimat sedih atau tegang kecil. Jika suasana masih bisa diiringi general base BGM (`Solace`), **wajib tetap gunakan Solace** karena musik ini jauh lebih seimbang dan enak didengar dalam durasi panjang.
+2. **Scene/Babak Level Tagging (Bukan per Sentence):**
+   * Tagging emosi BGM dilakukan pada skala **Babak / Scene** (bertahan minimal 45 detik – 2+ menit per mood). Dilarang keras mengganti BGM per kalimat agar audio tidak terputus-putus.
+3. **Switch Hanya Saat Titik Puncak Ekstrem:**
+   * Perpindahan ke BGM khusus (aksi/sedih/tegang/epic) hanya dilakukan saat adegan benar-benar mencapai puncak (pertarungan sengit besar, kematian karakter inti, klimaks kemenangan). Begitu momen puncak selesai, segera kembalikan ke BGM Baseline (`Solace`).
 4. **Smooth Crossfade (1.5s - 2.0s):**
    * Semua perpindahan BGM antar-scene **wajib menggunakan crossfade 1.5 - 2.0 detik** agar transisi musik terasa mulus tanpa kejut audio.
 5. **Dynamic Sidechain Ducking (Voiceover vs Visual Only):**
    * Saat narator bicara: Volume BGM mengecil ke **-22 dB (15%)** agar narasi jernih.
-   - Saat `VISUAL_ONLY` murni: Volume BGM membesar otomatis ke **-10 dB (45-50%)** untuk memberikan dampak emosi penuh.
+   * Saat `VISUAL_ONLY` murni: Volume BGM membesar otomatis ke **-10 dB (45-50%)** untuk memberikan dampak emosi penuh.
 
 ---
 

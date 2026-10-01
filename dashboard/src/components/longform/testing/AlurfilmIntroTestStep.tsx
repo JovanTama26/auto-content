@@ -316,24 +316,24 @@ const AlurfilmIntroTestStep: React.FC = () => {
                 }}
               >
                 <h1
-                  className={`text-3xl md:text-5xl font-black uppercase tracking-wider transition-colors ${
+                  className={`text-5xl md:text-7xl font-normal uppercase tracking-wider transition-colors font-dorsa ${
                     stylePreset === 'cinematic_gold'
                       ? 'text-amber-400 drop-shadow-[0_0_20px_rgba(229,184,58,0.4)]'
                       : stylePreset === 'silver_epic'
                       ? 'text-slate-200 drop-shadow-[0_0_20px_rgba(255,255,255,0.4)]'
                       : 'text-red-500 drop-shadow-[0_0_20px_rgba(239,68,68,0.5)]'
                   }`}
-                  style={{ fontFamily: 'serif, sans-serif', letterSpacing: '0.08em' }}
+                  style={{ fontFamily: "'Dorsa', sans-serif", letterSpacing: '0.04em' }}
                 >
                   {titleText || 'TITLE TEXT'}
                 </h1>
                 <p
-                  className={`text-xs md:text-sm font-mono tracking-[0.35em] uppercase transition-opacity ${
+                  className={`text-[11px] md:text-xs font-bold tracking-[0.45em] uppercase transition-opacity font-montserrat ${
                     stylePreset === 'neon_thriller' ? 'text-sky-400' : 'text-gray-300'
                   }`}
-                  style={{ opacity: subtitleOpacity }}
+                  style={{ opacity: subtitleOpacity, fontFamily: "'Montserrat', sans-serif" }}
                 >
-                  {subtitleText || 'SUBTITLE'}
+                  {subtitleText || 'FILM 2014'}
                 </p>
               </div>
 

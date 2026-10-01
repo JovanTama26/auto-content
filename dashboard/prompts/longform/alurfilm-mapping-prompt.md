@@ -281,16 +281,33 @@ Wajib sertakan `color_grading_shift` pada setiap klip (gunakan mode `"normal"` u
    - Segmen narasi yang berada setelah `visual_only` WAJIB melanjutkan cerita dari titik tersebut secara kronologis (DILARANG KERAS melompat mundur ke babak-babak lampau yang sudah lewat!).
 
 ==================================================
-🎵 ATURAN BGM TIMELINE BLOCK-LEVEL (BUKAN PER KALIMAT):
+🎵 ATURAN BGM TIMELINE BLOCK-LEVEL & DOMINASI BASE BGM:
 ==================================================
-DILARANG KERAS mengganti BGM setiap kalimat! BGM diatur pada level **RENTANG DURASI BABAK / ADEGAN (minimal bertahan 25 - 60+ detik per BGM)** agar musik mengalir tenang & nyaman di telinga penonton.
+DILARANG KERAS mengganti BGM setiap kalimat atau setiap adegan pendek! Musik harus menyatu, stabil, dan nyaman didengar penonton.
+
+1. 🏛️ **PRINSIP DOMINASI BASELINE / GENERAL BGM (70% - 85% DURASI VIDEO):**
+   - File Base / General: `"'Solace' [Calm Piano & Strings CC-BY] - Scott Buckley.mp3"` (Folder: `05_santai_misteri`).
+   - Jadikan BGM ini sebagai **PONDASI UTAMA / DEFAULT**. Gunakan BGM ini untuk seluruh adegan umum: pengenalan karakter, investigasi, dialog biasa, eksposisi, perjalanan santai, dan narasi alur cerita standar.
+   - **JANGAN DIKIT-DIKIT PAKAI BGM EMOSIONAL!** Jika adegan hanya sekadar ada ketegangan ringan, sedih tipis-tipis, atau percakapan serius biasa, **LEBIH COCOK & WAJIB TETAP PAKAI GENERAL / BASE BGM**. BGM general ini jauh lebih "cook", elegan, dan tidak membuat penonton lelah secara emosional.
+
+2. ⏱️ **ANTI-OVER-SWITCHING (MINIMAL DURASI PANJANG):**
+   - Satu track BGM wajib bertahan minimal **45 s/d 90+ detik**, bahkan bisa sepanjang 1 babak penuh (2-3 menit).
+   - Dilarang mengganti BGM hanya untuk durasi 10-20 detik! Pergantian yang terlalu sering akan membuat penonton terganggu.
+
+3. ⚡ **KAPAN BOLEH SWITCH KE BGM KHUSUS? (HANYA SAAT TITIK PUNCAK EKSTREM):**
+   - Switch ke BGM khusus HANYA diizinkan ketika terjadi perubahan atmosfer cerita yang sangat drastis dan nyata:
+     * `01_tegang_suspense` ➔ File: `"Somber Fairytale.mp3"` (Hanya saat titik ketegangan memuncak, ada ancaman maut/kejar-kejaran tegang, atau jumpscare/teror psikologis nyata).
+     * `02_aksi_seru`      ➔ File: `"L'Assaut Final.mp3"` (Hanya saat pertarungan fisik sengit, aksi tembak-menembak intens, atau pertempuran besar).
+     * `03_sedih_haru`      ➔ File: `"Melancholic Cello Theme.mp3"` (Hanya saat momen tragedi paling pedih, kematian karakter penting, atau titik terendah penderitaan).
+     * `04_kebangkitan_epic`➔ File: `"Triomph de l'Éveil.mp3"` (Hanya saat kebangkitan kembali, pembalasan dendam heroik, atau klimaks kemenangan).
+   - **ATURAN SEGERA KEMBALI KE BASE:** Begitu adegan aksi/sedih/tegang puncak tersebut berakhir, **segera kembalikan BGM ke Base General (`'Solace' [Calm Piano & Strings CC-BY] - Scott Buckley.mp3`)** untuk segmen-segmen berikutnya.
 
 Daftar 5 Kategori BGM Fisik yang Tersedia (Gunakan NAMA FILE EXACT berikut):
-1. `01_tegang_suspense` ➔ File: `"Black Glass Corridor.mp3"` (Tegang/Thriller/Ancaman)
-2. `02_aksi_seru`      ➔ File: `"Shard of Thunder.mp3"` (Aksi/Perkelahian/Kejar-kejaran)
-3. `03_sedih_haru`      ➔ File: `"Velvet After Rain.mp3"` (Tragedi/Tangisan/Point Rendah Underdog)
-4. `04_kebangkitan_epic`➔ File: `"Skyward Triumph.mp3"` (Klimaks Heroik/Kebangkitan/Kemenangan)
-5. `05_santai_misteri`  ➔ File: `"Paper Map Morning.mp3"` (Default Baseline & Investigasi Normal)
+1. `01_tegang_suspense` ➔ File: `"Somber Fairytale.mp3"` (Tegang/Suspense/Thriller)
+2. `02_aksi_seru`      ➔ File: `"L'Assaut Final.mp3"` (Aksi Seru/Pertarungan/Pengejaran)
+3. `03_sedih_haru`      ➔ File: `"Melancholic Cello Theme.mp3"` (Sedih Mendalam/Tragedi/Kehilangan)
+4. `04_kebangkitan_epic`➔ File: `"Triomph de l'Éveil.mp3"` (Kebangkitan Epic/Klimaks Heroik)
+5. `05_santai_misteri`  ➔ File: `"'Solace' [Calm Piano & Strings CC-BY] - Scott Buckley.mp3"` (GENERAL BASELINE - Default Utama)
 
 ==================================================
 📄 FORMAT OUTPUT JSON MURNI (TANPA MARKDOWN ```json)
@@ -301,9 +318,9 @@ Daftar 5 Kategori BGM Fisik yang Tersedia (Gunakan NAMA FILE EXACT berikut):
   "bgm_timeline": [
     {
       "start": 0.0,
-      "end": 45.0,
+      "end": 60.0,
       "category": "05_santai_misteri",
-      "file": "Paper Map Morning.mp3"
+      "file": "'Solace' [Calm Piano & Strings CC-BY] - Scott Buckley.mp3"
     }
   ],
   "mappings": [

@@ -118,7 +118,7 @@ function register(ipcMain, { paths: p, media, ffmpeg, getMainWindow }) {
     narrationVolume: 1.8,
     bgmVolume: 0.18,
     bgmEnabled: true,
-    bgmPath: 'assets/bgm/05_santai_misteri/Paper Map Morning.mp3',
+    bgmPath: "assets/bgm/05_santai_misteri/'Solace' [Calm Piano & Strings CC-BY] - Scott Buckley.mp3",
     logoEnabled: true,
     logoPath: 'assets/logo.png',
     logoOpacity: 0.6,
@@ -368,16 +368,14 @@ import { renderIntroVideo } from '${enginePath}';
       if (targetBgm && fs.existsSync(targetBgm)) {
         resolvedBgm = targetBgm;
       } else {
-        const thomasNewmanPath = path.join(p.PROJECT_ROOT, 'assets', 'bgm', '05_santai_misteri', 'Piano music in style of Thomas Newman - sad mood - Royalty free music no copyright music.mp3');
-        if (fs.existsSync(thomasNewmanPath)) {
-          resolvedBgm = thomasNewmanPath;
+        const solacePath = path.join(p.PROJECT_ROOT, 'assets', 'bgm', '05_santai_misteri', "'Solace' [Calm Piano & Strings CC-BY] - Scott Buckley.mp3");
+        if (fs.existsSync(solacePath)) {
+          resolvedBgm = solacePath;
         } else {
           const assetsDir = path.join(p.PROJECT_ROOT, 'assets');
           if (fs.existsSync(assetsDir)) {
             const mp3s = fs.readdirSync(assetsDir).filter(f => f.toLowerCase().endsWith('.mp3'));
-            const thomasNewman = mp3s.find(f => f.toLowerCase().includes('thomas newman'));
-            if (thomasNewman) resolvedBgm = path.join(assetsDir, thomasNewman);
-            else if (mp3s.length > 0) resolvedBgm = path.join(assetsDir, mp3s[0]);
+            if (mp3s.length > 0) resolvedBgm = path.join(assetsDir, mp3s[0]);
           }
         }
       }

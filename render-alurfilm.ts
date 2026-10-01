@@ -67,17 +67,33 @@ type AlurfilmMapping = z.infer<typeof AlurfilmMappingSchema>;
 function findBgmFile(fileName?: string): string | null {
   const cwd = process.cwd();
   if (fileName) {
+    // Strip leading/trailing single or double quotes if present
+    const cleanFileName = fileName.trim().replace(/^['"]+|['"]+$/g, '');
     const directPath = path.isAbsolute(fileName) ? fileName : path.resolve(cwd, fileName);
     if (fs.existsSync(directPath) && fs.statSync(directPath).isFile()) {
       return directPath;
+    }
+    const cleanDirectPath = path.isAbsolute(cleanFileName) ? cleanFileName : path.resolve(cwd, cleanFileName);
+    if (fs.existsSync(cleanDirectPath) && fs.statSync(cleanDirectPath).isFile()) {
+      return cleanDirectPath;
     }
   }
 
   const bgmBaseDir = path.join(cwd, 'assets', 'bgm');
   if (!fs.existsSync(bgmBaseDir)) return null;
 
+  // Primary Default Base BGM
+  const defaultBaseBgmPath = path.join(
+    bgmBaseDir,
+    '05_santai_misteri',
+    "'Solace' [Calm Piano & Strings CC-BY] - Scott Buckley.mp3"
+  );
+
   if (fileName) {
-    const baseName = path.basename(fileName).toLowerCase();
+    const rawClean = fileName.trim().replace(/^['"]+|['"]+$/g, '');
+    const baseName = path.basename(rawClean).toLowerCase().normalize('NFC');
+    const baseNameNoExt = baseName.replace(/\.[^/.]+$/, '').trim();
+
     const scanBgm = (dir: string): string | null => {
       const entries = fs.readdirSync(dir, { withFileTypes: true });
       for (const entry of entries) {
@@ -86,7 +102,13 @@ function findBgmFile(fileName?: string): string | null {
           const subMatch = scanBgm(full);
           if (subMatch) return subMatch;
         } else if (entry.isFile() && entry.name.match(/\.(mp3|wav|m4a|aac|flac)$/i)) {
-          if (entry.name.toLowerCase() === baseName || entry.name.toLowerCase().includes(baseName.replace(/\.[^/.]+$/, ''))) {
+          const entryNorm = entry.name.toLowerCase().normalize('NFC');
+          const entryNormNoExt = entryNorm.replace(/\.[^/.]+$/, '').trim();
+          if (
+            entryNorm === baseName ||
+            entryNorm.includes(baseNameNoExt) ||
+            baseName.includes(entryNormNoExt)
+          ) {
             return full;
           }
         }
@@ -97,7 +119,21 @@ function findBgmFile(fileName?: string): string | null {
     if (matched) return matched;
   }
 
-  // Fallback: return first available mp3 file in assets/bgm
+  // Fallback 1: Return the default Base / General BGM ('Solace')
+  if (fs.existsSync(defaultBaseBgmPath)) {
+    return defaultBaseBgmPath;
+  }
+
+  // Fallback 2: Any mp3 in 05_santai_misteri
+  const santaiDir = path.join(bgmBaseDir, '05_santai_misteri');
+  if (fs.existsSync(santaiDir)) {
+    const santaiFiles = fs.readdirSync(santaiDir).filter(f => f.match(/\.(mp3|wav|m4a|aac|flac)$/i));
+    if (santaiFiles.length > 0) {
+      return path.join(santaiDir, santaiFiles[0]);
+    }
+  }
+
+  // Fallback 3: Return first available mp3 file anywhere in assets/bgm
   const firstAny = (dir: string): string | null => {
     const entries = fs.readdirSync(dir, { withFileTypes: true });
     for (const entry of entries) {
