@@ -933,8 +933,16 @@ const AlurfilmMappingStep: React.FC = () => {
                                 )}
                               </div>
                               {v.color_grading_shift && (
-                                <div className="text-[9px] text-gray-500 truncate pt-0.5 border-t border-gray-800/50">
-                                  🎨 c:{v.color_grading_shift.contrast} s:{v.color_grading_shift.saturation}
+                                <div className="text-[9px] text-gray-500 truncate pt-0.5 border-t border-gray-800/50 flex items-center justify-between">
+                                  <span>
+                                    🎨 c:{v.color_grading_shift.contrast} s:{v.color_grading_shift.saturation}
+                                    {v.color_grading_shift.gamma !== undefined && ` g:${v.color_grading_shift.gamma}`}
+                                  </span>
+                                  {(v.color_grading_shift.mode === 'dark_boost' || (v.color_grading_shift.gamma && v.color_grading_shift.gamma > 1.1) || (v.color_grading_shift.brightness && v.color_grading_shift.brightness > 0.02)) && (
+                                    <span className="text-[8px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 font-semibold ml-1 shrink-0">
+                                      💡 Dark Boost
+                                    </span>
+                                  )}
                                 </div>
                               )}
                             </div>

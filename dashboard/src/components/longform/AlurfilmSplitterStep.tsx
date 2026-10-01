@@ -38,11 +38,11 @@ const AlurfilmSplitterStep: React.FC = () => {
   const [masterSource, setMasterSource] = useState<SourceInfo | null>(null);
   const [selectedChunk, setSelectedChunk] = useState<AlurfilmChunk | null>(null);
   const [videoDuration, setVideoDuration] = useState<number>(0);
-  
+
   // Custom Time Range inputs
   const [startTime, setStartTime] = useState<string>('00:00:00');
   const [endTime, setEndTime] = useState<string>('00:00:00');
-  
+
   const [splitting, setSplitting] = useState<boolean>(false);
   const [compressingParts, setCompressingParts] = useState<Record<number, boolean>>({});
   const [splitProgress, setSplitProgress] = useState<{
@@ -53,7 +53,7 @@ const AlurfilmSplitterStep: React.FC = () => {
   } | null>(null);
   const [chunks, setChunks] = useState<AlurfilmChunk[]>([]);
   const [error, setError] = useState<string | null>(null);
-  
+
   const [syncingSupabase, setSyncingSupabase] = useState<boolean>(false);
   const [syncedParts, setSyncedParts] = useState<number[]>([]);
   const [partsWithPrompt, setPartsWithPrompt] = useState<number[]>([]);
@@ -83,9 +83,9 @@ const AlurfilmSplitterStep: React.FC = () => {
             const synced = await getSyncedChunks(id);
             setSyncedParts(synced.map((s) => s.part_number));
             setPartsWithPrompt(synced.filter((s) => !!s.prompt).map((s) => s.part_number));
-          } catch {}
+          } catch { }
         }
-      } catch {}
+      } catch { }
     })();
   }, []);
 
@@ -126,7 +126,7 @@ const AlurfilmSplitterStep: React.FC = () => {
           const isFirstPartStr = 'YA (Chunk #1 / Part Pembuka Film Utama - Langsung masuk ke alur cerita tanpa intro formal. DILARANG menyebut nama/judul film!)';
           const isLastPartStr = total === 1 ? 'YA (Chunk Terakhir / Part Penutup Film - Akhiri tanpa menyebut judul film)' : 'TIDAK (Part Bukan Penutup)';
           const prevCtxStr = 'Tidak ada (Chunk #1 / Awal Film)';
-          const styleExampleStr = 'Buka naskah secara fleksibel (langsung ke premis aksi karakter ATAU sebutan pengganti seperti "Film yang satu ini menceritakan..."). DILARANG KERAS menyebutkan judul film! Gunakan gaya semi-formal sinematik yang runut, mengalir enak di telinga, dan berbasis aksi fisik nyata (sambungkan antarklausa dengan: "di mana...", "yang membuat...", "hingga...", "sebab...", "namun sayangnya..."). DILARANG diksi gaul alay (si doi, bapak ini, apesnya tuh) dan DILARANG renungan puitis ngawang.';
+          const styleExampleStr = 'Buka naskah secara fleksibel (langsung ke premis aksi karakter ATAU sebutan pengganti seperti "Film yang satu ini menceritakan..."). DILARANG KERAS menyebutkan judul film! Gunakan gaya semi-formal sinematik yang runut, mengalir dinamis di telinga, dan berbasis aksi fisik nyata. DILARANG membuka dengan formula klise seperti "Menyambung ketegangan sebelumnya". Hindari repetisi berlebihan "di mana" / "yang mana". DILARANG diksi gaul alay dan DILARANG renungan puitis ngawang.';
 
           return promptTpl
             .replace(/\{\{chunk_part\}\}/g, String(partNum))
@@ -140,7 +140,7 @@ const AlurfilmSplitterStep: React.FC = () => {
             .replace(/\{\{previous_context\}\}/g, prevCtxStr)
             .replace(/\{\{style_example\}\}/g, styleExampleStr);
         }
-      } catch {}
+      } catch { }
     }
 
     return '';
@@ -378,18 +378,17 @@ const AlurfilmSplitterStep: React.FC = () => {
               <span>Content ID: {contentId}</span>
             </div>
           )}
-          <div className={`px-3.5 py-1.5 rounded-lg border text-xs font-semibold ${
-            splitting
+          <div className={`px-3.5 py-1.5 rounded-lg border text-xs font-semibold ${splitting
               ? 'bg-purple-950/60 border-purple-700/50 text-purple-300 animate-pulse'
               : chunks.length > 0
-              ? 'bg-emerald-950/60 border-emerald-700/50 text-emerald-300'
-              : 'bg-gray-900 border-gray-800 text-gray-500'
-          }`}>
+                ? 'bg-emerald-950/60 border-emerald-700/50 text-emerald-300'
+                : 'bg-gray-900 border-gray-800 text-gray-500'
+            }`}>
             {splitting && splitProgress
               ? `⏳ Memotong ${splitProgress.currentPart}/${splitProgress.totalParts} Parts (${splitProgress.percentage}%)`
               : chunks.length > 0
-              ? `✓ ${chunks.length} Parts Split`
-              : 'Belum Ada Chunk'}
+                ? `✓ ${chunks.length} Parts Split`
+                : 'Belum Ada Chunk'}
           </div>
         </div>
       </div>
@@ -547,11 +546,10 @@ const AlurfilmSplitterStep: React.FC = () => {
               <button
                 onClick={handleSyncToSupabase}
                 disabled={syncingSupabase}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold shadow-lg transition-all flex items-center gap-1.5 border ${
-                  syncedParts.length === chunks.length && chunks.length > 0
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold shadow-lg transition-all flex items-center gap-1.5 border ${syncedParts.length === chunks.length && chunks.length > 0
                     ? 'bg-emerald-950/60 hover:bg-emerald-900/70 border-emerald-700/60 text-emerald-300'
                     : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 border-emerald-500/50 text-white shadow-emerald-600/30'
-                }`}
+                  }`}
                 title="Simpan daftar part video ke Supabase (schema: autocontent). Prompt diisi hanya untuk Part 1 by default."
               >
                 <span>{syncingSupabase ? '⏳' : syncedParts.length === chunks.length ? '✓' : '☁️'}</span>
@@ -559,8 +557,8 @@ const AlurfilmSplitterStep: React.FC = () => {
                   {syncingSupabase
                     ? 'Menyimpan...'
                     : syncedParts.length === chunks.length
-                    ? `Tersinkron (${syncedParts.length} Part)`
-                    : 'Simpan ke Supabase'}
+                      ? `Tersinkron (${syncedParts.length} Part)`
+                      : 'Simpan ke Supabase'}
                 </span>
               </button>
             )}
@@ -572,11 +570,10 @@ const AlurfilmSplitterStep: React.FC = () => {
                 <div
                   key={chunk.part}
                   onClick={() => setSelectedChunk(chunk)}
-                  className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
-                    selectedChunk?.part === chunk.part
+                  className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${selectedChunk?.part === chunk.part
                       ? 'bg-purple-950/50 border-purple-500 text-white shadow-lg'
                       : 'bg-gray-950 border-gray-800 hover:border-gray-700 text-gray-300'
-                  }`}
+                    }`}
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <span className="w-8 h-8 rounded-lg bg-purple-600/20 border border-purple-500/30 text-purple-300 flex items-center justify-center font-bold text-xs font-mono shrink-0">
@@ -613,11 +610,10 @@ const AlurfilmSplitterStep: React.FC = () => {
                         handleSyncSingleChunk(chunk);
                       }}
                       disabled={syncingSupabase}
-                      className={`px-2 py-1 text-[11px] font-mono rounded-lg border transition-all flex items-center gap-1 ${
-                        syncedParts.includes(chunk.part)
+                      className={`px-2 py-1 text-[11px] font-mono rounded-lg border transition-all flex items-center gap-1 ${syncedParts.includes(chunk.part)
                           ? 'bg-sky-950/40 hover:bg-sky-900/80 text-sky-300 border-sky-800/60'
                           : 'bg-gray-900 hover:bg-gray-800 text-gray-400 hover:text-emerald-300 border-gray-800'
-                      }`}
+                        }`}
                       title={chunk.part === 1 ? 'Simpan Part #1 ke Supabase (dengan Prompt)' : 'Simpan part ini ke Supabase (tanpa prompt, menunggu analisis part sebelumnya)'}
                     >
                       <span>{syncedParts.includes(chunk.part) ? (partsWithPrompt.includes(chunk.part) ? '✓ DB (P)' : '✓ DB') : '☁️ DB'}</span>
@@ -628,11 +624,10 @@ const AlurfilmSplitterStep: React.FC = () => {
                         handleCompressChunk(chunk);
                       }}
                       disabled={compressingParts[chunk.part]}
-                      className={`px-2.5 py-1 text-[11px] font-bold rounded-lg border font-mono transition-all flex items-center gap-1 ${
-                        chunk.isCompressed
+                      className={`px-2.5 py-1 text-[11px] font-bold rounded-lg border font-mono transition-all flex items-center gap-1 ${chunk.isCompressed
                           ? 'bg-emerald-950/40 hover:bg-emerald-900/80 text-emerald-300 border-emerald-800/60'
                           : 'bg-purple-950/40 hover:bg-purple-900/80 text-purple-300 border-purple-800/60'
-                      }`}
+                        }`}
                       title="Kompres file part ini agar < 400 MB"
                     >
                       {compressingParts[chunk.part]

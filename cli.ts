@@ -26,9 +26,11 @@ const ClipSchema = z.object({
   mirror_mode: z.string().optional(),
   zoom_speed: z.number().optional(),
   color_grading_shift: z.object({
+    mode: z.string().optional(),
     contrast: z.number().optional(),
     brightness: z.number().optional(),
     saturation: z.number().optional(),
+    gamma: z.number().optional(),
   }).optional(),
 });
 
@@ -224,10 +226,11 @@ program
           }
 
           if (clip.color_grading_shift) {
-            const contrast = clip.color_grading_shift.contrast ?? 1.04;
-            const brightness = clip.color_grading_shift.brightness ?? 0.005;
-            const saturation = clip.color_grading_shift.saturation ?? 1.05;
-            fxFilters.push(`eq=contrast=${contrast}:brightness=${brightness}:saturation=${saturation}`);
+            const contrast = Math.max(0.5, Math.min(2.5, clip.color_grading_shift.contrast ?? 1.04));
+            const brightness = Math.max(-0.5, Math.min(0.5, clip.color_grading_shift.brightness ?? 0.005));
+            const saturation = Math.max(0.0, Math.min(3.0, clip.color_grading_shift.saturation ?? 1.05));
+            const gamma = Math.max(0.5, Math.min(3.0, clip.color_grading_shift.gamma ?? 1.0));
+            fxFilters.push(`eq=contrast=${contrast.toFixed(3)}:brightness=${brightness.toFixed(3)}:saturation=${saturation.toFixed(3)}:gamma=${gamma.toFixed(3)}`);
           }
 
           const fxChain = fxFilters.length > 0 ? ',' + fxFilters.join(',') : '';

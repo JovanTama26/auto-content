@@ -30,9 +30,11 @@ const VisualClipSchema = z.object({
   zoom_speed: z.number().optional(),
   pan_direction: z.enum(['left', 'right', 'up', 'down', 'center']).optional(),
   color_grading_shift: z.object({
+    mode: z.string().optional(),
     contrast: z.number().optional(),
     brightness: z.number().optional(),
     saturation: z.number().optional(),
+    gamma: z.number().optional(),
   }).optional(),
 });
 
@@ -311,7 +313,7 @@ program
       type: string;
       slowMoFactor?: number;
       mirrorMode?: string;
-      colorShift?: { contrast?: number; brightness?: number; saturation?: number };
+      colorShift?: { mode?: string; contrast?: number; brightness?: number; saturation?: number; gamma?: number };
       isVisualOnly: boolean;
     }
 
@@ -400,7 +402,7 @@ program
               duration: outroDur,
               type: 'slow_motion',
               slowMoFactor: 0.35,
-              colorShift: { contrast: 1.04, brightness: 0.005, saturation: 1.05 },
+              colorShift: { mode: 'normal', contrast: 1.04, brightness: 0.005, saturation: 1.05, gamma: 1.0 },
               isVisualOnly: false,
             });
           } else {
@@ -459,7 +461,7 @@ program
             duration: remainingGap,
             type: 'slow_motion',
             slowMoFactor: 0.35,
-            colorShift: { contrast: 1.04, brightness: 0.005, saturation: 1.05 },
+            colorShift: { mode: 'normal', contrast: 1.04, brightness: 0.005, saturation: 1.05, gamma: 1.0 },
             isVisualOnly: false,
           });
         }
@@ -538,12 +540,13 @@ program
             fxFilters.push('setpts=PTS-STARTPTS');
           }
 
-          // 3. Color grading shift (YouTube Content ID bypass)
+          // 3. Color grading shift & Dark boost (FFmpeg eq filter)
           if (clip.colorShift) {
-            const contrast = clip.colorShift.contrast ?? 1.04;
-            const brightness = clip.colorShift.brightness ?? 0.005;
-            const saturation = clip.colorShift.saturation ?? 1.05;
-            fxFilters.push(`eq=contrast=${contrast}:brightness=${brightness}:saturation=${saturation}`);
+            const contrast = Math.max(0.5, Math.min(2.5, clip.colorShift.contrast ?? 1.04));
+            const brightness = Math.max(-0.5, Math.min(0.5, clip.colorShift.brightness ?? 0.005));
+            const saturation = Math.max(0.0, Math.min(3.0, clip.colorShift.saturation ?? 1.05));
+            const gamma = Math.max(0.5, Math.min(3.0, clip.colorShift.gamma ?? 1.0));
+            fxFilters.push(`eq=contrast=${contrast.toFixed(3)}:brightness=${brightness.toFixed(3)}:saturation=${saturation.toFixed(3)}:gamma=${gamma.toFixed(3)}`);
           }
 
           const fxChain = fxFilters.length > 0 ? ',' + fxFilters.join(',') : '';

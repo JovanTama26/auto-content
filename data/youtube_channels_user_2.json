@@ -1,0 +1,282 @@
+[
+  {
+    "id": 1,
+    "name": "Global Garuda Chronicles",
+    "handle": "GlobalGarudaChronicles",
+    "channelUrl": "https://www.youtube.com/signin_prompt?app=desktop&next=https%3A%2F%2Fwww.youtube.com%2Fchannel%2FUC_lF7kN6ai9RtT0V_bO97oQ",
+    "createdAt": "2026-09-28T23:01:25.170Z",
+    "status": "success"
+  },
+  {
+    "id": 2,
+    "name": "Spark Kreasi",
+    "handle": "@SparkKreasi",
+    "channelUrl": "https://www.youtube.com/channel/UC6HCALqNksANt0g4YRutMhA",
+    "createdAt": "2026-09-28T23:01:49.725Z",
+    "status": "success"
+  },
+  {
+    "id": 3,
+    "name": "Harmoni Odyssey ID",
+    "handle": "@HarmoniOdysseyID",
+    "channelUrl": "https://www.youtube.com/channel/UC38tD-cdvJlI1VCq9hp5Rmw",
+    "createdAt": "2026-09-28T23:02:18.684Z",
+    "status": "success"
+  },
+  {
+    "id": 4,
+    "name": "Kilas Pena Universe",
+    "handle": "@KilasPenaUniverse",
+    "channelUrl": "https://www.youtube.com/channel/UC34a4GteVSkPcXvi280eXDw",
+    "createdAt": "2026-09-28T23:02:46.137Z",
+    "status": "success"
+  },
+  {
+    "id": 5,
+    "name": "Visual Titik Flow",
+    "handle": "@VisualTitikFlow",
+    "channelUrl": "https://www.youtube.com/channel/UCP6lbwDm9oLJXfQML1kgtvw",
+    "createdAt": "2026-09-28T23:03:14.461Z",
+    "status": "success"
+  },
+  {
+    "id": 6,
+    "name": "Seru Craft",
+    "handle": "@SeruCraft-e9w",
+    "channelUrl": "https://www.youtube.com/channel/UCOjcANFNFnq7YEHSbxKO4Vg",
+    "createdAt": "2026-09-28T23:03:44.600Z",
+    "status": "success"
+  },
+  {
+    "id": 7,
+    "name": "Tales Rasa",
+    "handle": "@TalesRasa",
+    "channelUrl": "https://www.youtube.com/channel/UC_D3izSyfhuFbeFJMIaw7kw",
+    "createdAt": "2026-09-28T23:04:11.165Z",
+    "status": "success"
+  },
+  {
+    "id": 8,
+    "name": "Gema Zone Smart",
+    "handle": "@GemaZoneSmart",
+    "channelUrl": "https://www.youtube.com/channel/UC6O9nUS2iPKeM0husR1TgAA",
+    "createdAt": "2026-09-28T23:04:42.645Z",
+    "status": "success"
+  },
+  {
+    "id": 9,
+    "name": "Ragam Universe Urban",
+    "handle": "@RagamUniverseUrban",
+    "channelUrl": "https://www.youtube.com/channel/UCtLes2-tqGZd9j4kSHJo7cQ",
+    "createdAt": "2026-09-28T23:05:13.309Z",
+    "status": "success"
+  },
+  {
+    "id": 10,
+    "name": "Suara Station",
+    "handle": "@SuaraStation",
+    "channelUrl": "https://www.youtube.com/channel/UCQhMVhVOqPnw25tFE_yOLbw",
+    "createdAt": "2026-09-28T23:05:42.889Z",
+    "status": "success"
+  },
+  {
+    "id": 11,
+    "name": "Chronicles Kabar",
+    "handle": "@ChroniclesKabar",
+    "channelUrl": "https://www.youtube.com/channel/UCrOfT5yUxvuTapseubzdPPA",
+    "createdAt": "2026-09-28T23:06:11.965Z",
+    "status": "success"
+  },
+  {
+    "id": 12,
+    "name": "Pulse Ragam",
+    "handle": "@PulseRagam",
+    "channelUrl": "https://www.youtube.com/channel/UCo6Kmj70Wm5bnlNS4lbB0Jg",
+    "createdAt": "2026-09-28T23:06:40.870Z",
+    "status": "success"
+  },
+  {
+    "id": 13,
+    "name": "Inspirasi Dunia Hub",
+    "handle": "@InspirasiDuniaHub",
+    "channelUrl": "https://www.youtube.com/channel/UCrz40KBiU7rduCqhysFdyuw",
+    "createdAt": "2026-09-28T23:07:09.988Z",
+    "status": "success"
+  },
+  {
+    "id": 14,
+    "name": "Global Langkah Edge",
+    "handle": "@GlobalLangkahEdge",
+    "channelUrl": "https://www.youtube.com/channel/UCIt29MskMIMWWg3laNA82LQ",
+    "createdAt": "2026-09-28T23:07:38.530Z",
+    "status": "success"
+  },
+  {
+    "id": 15,
+    "name": "Global Ragam Vibe",
+    "handle": "@GlobalRagamVibe",
+    "channelUrl": "https://www.youtube.com/channel/UCl3wIbcEIY-qvSvsVMjMf8w",
+    "createdAt": "2026-09-28T23:08:04.246Z",
+    "status": "success"
+  },
+  {
+    "id": 16,
+    "name": "Kilas Cita Canvas",
+    "handle": "@KilasCitaCanvas",
+    "channelUrl": "https://www.youtube.com/channel/UCZb4SP1BD5Dk8KOEOkHRJxA",
+    "createdAt": "2026-09-28T23:08:30.058Z",
+    "status": "success"
+  },
+  {
+    "id": 17,
+    "name": "Official Warta Sphere",
+    "handle": "@OfficialWartaSphere",
+    "channelUrl": "https://www.youtube.com/channel/UCtkfJP7rYX7nj8qOr_u4Drw",
+    "createdAt": "2026-09-28T23:08:59.066Z",
+    "status": "success"
+  },
+  {
+    "id": 18,
+    "name": "Pena Network Global",
+    "handle": "@PenaNetworkGlobal",
+    "channelUrl": "https://www.youtube.com/channel/UC0A8PlqWpLnLlJ1vb_EmFyQ",
+    "createdAt": "2026-09-28T23:09:24.861Z",
+    "status": "success"
+  },
+  {
+    "id": 19,
+    "name": "Rasa Craft",
+    "handle": "@RasaCraft-i7q",
+    "channelUrl": "https://www.youtube.com/channel/UCglQ2NkLhfSp8ruYy8G8FQA",
+    "createdAt": "2026-09-28T23:09:51.896Z",
+    "status": "success"
+  },
+  {
+    "id": 20,
+    "name": "Canvas Kopi",
+    "handle": "@CanvasKopi",
+    "channelUrl": "https://www.youtube.com/channel/UCsQCg3bjlIS8TgY8cQPNooA",
+    "createdAt": "2026-09-28T23:10:18.683Z",
+    "status": "success"
+  },
+  {
+    "id": 21,
+    "name": "Bicara Cast",
+    "handle": "@BicaraCast",
+    "channelUrl": "https://www.youtube.com/channel/UCTLzpzcc1cXqerDCnbkzV3g",
+    "createdAt": "2026-09-28T23:10:45.210Z",
+    "status": "success"
+  },
+  {
+    "id": 22,
+    "name": "Santai Studio ID",
+    "handle": "@SantaiStudioID-p7c",
+    "channelUrl": "https://www.youtube.com/channel/UCX6bRg91c6-053egM7cay-g",
+    "createdAt": "2026-09-28T23:11:17.715Z",
+    "status": "success"
+  },
+  {
+    "id": 23,
+    "name": "Bicara Odyssey Creative",
+    "handle": "@BicaraOdysseyCreative",
+    "channelUrl": "https://www.youtube.com/channel/UC_eVgRxE3r0lkqMJ8mVTsbw",
+    "createdAt": "2026-09-28T23:11:47.906Z",
+    "status": "success"
+  },
+  {
+    "id": 24,
+    "name": "Digital Bicara Daily",
+    "handle": "@DigitalBicaraDaily",
+    "channelUrl": "https://www.youtube.com/channel/UCNSMgzTEeQ9JGecSXw9YY0A",
+    "createdAt": "2026-09-28T23:12:18.043Z",
+    "status": "success"
+  },
+  {
+    "id": 25,
+    "name": "NextGen Kreasi Wave",
+    "handle": "@NextGenKreasiWave",
+    "channelUrl": "https://www.youtube.com/channel/UCOxyRg5XFMc4YBkOrezirHw",
+    "createdAt": "2026-09-28T23:12:44.629Z",
+    "status": "success"
+  },
+  {
+    "id": 26,
+    "name": "Kilas Alur Cast",
+    "handle": "@KilasAlurCast",
+    "channelUrl": "https://www.youtube.com/channel/UCYrB_h18_PGONKY1AFfzSmg",
+    "createdAt": "2026-09-28T23:13:12.446Z",
+    "status": "success"
+  },
+  {
+    "id": 27,
+    "name": "Inspirasi Lentera Station",
+    "handle": "@InspirasiLenteraStation",
+    "channelUrl": "https://www.youtube.com/channel/UCFxUL5c7FHjX1js4--CIziQ",
+    "createdAt": "2026-09-28T23:13:42.918Z",
+    "status": "success"
+  },
+  {
+    "id": 28,
+    "name": "Lentera Harmoni Station",
+    "handle": "@LenteraHarmoniStation",
+    "channelUrl": "https://www.youtube.com/channel/UCy4fLIGl_mHSqHkinIYxMow",
+    "createdAt": "2026-09-28T23:14:11.475Z",
+    "status": "success"
+  },
+  {
+    "id": 29,
+    "name": "Bumi Sphere",
+    "handle": "@BumiSphere-j9m",
+    "channelUrl": "https://www.youtube.com/channel/UC22k6at7lquoMh9PR6GxHkQ",
+    "createdAt": "2026-09-28T23:14:40.752Z",
+    "status": "success"
+  },
+  {
+    "id": 30,
+    "name": "Ragam Kilas Bytes",
+    "handle": "@RagamKilasBytes",
+    "channelUrl": "https://www.youtube.com/channel/UCRRivWlV25XtuDcf1YwdZ3Q",
+    "createdAt": "2026-09-28T23:15:11.428Z",
+    "status": "success"
+  },
+  {
+    "id": 31,
+    "name": "Pena Odyssey ID",
+    "handle": "@PenaOdysseyID",
+    "channelUrl": "https://www.youtube.com/channel/UCCA6wZGXYKAQd6url0zmI3g",
+    "createdAt": "2026-09-28T23:15:38.205Z",
+    "status": "success"
+  },
+  {
+    "id": 32,
+    "name": "Gema Echo",
+    "handle": "@GemaEcho-t1b",
+    "channelUrl": "https://www.youtube.com/channel/UCaZerIFePS79iNXnoZHrb5Q",
+    "createdAt": "2026-09-28T23:16:06.271Z",
+    "status": "success"
+  },
+  {
+    "id": 33,
+    "name": "Alur Kilas Pulse",
+    "handle": "@AlurKilasPulse",
+    "channelUrl": "https://www.youtube.com/channel/UC8x2dii3IT3OyXqJviVIhcw",
+    "createdAt": "2026-09-28T23:16:33.903Z",
+    "status": "success"
+  },
+  {
+    "id": 34,
+    "name": "Alur Horizon Urban",
+    "handle": "@AlurHorizonUrban",
+    "channelUrl": "https://www.youtube.com/channel/UCY6I4JjO4ZpFTWwAMeK2RHQ",
+    "createdAt": "2026-09-28T23:17:01.244Z",
+    "status": "success"
+  },
+  {
+    "id": 35,
+    "name": "Santai Jagat Pulse",
+    "handle": "@SantaiJagatPulse",
+    "channelUrl": "https://www.youtube.com/channel/UCjzMvO7DMBBCl17wTSZZIog",
+    "createdAt": "2026-09-28T23:17:30.162Z",
+    "status": "success"
+  }
+]

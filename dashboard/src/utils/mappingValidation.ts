@@ -16,9 +16,11 @@ export interface VisualClipSpec {
   zoom_speed?: number;
   pan_direction?: string;
   color_grading_shift?: {
+    mode?: string;
     contrast?: number;
     brightness?: number;
     saturation?: number;
+    gamma?: number;
   };
 }
 
@@ -358,7 +360,7 @@ export function autoFixAlurfilmMapping(
           duration: targetVoDur,
           source_start_seconds: Number((idx * 3.5).toFixed(1)),
           slow_mo_factor: 0.6,
-          color_grading_shift: { contrast: 1.04, brightness: 0.005, saturation: 1.05 },
+          color_grading_shift: { mode: 'normal', contrast: 1.04, brightness: 0.005, saturation: 1.05, gamma: 1.0 },
         },
       ];
     } else {
@@ -378,7 +380,24 @@ export function autoFixAlurfilmMapping(
           clip.source_start_seconds = Number((idx * 3.0 + cIdx * 2.0).toFixed(1));
         }
         if (!clip.color_grading_shift) {
-          clip.color_grading_shift = { contrast: 1.04, brightness: 0.005, saturation: 1.05 };
+          clip.color_grading_shift = { mode: 'normal', contrast: 1.04, brightness: 0.005, saturation: 1.05, gamma: 1.0 };
+        } else {
+          const raw = clip.color_grading_shift;
+          const contrast = typeof raw.contrast === 'number' && !isNaN(raw.contrast)
+            ? Math.max(0.5, Math.min(2.5, Number(raw.contrast.toFixed(3))))
+            : 1.04;
+          const brightness = typeof raw.brightness === 'number' && !isNaN(raw.brightness)
+            ? Math.max(-0.5, Math.min(0.5, Number(raw.brightness.toFixed(3))))
+            : 0.005;
+          const saturation = typeof raw.saturation === 'number' && !isNaN(raw.saturation)
+            ? Math.max(0.0, Math.min(3.0, Number(raw.saturation.toFixed(3))))
+            : 1.05;
+          const gamma = typeof raw.gamma === 'number' && !isNaN(raw.gamma)
+            ? Math.max(0.5, Math.min(3.0, Number(raw.gamma.toFixed(3))))
+            : 1.0;
+          const mode = raw.mode || (gamma > 1.1 || brightness > 0.02 ? 'dark_boost' : 'normal');
+
+          clip.color_grading_shift = { mode, contrast, brightness, saturation, gamma };
         }
       });
 

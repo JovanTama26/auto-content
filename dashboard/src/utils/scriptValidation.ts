@@ -155,6 +155,32 @@ export function validateScriptAnalysis(
           }
         }
       }
+
+      // Check for generic cliché transition openings on Part 2+
+      const partNum = Number(data.chunk_part || fallbackPartNum);
+      if (partNum > 1) {
+        const cleanOpening = scriptText.trim().replace(/^\[VISUAL_ONLY[^\]]*\]\s*/i, '');
+        const clicheMatch = cleanOpening.match(/^(?:Menyambung\s+(?:ketegangan|cerita|kisah|alur)|Melanjutkan\s+(?:ketegangan|cerita|kisah)|Kembali\s+(?:lagi\s+)?(?:di|ke)\s+part)/i);
+        if (clicheMatch) {
+          issues.push({
+            id: 'CLICHE_TRANSITION_OPENING',
+            severity: 'warning',
+            field: 'naskah_voiceover.script_text',
+            message: `Naskah diawali frasa transisi klise ("${clicheMatch[0]}..."). Disarankan langsung menyambung ke aksi fisik karakter atau visual adegan terkini.`,
+          });
+        }
+      }
+
+      // Check for overused connectors (di mana / yang mana)
+      const diManaMatches = scriptText.match(/\b(?:di\s+mana|yang\s+mana)\b/gi) || [];
+      if (diManaMatches.length > 4) {
+        issues.push({
+          id: 'OVERUSED_CONNECTORS',
+          severity: 'warning',
+          field: 'naskah_voiceover.script_text',
+          message: `Kata sambung penjelas ("di mana" / "yang mana") muncul ${diManaMatches.length}x. Disarankan gunakan variasi kata hubung alami (saat, ketika, sehingga, akibatnya, pasalnya).`,
+        });
+      }
     }
 
     // Normalize macro_summary to string if it is an object

@@ -198,9 +198,11 @@ export interface AlurfilmVisualClip {
   pan_direction?: 'left' | 'right' | 'up' | 'down' | 'center';
   zoom_speed?: number;
   color_grading_shift?: {
+    mode?: string;
     contrast?: number;
     brightness?: number;
     saturation?: number;
+    gamma?: number;
   };
 }
 
@@ -409,7 +411,7 @@ export interface ElectronAPI {
         type: string;
         duration: number;
         source_start_seconds: number;
-        color_grading_shift?: { contrast: number; brightness: number; saturation: number };
+        color_grading_shift?: { mode?: string; contrast: number; brightness: number; saturation: number; gamma?: number };
       }>;
     }>;
     error?: string;

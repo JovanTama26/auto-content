@@ -1044,6 +1044,40 @@ html, body {
   cursor: not-allowed;
 }
 
+.btn-reset-danger {
+  width: 100%;
+  padding: 7px 12px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px dashed rgba(239, 68, 68, 0.35);
+  border-radius: 6px;
+  color: #f87171;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.2s;
+}
+
+.btn-reset-danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: #ef4444;
+  color: #fca5a5;
+  transform: translateY(-1px);
+}
+
+.btn-reset-danger:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  border-color: #334155;
+  color: #64748b;
+  background: transparent;
+  transform: none;
+}
+
+
 .script-status-box {
   margin-top: 8px;
   padding: 8px 10px;

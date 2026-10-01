@@ -200,8 +200,21 @@ Terapkan kombinasi manipulasi visual bergerak berikut pada setiap klip yang kamu
 5. ⏩ **PENENTUAN TIMECODE BERDASARKAN CUT AKTUAL (BUKAN SKIP ACAK)**:
    - Ambil detik awal dari cut/shot yang relevan (+0.2s s/d +0.4s setelah potongan adegan/cut-point agar frame sudah stabil dan tajam).
 
-6. 🎨 **COLOR GRADING SHIFT (WAJIB PADA SETIAP KLIP)**:
-   - Wajib sertakan `color_grading_shift` acak pada setiap klip (contrast: 1.02-1.07, brightness: 0.002-0.01, saturation: 1.03-1.08) untuk mengubah sidik jari piksel digital.
+6. 🎨 **COLOR GRADING & PENYESUAIAN PENCAHAYAAN ADENGAN GELAP (DARK BOOST)**:
+   - Amati tingkat pencahayaan (luminance) pada setiap shot adegan yang kamu amati di video:
+     * **Adegan Normal / Pencahayaan Cukup**:
+       Gunakan mode normal dengan micro-shift anti-Content ID:
+       `"color_grading_shift": {"mode": "normal", "contrast": 1.04, "brightness": 0.005, "saturation": 1.05, "gamma": 1.0}`
+       (Rentang valid: contrast 1.02-1.07, brightness 0.002-0.01, saturation 1.03-1.08, gamma 1.0).
+     * **Adegan Gelap / Remang / Malam Hari (KEGELAPAN)**:
+       Jika adegan terlalu gelap sehingga aksi, wajah, atau ekspresi karakter sulit dilihat jelas oleh penonton, **WAJIB AKTIFKAN DARK BOOST**:
+       `"color_grading_shift": {"mode": "dark_boost", "contrast": 1.15, "brightness": 0.05, "saturation": 1.10, "gamma": 1.35}`
+       (Panduan nilai Dark Boost:
+        - `gamma`: **1.20 s/d 1.50** (Kunci utama: mengangkat detail bayangan dan midtones agar gambar terlihat jelas tanpa memutihkan area hitam).
+        - `contrast`: **1.10 s/d 1.25** (Menjaga ketajaman dan kedalaman visual agar tidak datar/flat).
+        - `brightness`: **0.03 s/d 0.08** (Sedikit mengangkat luminance dasar).
+        - `saturation`: **1.05 s/d 1.15** (Menghidupkan kembali warna alami yang pudar akibat gelap).
+       )
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  POLA STRUKTUR VISUAL MAPPING (100% PURE MOTION):
@@ -235,7 +248,7 @@ Saat menentukan timestamp (`source_start_seconds`) dan durasi untuk tipe visual 
 4. `pan_and_zoom_cut`       (~5%)        ➔ Klip bergerak dengan framing dinamis. **Field opsional**: `"pan_direction": "left" | "right" | "up" | "down" | "center"`.
 5. 🛑 `freeze_frame_with_zoom` (0% — DILARANG) ➔ JANGAN GUNAKAN foto diam! Semua visual harus bergerak aktif.
 
-Wajib sertakan `color_grading_shift` acak pada setiap klip (contrast: 1.02-1.07, brightness: 0.002-0.01, saturation: 1.03-1.08).
+Wajib sertakan `color_grading_shift` pada setiap klip (gunakan mode `"normal"` untuk adegan berpencahayaan cukup, atau mode `"dark_boost"` dengan `gamma` 1.20-1.50 untuk adegan gelap/malam).
 
 ==================================================
 🚨 KNOWLEDGE & ATURAN PRINSIPAL SEGMEN VISUAL MURNI (VISUAL_ONLY / NO-VO / JEDA HENING):
@@ -307,14 +320,14 @@ Daftar 5 Kategori BGM Fisik yang Tersedia (Gunakan NAMA FILE EXACT berikut):
           "duration": 3.75,
           "source_start_seconds": 12.5,
           "slow_mo_factor": 0.3,
-          "color_grading_shift": {"contrast": 1.04, "brightness": 0.005, "saturation": 1.05}
+          "color_grading_shift": {"mode": "normal", "contrast": 1.04, "brightness": 0.005, "saturation": 1.05, "gamma": 1.0}
         },
         {
           "type": "mirror_cut",
           "duration": 1.25,
           "source_start_seconds": 18.0,
           "mirror_mode": "horizontal",
-          "color_grading_shift": {"contrast": 1.03, "brightness": 0.004, "saturation": 1.04}
+          "color_grading_shift": {"mode": "dark_boost", "contrast": 1.15, "brightness": 0.05, "saturation": 1.10, "gamma": 1.35}
         }
       ]
     },
@@ -330,25 +343,25 @@ Daftar 5 Kategori BGM Fisik yang Tersedia (Gunakan NAMA FILE EXACT berikut):
           "type": "video_cut",
           "duration": 2.0,
           "source_start_seconds": 18.0,
-          "color_grading_shift": {"contrast": 1.03, "brightness": 0.004, "saturation": 1.04}
+          "color_grading_shift": {"mode": "normal", "contrast": 1.03, "brightness": 0.004, "saturation": 1.04, "gamma": 1.0}
         },
         {
           "type": "video_cut",
           "duration": 2.0,
           "source_start_seconds": 21.0,
-          "color_grading_shift": {"contrast": 1.05, "brightness": 0.006, "saturation": 1.05}
+          "color_grading_shift": {"mode": "dark_boost", "contrast": 1.18, "brightness": 0.06, "saturation": 1.12, "gamma": 1.40}
         },
         {
           "type": "video_cut",
           "duration": 2.0,
           "source_start_seconds": 24.0,
-          "color_grading_shift": {"contrast": 1.04, "brightness": 0.003, "saturation": 1.06}
+          "color_grading_shift": {"mode": "dark_boost", "contrast": 1.15, "brightness": 0.05, "saturation": 1.10, "gamma": 1.35}
         },
         {
           "type": "video_cut",
           "duration": 2.0,
           "source_start_seconds": 27.0,
-          "color_grading_shift": {"contrast": 1.03, "brightness": 0.005, "saturation": 1.04}
+          "color_grading_shift": {"mode": "normal", "contrast": 1.03, "brightness": 0.005, "saturation": 1.04, "gamma": 1.0}
         }
       ]
     }

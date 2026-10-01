@@ -36,7 +36,11 @@
     "keywords:shorts": "npx tsx dashboard/scripts/generate-shorts-keywords.ts",
     "db:sync": "npx tsx scripts/sync-to-supabase.ts",
     "db:migrate": "npx tsx scripts/migrate.ts",
-    "bridge": "npx tsx scripts/bridge-server.ts"
+    "bridge": "npx tsx scripts/bridge-server.ts",
+    "youtube:channels": "npx tsx playwright/youtube-channel-creator.ts",
+    "youtube:login": "npx tsx playwright/init-youtube-login.ts",
+    "youtube:subscribe": "npx tsx playwright/youtube-auto-subscriber.ts",
+    "youtube:unsubscribe": "npx tsx playwright/youtube-auto-unsubscriber.ts"
   },
   "dependencies": {
     "@remotion/bundler": "^4.0.0",

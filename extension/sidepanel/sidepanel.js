@@ -55,6 +55,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const scriptLiveStatus = document.getElementById('scriptLiveStatus');
   const scriptStepLog = document.getElementById('scriptStepLog');
   const scriptTargetBadge = document.getElementById('scriptTargetBadge');
+  const btnResetScript = document.getElementById('btnResetScript');
+  const resetScriptText = document.getElementById('resetScriptText');
   let isRunningScript = false;
   let isAutoProgressActive = false;
 
@@ -68,6 +70,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const mappingLiveStatus = document.getElementById('mappingLiveStatus');
   const mappingStepLog = document.getElementById('mappingStepLog');
   const mappingTargetBadge = document.getElementById('mappingTargetBadge');
+  const btnResetMapping = document.getElementById('btnResetMapping');
+  const resetMappingText = document.getElementById('resetMappingText');
   let isRunningMapping = false;
   let isAutoProgressMappingActive = false;
 
@@ -269,6 +273,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       }
 
+      // Update status tombol hapus/reset hasil script & mapping
+      const doneScriptCount = currentChunks.filter(c => c.script_status === 'done' || c.script_status === 'completed' || !!c.script_output).length;
+      const doneMappingCount = currentChunks.filter(c => c.mapping_status === 'done' || c.mapping_status === 'completed' || !!c.mapping_output).length;
+
+      if (btnResetScript) {
+        btnResetScript.disabled = isRunningScript || isAutoProgressActive || doneScriptCount === 0;
+        btnResetScript.title = doneScriptCount > 0
+          ? `Hapus seluruh output AI Script / Analyse untuk session ini (${doneScriptCount} part)`
+          : 'Belum ada hasil AI Script / Analyse yang tersimpan';
+      }
+
+      if (btnResetMapping) {
+        btnResetMapping.disabled = isRunningMapping || isAutoProgressMappingActive || doneMappingCount === 0;
+        btnResetMapping.title = doneMappingCount > 0
+          ? `Hapus seluruh output AI Video Mapping untuk session ini (${doneMappingCount} part)`
+          : 'Belum ada hasil AI Video Mapping yang tersimpan';
+      }
+
       try {
         renderChunksList();
       } catch (renderErr) {
@@ -333,14 +355,14 @@ document.addEventListener('DOMContentLoaded', async () => {
             <button class="btn-upload-chunk btn-check-drive" id="btn-check-${chunk.part_number}" ${isChecking || isValidatingAny ? 'disabled' : ''}>
               ${isDone ? '🔍 Cek' : isChecking ? '⏳ ...' : '🔍 Drive'}
             </button>
-            <button class="btn-generate-chunk" id="btn-run-${chunk.part_number}" ${isRunningScript || isAutoProgressActive ? 'disabled' : ''} title="AI Script Generator">
+            <button class="btn-generate-chunk" id="btn-run-${chunk.part_number}" ${isRunningScript || isAutoProgressActive ? 'disabled' : ''} title="${isScriptDone ? 'Salin Hasil Script JSON (Klik kanan untuk hapus part ini)' : 'AI Script Generator'}">
               ${isScriptDone ? '📋 Script' : '🚀 Script'}
             </button>
             ${(() => {
               const hasChunkPrompt = !!((chunk.mapping_prompt && chunk.mapping_prompt.trim()) || (chunk.prompt && chunk.prompt.trim()));
               const isMapDisabled = isRunningMapping || isAutoProgressMappingActive || (!isMappingDone && !hasChunkPrompt);
               const mapTitle = isMappingDone 
-                ? 'Salin Hasil Output Mapping JSON' 
+                ? 'Salin Hasil Output Mapping JSON (Klik kanan untuk hapus part ini)' 
                 : hasChunkPrompt 
                   ? 'AI Video Mapping' 
                   : 'Prompt mapping belum diset di Supabase. Set di Dashboard Step 5 terlebih dahulu.';
@@ -411,6 +433,20 @@ document.addEventListener('DOMContentLoaded', async () => {
             await runScriptGeneration(chunk);
           }
         });
+
+        // Klik kanan: Hapus hasil script part ini secara individual
+        btnRun.addEventListener('contextmenu', async (e) => {
+          e.preventDefault();
+          if (!isScriptDone && !chunk.script_output) return;
+          if (confirm(`Hapus hasil AI Script / Analyse untuk Part #${chunk.part_number}?`)) {
+            await window.SupabaseBridge.updatePart(chunk.id, {
+              script_output: null,
+              script_status: 'pending',
+              script_done_at: null,
+            }).catch((err) => console.warn('Supabase error:', err));
+            await loadChunks(sessionSelect.value);
+          }
+        });
       }
 
       // Event Run / View Mapping JSON
@@ -428,6 +464,20 @@ document.addEventListener('DOMContentLoaded', async () => {
               return;
             }
             await runMappingGeneration(chunk);
+          }
+        });
+
+        // Klik kanan: Hapus hasil mapping part ini secara individual
+        btnMap.addEventListener('contextmenu', async (e) => {
+          e.preventDefault();
+          if (!isMappingDone && !chunk.mapping_output) return;
+          if (confirm(`Hapus hasil AI Video Mapping untuk Part #${chunk.part_number}?`)) {
+            await window.SupabaseBridge.updatePart(chunk.id, {
+              mapping_output: null,
+              mapping_status: 'pending',
+              mapping_done_at: null,
+            }).catch((err) => console.warn('Supabase error:', err));
+            await loadChunks(sessionSelect.value);
           }
         });
       }
@@ -1066,6 +1116,68 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  if (btnResetScript) {
+    btnResetScript.addEventListener('click', async () => {
+      if (isRunningScript || isAutoProgressActive) {
+        alert('Tidak dapat menghapus hasil saat Script Generator sedang berjalan.');
+        return;
+      }
+      if (!sessionSelect.value || currentChunks.length === 0) {
+        alert('Pilih active session terlebih dahulu.');
+        return;
+      }
+
+      const chunksWithScript = currentChunks.filter(
+        (c) => c.script_status === 'done' || c.script_status === 'completed' || !!c.script_output
+      );
+
+      if (chunksWithScript.length === 0) {
+        alert('Belum ada hasil AI Script / Analyse yang tersimpan untuk session ini.');
+        return;
+      }
+
+      const sessionName = sessionSelect.options[sessionSelect.selectedIndex]?.text || sessionSelect.value;
+      const confirmDelete = confirm(
+        `⚠️ Hapus SEMUA (${chunksWithScript.length} part) hasil AI Script / Analyse untuk session:\n"${sessionName}"?\n\n` +
+        `Data script_output akan dikosongkan dan status direset ke pending agar bisa di-generate ulang dari Part 1.`
+      );
+
+      if (!confirmDelete) return;
+
+      btnResetScript.disabled = true;
+      if (resetScriptText) resetScriptText.textContent = 'Menghapus...';
+
+      try {
+        let successCount = 0;
+        for (const chunk of chunksWithScript) {
+          try {
+            await window.SupabaseBridge.updatePart(chunk.id, {
+              script_output: null,
+              script_status: 'pending',
+              script_done_at: null,
+            });
+            successCount++;
+          } catch (err) {
+            console.warn(`[ResetScript] Gagal reset part #${chunk.part_number}:`, err);
+          }
+        }
+
+        if (scriptLiveStatus) scriptLiveStatus.classList.remove('hidden');
+        if (scriptStepLog) {
+          scriptStepLog.className = 'script-step-log success';
+          scriptStepLog.textContent = `🗑️ Berhasil menghapus hasil Script / Analyse untuk ${successCount} part. Status direset ke Part 1.`;
+        }
+
+        await loadChunks(sessionSelect.value);
+      } catch (err) {
+        console.error('[ResetScript] Error:', err);
+        alert(`Gagal menghapus hasil script: ${err.message}`);
+      } finally {
+        if (resetScriptText) resetScriptText.textContent = 'Hapus Hasil Analyse';
+      }
+    });
+  }
+
   // ==========================================
   // Video Mapping Automation Controller
   // ==========================================
@@ -1582,6 +1694,68 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (btnAutoProgressMapping) {
     btnAutoProgressMapping.addEventListener('click', async () => {
       await toggleAutoProgressMapping();
+    });
+  }
+
+  if (btnResetMapping) {
+    btnResetMapping.addEventListener('click', async () => {
+      if (isRunningMapping || isAutoProgressMappingActive) {
+        alert('Tidak dapat menghapus hasil saat Video Mapping Generator sedang berjalan.');
+        return;
+      }
+      if (!sessionSelect.value || currentChunks.length === 0) {
+        alert('Pilih active session terlebih dahulu.');
+        return;
+      }
+
+      const chunksWithMapping = currentChunks.filter(
+        (c) => c.mapping_status === 'done' || c.mapping_status === 'completed' || !!c.mapping_output
+      );
+
+      if (chunksWithMapping.length === 0) {
+        alert('Belum ada hasil AI Video Mapping yang tersimpan untuk session ini.');
+        return;
+      }
+
+      const sessionName = sessionSelect.options[sessionSelect.selectedIndex]?.text || sessionSelect.value;
+      const confirmDelete = confirm(
+        `⚠️ Hapus SEMUA (${chunksWithMapping.length} part) hasil AI Video Mapping untuk session:\n"${sessionName}"?\n\n` +
+        `Data mapping_output akan dikosongkan dan status direset ke pending agar bisa di-mapping ulang dari Part 1.`
+      );
+
+      if (!confirmDelete) return;
+
+      btnResetMapping.disabled = true;
+      if (resetMappingText) resetMappingText.textContent = 'Menghapus...';
+
+      try {
+        let successCount = 0;
+        for (const chunk of chunksWithMapping) {
+          try {
+            await window.SupabaseBridge.updatePart(chunk.id, {
+              mapping_output: null,
+              mapping_status: 'pending',
+              mapping_done_at: null,
+            });
+            successCount++;
+          } catch (err) {
+            console.warn(`[ResetMapping] Gagal reset part #${chunk.part_number}:`, err);
+          }
+        }
+
+        if (mappingLiveStatus) mappingLiveStatus.classList.remove('hidden');
+        if (mappingStepLog) {
+          mappingStepLog.className = 'mapping-step-log success';
+          mappingStepLog.textContent = `🗑️ Berhasil menghapus hasil Video Mapping untuk ${successCount} part. Status direset ke Part 1.`;
+        }
+
+        await loadChunks(sessionSelect.value);
+      } catch (err) {
+        console.error('[ResetMapping] Error:', err);
+        alert(`Gagal menghapus hasil mapping: ${err.message}`);
+      } finally {
+        if (resetMappingText) resetMappingText.textContent = 'Hapus Hasil Video Mapping';
+      }
     });
   }
 
