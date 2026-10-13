@@ -764,3 +764,5 @@ declare global {
     electronAPI: ElectronAPI;
   }
 }
+  }
+}

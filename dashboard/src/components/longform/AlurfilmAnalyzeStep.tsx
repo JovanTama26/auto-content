@@ -63,8 +63,8 @@ const AlurfilmAnalyzeStep: React.FC = () => {
         }
       }
       setAnalyses(map);
-      showToast(syncedCount > 0 
-        ? `☁️ Berhasil memuat ${syncedCount} naskah baru dari Supabase!` 
+      showToast(syncedCount > 0
+        ? `☁️ Berhasil memuat ${syncedCount} naskah baru dari Supabase!`
         : `☁️ Data naskah sudah tersinkron dengan Supabase (${Object.keys(map).length} part terdata).`);
     } catch (err: any) {
       setError(`Gagal memuat naskah dari Supabase: ${err.message}`);
@@ -128,7 +128,7 @@ const AlurfilmAnalyzeStep: React.FC = () => {
         if (Array.isArray(profs) && profs.length > 0) {
           setAvailableProfiles(profs);
         }
-      }).catch(() => {});
+      }).catch(() => { });
     }
   }, []);
 
@@ -145,7 +145,7 @@ const AlurfilmAnalyzeStep: React.FC = () => {
       });
       const unsubLog = api.onAlurfilmLog ? api.onAlurfilmLog((data) => {
         setPipelineLogs(prev => [...prev, { level: data.level, message: data.message, timestamp: new Date().toLocaleTimeString() }]);
-      }) : () => {};
+      }) : () => { };
 
       return () => {
         unsubProgress();
@@ -183,7 +183,7 @@ const AlurfilmAnalyzeStep: React.FC = () => {
               if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
                 dataToSave = JSON.parse(res.rawText.substring(firstBrace, lastBrace + 1));
               }
-            } catch {}
+            } catch { }
           }
 
           if (dataToSave) {
@@ -200,7 +200,7 @@ const AlurfilmAnalyzeStep: React.FC = () => {
             const targetPart = Number(validData?.chunk_part || activePart) || 1;
 
             const saveRes = await api.saveAlurfilmAnalysis(targetPart, validData);
-            
+
             // Refresh analyses map from disk to guarantee UI sync
             const analysisList = await api.listAlurfilmAnalyses(contentId || undefined);
             const map: Record<number, AlurfilmAnalysisResult> = {};
@@ -381,9 +381,13 @@ const AlurfilmAnalyzeStep: React.FC = () => {
       const activeChunk = chunks.find((c) => c.part === partNum);
       const chunkDur = activeChunk?.durationSec || activeChunk?.duration || 0;
       const isIntroPart = partNum === 0;
-      const computedWords = isIntroPart
-        ? Math.max(40, Math.min(150, Math.round(chunkDur * 0.8)))
-        : Math.max(40, Math.min(500, Math.round(chunkDur * (500 / 1200))));
+      const computedMinWords = isIntroPart
+        ? Math.max(40, Math.round(chunkDur * 0.7))
+        : Math.max(50, Math.round((chunkDur * 480) / 1200));
+      const computedMaxWords = isIntroPart
+        ? Math.min(150, Math.round(chunkDur * 0.9))
+        : Math.max(50, Math.round((chunkDur * 530) / 1200));
+      const computedWords = `${computedMinWords} - ${computedMaxWords}`;
 
       let formattedPrompt = '';
       if (api.getAlurfilmPrompt) {
@@ -398,9 +402,9 @@ const AlurfilmAnalyzeStep: React.FC = () => {
             movieTitle,
             movieYear
           } as any);
-        } catch {}
+        } catch { }
       }
-      
+
       if (!formattedPrompt) {
         let promptTpl = await api.readFromProject('dashboard/prompts/longform/alurfilm-singlepass-prompt.md');
         const chunkDurText = chunkDur < 60
@@ -415,10 +419,10 @@ const AlurfilmAnalyzeStep: React.FC = () => {
         const isLastPartStr = isLastPart ? 'YA (Chunk Terakhir / Part Penutup Film - Akhiri tanpa menyebut judul film)' : 'TIDAK (Part Bukan Penutup)';
         const prevCtxStr = prevContext ? JSON.stringify(prevContext, null, 2) : 'Tidak ada (Awal Film)';
         const styleExampleStr = partNum === 0
-          ? 'Gunakan gaya penceritaan yang super friendly, santai, mengalir hangat, dan akrab khas pencerita alur film populer. Sampaikan narasi teaser intro yang membakar rasa penasaran penonton (hooking) dan mengalir mulus tanpa kaku! DILARANG KERAS menyebutkan nama/judul film (gunakan "film yang satu ini" atau "film seru ini").'
+          ? 'Gunakan gaya penceritaan yang super friendly, santai, mengalir hangat, dan akrab khas pencerita alur film populer. Sampaikan narasi teaser intro yang membakar rasa penasaran penonton (hooking) dan mengalir mulus tanpa kaku! DILARANG KERAS menyebutkan nama/judul film (gunakan sebutan "film yang satu ini" atau langsung masuk ke aksi). DILARANG gaya sastra puitis/melodramatis!'
           : partNum === 1
-            ? 'Buka naskah secara fleksibel (langsung ke premis aksi karakter ATAU sebutan pengganti seperti "Film yang satu ini menceritakan..."). DILARANG KERAS menyebutkan judul film! Gunakan gaya semi-formal sinematik yang runut, mengalir enak di telinga, dan berbasis aksi fisik nyata (sambungkan antarklausa dengan: "di mana...", "yang membuat...", "hingga...", "sebab...", "namun sayangnya..."). DILARANG diksi gaul alay (si doi, bapak ini, apesnya tuh) dan DILARANG renungan puitis ngawang.'
-            : 'Gunakan gaya penceritaan alur film semi-formal sinematik yang runut, mengalir, dan berbasis aksi nyata (sambungkan antarklausa dengan "di mana...", "yang membuat...", "hingga...", "sebab...", "namun sayangnya..."). DILARANG diksi gaul alay (si doi, bapak ini, apesnya tuh) dan DILARANG renungan puitis ngawang. DILARANG menyebutkan nama/judul film!';
+            ? 'Gaya pencerita alur cerita film YouTube Indonesia tulen: lugas, santai, komunikatif, dan renyah didengar (seperti Saqahayang / Kamar Film). Buka langsung ke fokus karakter dan krisis awalnya (contoh: "Cerita berfokus pada seorang pria bernama..." / "Di awal cerita, kita langsung diperlihatkan bagaimana..."). Fokus mutlak pada POINTING OUT ALUR CERITA (krisis karakter, sebab-akibat, konflik, dan taruhan nasib). DILARANG KERAS gaya bahasa sastra novel yang puitis/melodramatis ("kendati", "kubangan alkohol", "meremukkan perut", "keheningan alam yang menenangkan"). DILARANG gaya formal kaku koran/skripsi ("Film dibuka dengan..."). DILARANG gaya rekaman CCTV yang hanya mendiktekan gerak fisik mikro karakter. DILARANG menyebutkan nama/judul film!'
+            : 'Gaya pencerita alur cerita film YouTube Indonesia tulen: lugas, santai, komunikatif, dan renyah didengar (seperti Saqahayang / Kamar Film). Langsung sambung ke perkembangan alur cerita dan krisis karakter berikutnya tanpa basa-basi meta klise ("Menyambung ketegangan sebelumnya"). Fokus mutlak pada POINTING OUT ALUR CERITA (perkembangan plot, sebab-akibat, konflik, dan taruhan nasib). DILARANG KERAS gaya bahasa sastra novel yang puitis/melodramatis ("kendati", "kubangan alkohol", "meremukkan perut", "keheningan alam"), DILARANG gaya formal kaku koran/skripsi, DILARANG gaya rekaman CCTV yang hanya mendiktekan gerak fisik karakter, dan DILARANG menyebutkan nama/judul film!';
 
         formattedPrompt = (promptTpl || '')
           .replace(/\{\{chunk_part\}\}/g, String(partNum))
@@ -427,7 +431,9 @@ const AlurfilmAnalyzeStep: React.FC = () => {
           .replace(/\{\{movie_year\}\}/g, movieYear.trim() ? `tahun ${movieYear.trim()}` : '')
           .replace(/\{\{is_first_part\}\}/g, isFirstPartStr)
           .replace(/\{\{is_last_part\}\}/g, isLastPartStr)
-          .replace(/\{\{target_words_per_chunk\}\}/g, String(computedWords))
+          .replace(/\{\{target_words_per_chunk\}\}/g, computedWords)
+          .replace(/\{\{target_min_words\}\}/g, String(computedMinWords))
+          .replace(/\{\{target_max_words\}\}/g, String(computedMaxWords))
           .replace(/\{\{chunk_duration_text\}\}/g, chunkDurText)
           .replace(/\{\{previous_context\}\}/g, prevCtxStr)
           .replace(/\{\{style_example\}\}/g, styleExampleStr);
@@ -438,7 +444,7 @@ const AlurfilmAnalyzeStep: React.FC = () => {
         try {
           await api.copyToClipboard(formattedPrompt);
           copied = true;
-        } catch {}
+        } catch { }
       }
       if (!copied && navigator.clipboard) {
         await navigator.clipboard.writeText(formattedPrompt);
@@ -453,15 +459,15 @@ const AlurfilmAnalyzeStep: React.FC = () => {
     }
   };
 
-const safeStr = (val: any, fallback: string = ''): string => {
-  if (val === null || val === undefined) return fallback;
-  if (typeof val === 'string') return val;
-  if (typeof val === 'number' || typeof val === 'boolean') return String(val);
-  if (typeof val === 'object') {
-    return val.macro_summary || val.summary || val.text || val.description || val.assigned_name || JSON.stringify(val);
-  }
-  return String(val);
-};
+  const safeStr = (val: any, fallback: string = ''): string => {
+    if (val === null || val === undefined) return fallback;
+    if (typeof val === 'string') return val;
+    if (typeof val === 'number' || typeof val === 'boolean') return String(val);
+    if (typeof val === 'object') {
+      return val.macro_summary || val.summary || val.text || val.description || val.assigned_name || JSON.stringify(val);
+    }
+    return String(val);
+  };
 
   const handleManualImportJson = async () => {
     if (!pasteJsonInput.trim()) return;
@@ -519,11 +525,10 @@ const safeStr = (val: any, fallback: string = ''): string => {
         <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
           <button
             onClick={() => handleCopyPromptForPart(activePart)}
-            className={`px-3.5 py-2.5 text-white rounded-xl text-xs font-bold shadow-lg transition-all flex items-center gap-1.5 ${
-              copiedPromptPart === activePart
+            className={`px-3.5 py-2.5 text-white rounded-xl text-xs font-bold shadow-lg transition-all flex items-center gap-1.5 ${copiedPromptPart === activePart
                 ? 'bg-emerald-600 border border-emerald-400 shadow-emerald-600/30'
                 : 'bg-purple-600 hover:bg-purple-500 shadow-purple-600/30'
-            }`}
+              }`}
           >
             <span>{copiedPromptPart === activePart ? '✓' : '📋'}</span>
             {copiedPromptPart === activePart ? `Copied!` : `Copy Prompt`}
@@ -599,17 +604,16 @@ const safeStr = (val: any, fallback: string = ''): string => {
                 <button
                   key={partNum}
                   onClick={() => setActivePart(partNum)}
-                  className={`px-4 py-2 rounded-xl text-xs font-bold font-mono transition-all flex items-center gap-2 border shrink-0 ${
-                    isActive
+                  className={`px-4 py-2 rounded-xl text-xs font-bold font-mono transition-all flex items-center gap-2 border shrink-0 ${isActive
                       ? isIntro
                         ? 'bg-amber-600 border-amber-400 text-white shadow-lg shadow-amber-600/40 scale-105'
                         : 'bg-purple-600 border-purple-400 text-white shadow-lg shadow-purple-600/40 scale-105'
                       : isDone
-                      ? 'bg-purple-950/40 border-purple-800/60 text-purple-300 hover:bg-purple-900/50'
-                      : isIntro
-                      ? 'bg-amber-950/30 border-amber-800/50 text-amber-300 hover:bg-amber-900/40'
-                      : 'bg-gray-950 border-gray-800 text-gray-400 hover:text-gray-200'
-                  }`}
+                        ? 'bg-purple-950/40 border-purple-800/60 text-purple-300 hover:bg-purple-900/50'
+                        : isIntro
+                          ? 'bg-amber-950/30 border-amber-800/50 text-amber-300 hover:bg-amber-900/40'
+                          : 'bg-gray-950 border-gray-800 text-gray-400 hover:text-gray-200'
+                    }`}
                 >
                   <span>{isIntro ? 'Part #0 (Intro)' : `Part #${partNum}`}</span>
                   {isRunning ? (
@@ -685,11 +689,10 @@ const safeStr = (val: any, fallback: string = ''): string => {
                 pipelineLogs.map((log, idx) => (
                   <div key={idx} className="flex gap-2 items-start hover:bg-gray-900/50 px-1 py-0.5 rounded">
                     <span className="text-gray-600 shrink-0 text-[10px]">[{log.timestamp}]</span>
-                    <span className={`shrink-0 font-bold text-[10px] px-1.5 py-0.2 rounded ${
-                      log.level === 'error' ? 'bg-red-950 text-red-400 border border-red-800' :
-                      log.level === 'warn' ? 'bg-amber-950 text-amber-300 border border-amber-800' :
-                      'bg-emerald-950 text-emerald-300 border border-emerald-800'
-                    }`}>
+                    <span className={`shrink-0 font-bold text-[10px] px-1.5 py-0.2 rounded ${log.level === 'error' ? 'bg-red-950 text-red-400 border border-red-800' :
+                        log.level === 'warn' ? 'bg-amber-950 text-amber-300 border border-amber-800' :
+                          'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                      }`}>
                       {log.level.toUpperCase()}
                     </span>
                     <span className={log.level === 'error' ? 'text-red-400 font-bold' : log.level === 'warn' ? 'text-amber-300' : 'text-gray-200'}>
@@ -747,7 +750,7 @@ const safeStr = (val: any, fallback: string = ''): string => {
                 <p className="text-[11px] text-gray-300 leading-relaxed">
                   Sistem akan otomatis mengambil <span className="text-amber-400 font-bold">cuplikan 15 detik secara acak</span> dari setiap Part film, lalu menggabungkannya menjadi 1 video Intro Part #0.
                 </p>
-                
+
                 <div className="flex items-center justify-between gap-3">
                   <button
                     onClick={handleGenerateAutoIntro}
@@ -811,17 +814,22 @@ const safeStr = (val: any, fallback: string = ''): string => {
             {(() => {
               const activeChunk = chunks.find((c) => c.part === activePart);
               const chunkDur = activeChunk?.durationSec || activeChunk?.duration || 0;
-              const computedWords = activePart === 0
-                ? Math.max(40, Math.min(150, Math.round(chunkDur * 0.8)))
-                : Math.max(40, Math.min(500, Math.round(chunkDur * (500 / 1200))));
+              const isIntro = activePart === 0;
+              const minWords = isIntro
+                ? Math.max(40, Math.round(chunkDur * 0.7))
+                : Math.max(50, Math.round((chunkDur * 650) / 1200));
+              const maxWords = isIntro
+                ? Math.min(150, Math.round(chunkDur * 0.9))
+                : Math.max(50, Math.round((chunkDur * 700) / 1200));
               const durText = chunkDur < 60
                 ? `${Math.round(chunkDur)} Detik`
                 : `${(chunkDur / 60).toFixed(1)} Menit`;
-              const voMinutes = (computedWords / 130).toFixed(1);
+              const voMinMin = (minWords / 130).toFixed(1);
+              const voMaxMin = (maxWords / 130).toFixed(1);
               return (
                 <>
                   <p>- Split Video Duration: <span className="text-emerald-400 font-bold">{durText}</span></p>
-                  <p>- Target Kata: <span className="text-emerald-400 font-bold">~{computedWords} Kata</span> (Plafon Fleksibel / Story First ~{voMinutes} Menit VO)</p>
+                  <p>- Target Kata: <span className="text-emerald-400 font-bold">{minWords} - {maxWords} Kata</span> (Mentok Maksimal {maxWords} Kata ~{voMinMin}-{voMaxMin} Menit VO)</p>
                 </>
               );
             })()}
@@ -861,33 +869,29 @@ const safeStr = (val: any, fallback: string = ''): string => {
             <div className="flex gap-1.5 bg-gray-950 p-1 rounded-xl border border-gray-800 overflow-x-auto">
               <button
                 onClick={() => setActiveTab('script')}
-                className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
-                  activeTab === 'script' ? 'bg-purple-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'
-                }`}
+                className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${activeTab === 'script' ? 'bg-purple-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'
+                  }`}
               >
                 📝 Script
               </button>
               <button
                 onClick={() => setActiveTab('characters')}
-                className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
-                  activeTab === 'characters' ? 'bg-purple-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'
-                }`}
+                className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${activeTab === 'characters' ? 'bg-purple-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'
+                  }`}
               >
                 👤 Characters ({currentAnalysis?.character_registry?.length || 0})
               </button>
               <button
                 onClick={() => setActiveTab('timeline')}
-                className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
-                  activeTab === 'timeline' ? 'bg-purple-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'
-                }`}
+                className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${activeTab === 'timeline' ? 'bg-purple-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'
+                  }`}
               >
                 🎬 Scenes ({currentAnalysis?.timeline_edits?.length || 0})
               </button>
               <button
                 onClick={() => setActiveTab('json')}
-                className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
-                  activeTab === 'json' ? 'bg-purple-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'
-                }`}
+                className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${activeTab === 'json' ? 'bg-purple-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'
+                  }`}
               >
                 📋 JSON
               </button>

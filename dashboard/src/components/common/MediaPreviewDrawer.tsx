@@ -103,31 +103,28 @@ const MediaPreviewDrawer: React.FC<MediaPreviewDrawerProps> = ({
         <div className="px-5 py-3 border-b border-gray-800/80 bg-gray-900/40 flex items-center gap-2">
           <button
             onClick={() => setMediaType('video')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${
-              mediaType === 'video'
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${mediaType === 'video'
                 ? 'bg-purple-600 border-purple-500 text-white shadow-md shadow-purple-600/30'
                 : 'bg-gray-900 border-gray-800 text-gray-400 hover:text-gray-200'
-            }`}
+              }`}
           >
             <span>📹</span> Video Chunk ({chunks.length})
           </button>
           <button
             onClick={() => setMediaType('audio')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${
-              mediaType === 'audio'
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${mediaType === 'audio'
                 ? 'bg-purple-600 border-purple-500 text-white shadow-md shadow-purple-600/30'
                 : 'bg-gray-900 border-gray-800 text-gray-400 hover:text-gray-200'
-            }`}
+              }`}
           >
             <span>🎙️</span> Voiceover Audio ({Object.keys(audios).length})
           </button>
           <button
             onClick={() => setMediaType('render')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${
-              mediaType === 'render'
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${mediaType === 'render'
                 ? 'bg-purple-600 border-purple-500 text-white shadow-md shadow-purple-600/30'
                 : 'bg-gray-900 border-gray-800 text-gray-400 hover:text-gray-200'
-            }`}
+              }`}
           >
             <span>🎞️</span> Rendered Output ({renders.length})
           </button>
@@ -141,11 +138,10 @@ const MediaPreviewDrawer: React.FC<MediaPreviewDrawerProps> = ({
               <button
                 key={c.part}
                 onClick={() => setActivePart(c.part)}
-                className={`px-3 py-1 rounded-lg text-xs font-bold font-mono transition-all shrink-0 border ${
-                  activePart === c.part
+                className={`px-3 py-1 rounded-lg text-xs font-bold font-mono transition-all shrink-0 border ${activePart === c.part
                     ? 'bg-purple-600 border-purple-500 text-white shadow-sm'
                     : 'bg-gray-900 border-gray-800 text-gray-400 hover:text-white'
-                }`}
+                  }`}
               >
                 P#{c.part}
               </button>
@@ -229,11 +225,10 @@ const MediaPreviewDrawer: React.FC<MediaPreviewDrawerProps> = ({
                       <button
                         key={r.fullPath}
                         onClick={() => setSelectedRenderUrl(rUrl)}
-                        className={`px-3 py-1 rounded-lg text-[11px] font-mono font-bold transition-all shrink-0 border ${
-                          isSelected
+                        className={`px-3 py-1 rounded-lg text-[11px] font-mono font-bold transition-all shrink-0 border ${isSelected
                             ? 'bg-emerald-600 border-emerald-500 text-white'
                             : 'bg-gray-900 border-gray-800 text-gray-400 hover:text-white'
-                        }`}
+                          }`}
                       >
                         🎬 {r.name}
                       </button>

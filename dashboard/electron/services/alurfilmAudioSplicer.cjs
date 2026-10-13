@@ -208,7 +208,7 @@ function calculateAudioSplits(alignedElements, totalRawAudioDur) {
         }
       }
 
-      const silenceDur = Number((current.duration || 5.0).toFixed(3));
+      const silenceDur = Number((current.duration !== undefined ? current.duration : (current.outputDuration || 5.0)).toFixed(3));
 
       if (prevNarr && prevNarr.end !== undefined) {
         const prevEnd = prevNarr.lastWordEnd !== undefined ? prevNarr.lastWordEnd : (prevNarr.speech_end !== undefined ? prevNarr.speech_end : prevNarr.end);
@@ -561,9 +561,14 @@ function cleanWords(txt) {
  * Matches manual transcript entries with script visual only tags.
  * If transcriptEntries already contains visual only elements, maps them directly.
  */
+/**
+ * Matches manual transcript entries with script visual only tags dynamically based on
+ * the sentences/words immediately before and after each tag in the script text.
+ * No static stopwords or hardcoded word lengths are used.
+ */
 function matchTranscriptWithScriptVisualOnly(transcriptEntries, scriptText) {
   // Check if transcript entries already contain visual_only tags
-  const hasExistingVisual = transcriptEntries.some(t => 
+  const hasExistingVisual = transcriptEntries.some(t =>
     t.type === 'visual_only' ||
     /\[VISUAL_ONLY/i.test(t.text || '') ||
     (t.speaker && /visual/i.test(t.speaker))
@@ -576,11 +581,13 @@ function matchTranscriptWithScriptVisualOnly(transcriptEntries, scriptText) {
       if (isVis) {
         secCounter++;
         const parsedVis = parseVisualOnlyTag(t.text);
+        const dur = parsedVis.outputDuration || t.duration || 5.0;
         return {
           type: 'visual_only',
-          text: t.text || `[VISUAL_ONLY (Range: ${parsedVis.sourceRange}, Duration: ${parsedVis.outputDuration}s): ${parsedVis.description}]`,
+          text: t.text || `[VISUAL_ONLY (Range: ${parsedVis.sourceRange}, Duration: ${dur}s): ${parsedVis.description}]`,
           description: parsedVis.description,
-          duration: parsedVis.outputDuration,
+          duration: dur,
+          outputDuration: dur,
           sourceRange: parsedVis.sourceRange,
           sourceStartSeconds: parsedVis.sourceStartSeconds,
           sourceEndSeconds: parsedVis.sourceEndSeconds,
@@ -590,12 +597,12 @@ function matchTranscriptWithScriptVisualOnly(transcriptEntries, scriptText) {
       return {
         type: 'narration',
         text: t.text,
-        start: t.start_seconds,
-        end: t.end_seconds,
-        speech_start: t.start_seconds,
-        speech_end: t.end_seconds,
-        firstWordStart: t.start_seconds,
-        lastWordEnd: t.end_seconds,
+        start: t.start_seconds !== undefined ? t.start_seconds : t.start,
+        end: t.end_seconds !== undefined ? t.end_seconds : t.end,
+        speech_start: t.start_seconds !== undefined ? t.start_seconds : t.start,
+        speech_end: t.end_seconds !== undefined ? t.end_seconds : t.end,
+        firstWordStart: t.start_seconds !== undefined ? t.start_seconds : t.start,
+        lastWordEnd: t.end_seconds !== undefined ? t.end_seconds : t.end,
         speaker: t.speaker || 'Narator',
         sectionIndex: secCounter,
         words: t.words || []
@@ -603,90 +610,78 @@ function matchTranscriptWithScriptVisualOnly(transcriptEntries, scriptText) {
     });
   }
 
-  const scriptElements = parseScriptToElements(scriptText || '');
-  const visualOnlyElements = [];
+  // Extract all [VISUAL_ONLY...] tags and their surrounding text in scriptText
+  const tagRegex = /\[VISUAL_ONLY[^\]]*\]/gi;
+  let match;
+  let lastIndex = 0;
+  const visualOnlyTags = [];
 
-  for (let i = 0; i < scriptElements.length; i++) {
-    if (scriptElements[i].type === 'visual_only') {
-      let beforeWords = [];
-      for (let j = i - 1; j >= 0; j--) {
-        if (scriptElements[j].type === 'narration') {
-          const w = cleanWords(scriptElements[j].text);
-          beforeWords = w.concat(beforeWords);
-          if (beforeWords.length >= 30) break;
-        }
-      }
-      let afterWords = [];
-      for (let j = i + 1; j < scriptElements.length; j++) {
-        if (scriptElements[j].type === 'narration') {
-          const w = cleanWords(scriptElements[j].text);
-          afterWords = afterWords.concat(w);
-          if (afterWords.length >= 30) break;
-        }
-      }
+  while ((match = tagRegex.exec(scriptText || '')) !== null) {
+    const beforeText = (scriptText || '').slice(lastIndex, match.index).trim();
+    const tagStr = match[0];
+    const afterStart = tagRegex.lastIndex;
+    const nextMatch = (scriptText || '').indexOf('[VISUAL_ONLY', afterStart);
+    const afterText = (nextMatch !== -1 ? (scriptText || '').slice(afterStart, nextMatch) : (scriptText || '').slice(afterStart)).trim();
 
-      visualOnlyElements.push({
-        element: scriptElements[i],
-        beforeTail: beforeWords.slice(-15).join(' '),
-        afterHead: afterWords.slice(0, 15).join(' '),
-      });
-    }
+    const parsedVis = parseVisualOnlyTag(tagStr);
+
+    visualOnlyTags.push({
+      element: {
+        type: 'visual_only',
+        text: `[VISUAL_ONLY (Range: ${parsedVis.sourceRange}, Duration: ${parsedVis.outputDuration}s): ${parsedVis.description}]`,
+        description: parsedVis.description,
+        duration: parsedVis.outputDuration,
+        outputDuration: parsedVis.outputDuration,
+        sourceRange: parsedVis.sourceRange,
+        sourceStartSeconds: parsedVis.sourceStartSeconds,
+        sourceEndSeconds: parsedVis.sourceEndSeconds
+      },
+      beforeText,
+      afterText,
+      beforeWords: cleanWords(beforeText),
+      afterWords: cleanWords(afterText)
+    });
+
+    lastIndex = tagRegex.lastIndex;
   }
 
-  if (visualOnlyElements.length === 0) {
+  if (visualOnlyTags.length === 0) {
     return transcriptEntries.map(t => ({
       type: 'narration',
       text: t.text,
-      start: t.start_seconds,
-      end: t.end_seconds,
-      speech_start: t.start_seconds,
-      speech_end: t.end_seconds,
-      firstWordStart: t.start_seconds,
-      lastWordEnd: t.end_seconds,
+      start: t.start_seconds !== undefined ? t.start_seconds : t.start,
+      end: t.end_seconds !== undefined ? t.end_seconds : t.end,
+      speech_start: t.start_seconds !== undefined ? t.start_seconds : t.start,
+      speech_end: t.end_seconds !== undefined ? t.end_seconds : t.end,
+      firstWordStart: t.start_seconds !== undefined ? t.start_seconds : t.start,
+      lastWordEnd: t.end_seconds !== undefined ? t.end_seconds : t.end,
       speaker: t.speaker || 'Narator',
       sectionIndex: 0,
       words: t.words || []
     }));
   }
 
-  // Pre-split transcript entries if any visualOnly tag belongs in the middle of an entry
+  // Pre-split any transcript entry if both the boundary word before and word after occur in that single entry
   let workingEntries = [...transcriptEntries];
-  for (const vis of visualOnlyElements) {
-    if (!vis.beforeTail) continue;
-    const targetWords = vis.beforeTail.split(' ').filter(w => w.length > 2);
-    if (targetWords.length < 3) continue;
+  for (const vt of visualOnlyTags) {
+    const lastTailWord = vt.beforeWords.length > 0 ? vt.beforeWords[vt.beforeWords.length - 1] : null;
+    const firstHeadWord = vt.afterWords.length > 0 ? vt.afterWords[0] : null;
+    if (!lastTailWord || !firstHeadWord) continue;
 
     for (let i = 0; i < workingEntries.length; i++) {
       const entry = workingEntries[i];
       if (entry.type === 'visual_only') continue;
-      const text = entry.text || '';
-      const cleanEntry = cleanWords(text);
-      const lastFewWords = targetWords.slice(-4).join(' ');
-      const cleanFull = cleanEntry.join(' ');
-      const foundIdx = cleanFull.indexOf(lastFewWords);
-
-      // Check if found and not right at the boundary
-      if (foundIdx > 0 && foundIdx + lastFewWords.length < cleanFull.length - 10) {
-        const searchWords = targetWords.slice(-3);
-        let splitCharPos = -1;
-        for (let wIdx = searchWords.length; wIdx >= 2; wIdx--) {
-          const phrase = searchWords.slice(0, wIdx).join(' ');
-          const pIdx = text.toLowerCase().indexOf(phrase);
-          if (pIdx > 0) {
-            splitCharPos = pIdx + phrase.length;
-            while (splitCharPos < text.length && /[\s.,!?;:]/.test(text[splitCharPos])) {
-              splitCharPos++;
-            }
-            break;
-          }
-        }
-
-        if (splitCharPos > 20 && splitCharPos < text.length - 20) {
-          const textA = text.slice(0, splitCharPos).trim();
-          const textB = text.slice(splitCharPos).trim();
-          const totalDur = Math.max(0.1, (entry.end_seconds || entry.end || 0) - (entry.start_seconds || entry.start || 0));
-          const ratio = Math.max(0.1, Math.min(0.9, textA.length / text.length));
-          const splitTime = Number(((entry.start_seconds || entry.start || 0) + totalDur * ratio).toFixed(2));
+      const lower = (entry.text || '').toLowerCase();
+      const regex = new RegExp(`\\b${lastTailWord}([.!?,;:]?\\s+)${firstHeadWord}\\b`, 'i');
+      const m = lower.match(regex);
+      if (m && m.index !== undefined) {
+        const splitPos = m.index + lastTailWord.length + (m[1].startsWith('.') || m[1].startsWith('!') || m[1].startsWith('?') ? 1 : 0);
+        if (splitPos > 5 && splitPos < entry.text.length - 5) {
+          const textA = entry.text.slice(0, splitPos).trim();
+          const textB = entry.text.slice(splitPos).trim();
+          const totalDur = Math.max(0.1, (entry.end_seconds || 0) - (entry.start_seconds || 0));
+          const ratio = Math.max(0.1, Math.min(0.9, textA.length / entry.text.length));
+          const splitTime = Number(((entry.start_seconds || 0) + totalDur * ratio).toFixed(3));
 
           const entryA = { ...entry, text: textA, end_seconds: splitTime, end: splitTime };
           const entryB = { ...entry, text: textB, start_seconds: splitTime, start: splitTime };
@@ -699,44 +694,46 @@ function matchTranscriptWithScriptVisualOnly(transcriptEntries, scriptText) {
   }
   transcriptEntries = workingEntries;
 
+  // Match each visual_only tag sequentially using dynamic sliding-window anchor matching
   const matchedBoundaries = [];
   let minBoundary = 0;
 
-  for (let vIdx = 0; vIdx < visualOnlyElements.length; vIdx++) {
-    const vis = visualOnlyElements[vIdx];
+  for (let vIdx = 0; vIdx < visualOnlyTags.length; vIdx++) {
+    const vt = visualOnlyTags[vIdx];
     let bestScore = -1;
     let bestK = minBoundary;
 
+    const tailAnchor = vt.beforeWords.slice(-8);
+    const headAnchor = vt.afterWords.slice(0, 8);
+
     for (let k = minBoundary; k < transcriptEntries.length; k++) {
-      const entryBefore = transcriptEntries[k];
-      const entryAfter = k + 1 < transcriptEntries.length ? transcriptEntries[k + 1] : null;
+      const windowBefore = cleanWords(transcriptEntries.slice(Math.max(0, k - 2), k + 1).map(e => e.text).join(' '));
+      const windowAfter = cleanWords(transcriptEntries.slice(k + 1, Math.min(transcriptEntries.length, k + 4)).map(e => e.text).join(' '));
 
-      const wordsBeforeEntry = cleanWords(entryBefore.text).slice(-15).join(' ');
-      const wordsAfterEntry = entryAfter ? cleanWords(entryAfter.text).slice(0, 15).join(' ') : '';
-
-      let score = 0;
-      if (vis.beforeTail && wordsBeforeEntry) {
-        const targetWords = vis.beforeTail.split(' ');
-        for (const tw of targetWords) {
-          if (wordsBeforeEntry.includes(tw)) score += 2;
-        }
-      }
-      if (vis.afterHead && wordsAfterEntry) {
-        const targetWords = vis.afterHead.split(' ');
-        for (const tw of targetWords) {
-          if (wordsAfterEntry.includes(tw)) score += 2;
-        }
+      let beforeScore = 0;
+      const tailAnchorSlice = tailAnchor.slice(-4);
+      const windowBeforeTail = windowBefore.slice(-6);
+      for (const w of tailAnchorSlice) {
+        if (windowBeforeTail.includes(w)) beforeScore++;
       }
 
-      if (score > bestScore) {
-        bestScore = score;
+      let afterScore = 0;
+      const headAnchorSlice = headAnchor.slice(0, 4);
+      const windowAfterHead = windowAfter.slice(0, 6);
+      for (const w of headAnchorSlice) {
+        if (windowAfterHead.includes(w)) afterScore++;
+      }
+
+      const totalScore = beforeScore + afterScore;
+      if (totalScore > bestScore) {
+        bestScore = totalScore;
         bestK = k;
       }
     }
 
     matchedBoundaries.push({
       afterTranscriptIndex: bestK,
-      visualElement: vis.element
+      visualElement: vt.element
     });
     minBoundary = bestK + 1;
   }
@@ -749,12 +746,12 @@ function matchTranscriptWithScriptVisualOnly(transcriptEntries, scriptText) {
     alignedElements.push({
       type: 'narration',
       text: t.text,
-      start: t.start_seconds,
-      end: t.end_seconds,
-      speech_start: t.start_seconds,
-      speech_end: t.end_seconds,
-      firstWordStart: t.start_seconds,
-      lastWordEnd: t.end_seconds,
+      start: t.start_seconds !== undefined ? t.start_seconds : t.start,
+      end: t.end_seconds !== undefined ? t.end_seconds : t.end,
+      speech_start: t.start_seconds !== undefined ? t.start_seconds : t.start,
+      speech_end: t.end_seconds !== undefined ? t.end_seconds : t.end,
+      firstWordStart: t.start_seconds !== undefined ? t.start_seconds : t.start,
+      lastWordEnd: t.end_seconds !== undefined ? t.end_seconds : t.end,
       speaker: t.speaker || 'Narator',
       sectionIndex: secCounter,
       words: t.words || []
@@ -810,13 +807,13 @@ async function processManualTranscriptWorkflow({
         const data = JSON.parse(fs.readFileSync(p1, 'utf-8'));
         scriptText = data.naskah_voiceover?.script_text || data.script_text || '';
         break;
-      } catch {}
+      } catch { }
     } else if (fs.existsSync(p2)) {
       try {
         const data = JSON.parse(fs.readFileSync(p2, 'utf-8'));
         scriptText = data.naskah_voiceover?.script_text || data.script_text || '';
         break;
-      } catch {}
+      } catch { }
     }
   }
 
@@ -835,7 +832,7 @@ async function processManualTranscriptWorkflow({
     try {
       const data = JSON.parse(fs.readFileSync(mappingFile, 'utf-8'));
       targetAudioEntry = (data.audios || []).find(item => item.parts && item.parts.includes(part));
-    } catch {}
+    } catch { }
   }
 
   if (targetAudioEntry) {
@@ -923,7 +920,7 @@ async function processManualTranscriptWorkflow({
   // Also clean any legacy file in ALURFILM_DIR root
   const rootLegacyPath = path.join(p.ALURFILM_DIR, outputName);
   if (fs.existsSync(rootLegacyPath)) {
-    try { fs.unlinkSync(rootLegacyPath); } catch {}
+    try { fs.unlinkSync(rootLegacyPath); } catch { }
   }
 
   log('done', 100, `Selesai! Part #${part} berhasil diproses (${finalEntries.length} baris, ${visualGaps.length} Visual Only).`);

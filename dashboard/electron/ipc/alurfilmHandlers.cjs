@@ -850,9 +850,13 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
 
     const safeDuration = Math.max(1, durationSec);
     const isIntroPart = Number(chunkPart) === 0;
-    const computedWordsPerChunk = isIntroPart
-      ? Math.max(40, Math.min(150, Math.round(safeDuration * 0.8)))
-      : Math.max(40, Math.min(500, Math.round(safeDuration * (500 / 1200))));
+    const computedMinWords = isIntroPart
+      ? Math.max(40, Math.round(safeDuration * 0.7))
+      : Math.max(50, Math.round((safeDuration * 480) / 1200));
+    const computedMaxWords = isIntroPart
+      ? Math.min(150, Math.round(safeDuration * 0.9))
+      : Math.max(50, Math.round((safeDuration * 530) / 1200));
+    const computedWordsPerChunk = `${computedMinWords} - ${computedMaxWords}`;
     const chunkDurationText = safeDuration < 60
       ? `${Math.round(safeDuration)} Detik`
       : `${(safeDuration / 60).toFixed(1)} Menit`;
@@ -878,12 +882,12 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
         : `TIDAK (Chunk #${chunkPart} / Part Lanjutan)`;
     const isLastPartStr = isLastPart ? 'YA (Chunk Terakhir / Part Penutup Film - Akhiri tanpa menyebut judul film)' : `TIDAK (Part Bukan Penutup)`;
     const styleExampleStr = isIntroPart
-      ? 'Gunakan gaya penceritaan yang super friendly, santai, mengalir hangat, dan akrab khas pencerita alur film populer. Sampaikan narasi teaser intro yang membakar rasa penasaran penonton (hooking) dan mengalir mulus tanpa kaku! DILARANG KERAS menyebutkan nama/judul film (gunakan "film yang satu ini" atau "film seru ini").'
+      ? 'Gunakan gaya penceritaan yang super friendly, santai, mengalir hangat, dan akrab khas pencerita alur film populer. Sampaikan narasi teaser intro yang membakar rasa penasaran penonton (hooking) dan mengalir mulus tanpa kaku! DILARANG KERAS menyebutkan nama/judul film (gunakan sebutan "film yang satu ini" atau langsung masuk ke aksi). DILARANG gaya sastra puitis/melodramatis!'
       : styleExample
         ? String(styleExample)
         : isFirstPart
-          ? 'Buka naskah secara fleksibel (langsung ke premis aksi karakter ATAU sebutan pengganti seperti "Film yang satu ini menceritakan..."). DILARANG KERAS menyebutkan judul film! Gunakan gaya semi-formal sinematik yang runut, mengalir enak di telinga, dan berbasis aksi fisik nyata (sambungkan antarklausa dengan: "di mana...", "yang membuat...", "hingga...", "sebab...", "namun sayangnya..."). DILARANG diksi gaul alay (si doi, bapak ini, apesnya tuh) dan DILARANG renungan puitis ngawang.'
-          : 'Gunakan gaya penceritaan alur film semi-formal sinematik yang runut, mengalir, dan berbasis aksi nyata (sambungkan antarklausa dengan "di mana...", "yang membuat...", "hingga...", "sebab...", "namun sayangnya..."). DILARANG diksi gaul alay (si doi, bapak ini, apesnya tuh) dan DILARANG renungan puitis ngawang. DILARANG menyebutkan nama/judul film!';
+          ? 'Gaya pencerita alur cerita film YouTube Indonesia tulen: lugas, santai, komunikatif, dan renyah didengar (seperti Saqahayang / Kamar Film). Buka langsung ke fokus karakter dan krisis awalnya (contoh: "Cerita berfokus pada seorang pria bernama..." / "Di awal cerita, kita langsung diperlihatkan bagaimana..."). Fokus mutlak pada POINTING OUT ALUR CERITA (krisis karakter, sebab-akibat, konflik, dan taruhan nasib). DILARANG KERAS gaya bahasa sastra novel yang puitis/melodramatis ("kendati", "kubangan alkohol", "meremukkan perut", "keheningan alam yang menenangkan"). DILARANG gaya formal kaku koran/skripsi ("Film dibuka dengan..."). DILARANG gaya rekaman CCTV yang hanya mendiktekan gerak fisik mikro karakter. DILARANG menyebutkan nama/judul film!'
+          : 'Gaya pencerita alur cerita film YouTube Indonesia tulen: lugas, santai, komunikatif, dan renyah didengar (seperti Saqahayang / Kamar Film). Langsung sambung ke perkembangan alur cerita dan krisis karakter berikutnya tanpa basa-basi meta klise ("Menyambung ketegangan sebelumnya"). Fokus mutlak pada POINTING OUT ALUR CERITA (perkembangan plot, sebab-akibat, konflik, dan taruhan nasib). DILARANG KERAS gaya bahasa sastra novel yang puitis/melodramatis ("kendati", "kubangan alkohol", "meremukkan perut", "keheningan alam"), DILARANG gaya formal kaku koran/skripsi, DILARANG gaya rekaman CCTV yang hanya mendiktekan gerak fisik karakter, dan DILARANG menyebutkan nama/judul film!';
     const movieTitleStr = String(opts.movieTitle || opts.movie_title || opts.title || '').trim() || 'Tidak disebutkan';
     const movieYearStr = String(opts.movieYear || opts.movie_year || opts.year || '').trim();
     const movieYearFormatted = movieYearStr ? `tahun ${movieYearStr}` : '';
@@ -895,7 +899,9 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
       .replace(/{{movie_year}}/g, movieYearFormatted)
       .replace(/{{is_first_part}}/g, isFirstPartStr)
       .replace(/{{is_last_part}}/g, isLastPartStr)
-      .replace(/{{target_words_per_chunk}}/g, String(computedWordsPerChunk))
+      .replace(/{{target_words_per_chunk}}/g, computedWordsPerChunk)
+      .replace(/{{target_min_words}}/g, String(computedMinWords))
+      .replace(/{{target_max_words}}/g, String(computedMaxWords))
       .replace(/{{chunk_duration_text}}/g, chunkDurationText)
       .replace(/{{previous_context}}/g, prevCtxStr)
       .replace(/{{style_example}}/g, styleExampleStr);
@@ -1706,8 +1712,8 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
     const projectRoot = p.PROJECT_ROOT || path.resolve(__dirname, '..', '..', '..');
     const pythonBin = process.platform === 'win32'
       ? (fs.existsSync(path.join(projectRoot, 'whisperx', 'venv', 'Scripts', 'python.exe'))
-          ? path.join(projectRoot, 'whisperx', 'venv', 'Scripts', 'python.exe')
-          : 'python')
+        ? path.join(projectRoot, 'whisperx', 'venv', 'Scripts', 'python.exe')
+        : 'python')
       : path.join(projectRoot, 'whisperx', 'venv', 'bin', 'python3');
     const alignCli = path.join(projectRoot, 'whisperx', 'align_cli.py');
     const targetDir = p.ALURFILM_TRANSCRIPTS_DIR || path.join(p.ALURFILM_DIR, 'transcripts');
@@ -1985,7 +1991,7 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
     if (fs.existsSync(promptFile)) {
       promptTemplate = fs.readFileSync(promptFile, 'utf-8');
     } else {
-      promptTemplate = `Kamu adalah Editor Video Spesialis FFmpeg Mapping. Output JSON murni.`;
+      promptTemplate = `Kamu adalah Editor Video Spesialis FFmpeg Mapping. Output MUTLAK WAJIB berupa TEKS FLAT RAW JSON murni tanpa markdown code block / code box sama sekali (karakter pertama { dan karakter terakhir }).`;
     }
 
     let voSentences = [];
@@ -2022,8 +2028,8 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
             const ed = typeof t.end_seconds === 'number' ? t.end_seconds : (t.end || 0.0);
             const dur = Number(Math.max(0.1, ed - st).toFixed(2));
             const isVisualOnly = (t.type && String(t.type).toLowerCase().includes('visual_only')) ||
-                                 (t.speaker && String(t.speaker).toLowerCase().includes('visual')) ||
-                                 (typeof t.text === 'string' && /\[visual_only/i.test(t.text));
+              (t.speaker && String(t.speaker).toLowerCase().includes('visual')) ||
+              (typeof t.text === 'string' && /\[visual_only/i.test(t.text));
 
             if (isVisualOnly) {
               const tagMeta = audioSplicer.parseVisualOnlyTag(t.text || '');
@@ -2135,7 +2141,7 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
         try {
           const files = fs.readdirSync(dir);
           const matched = files.find(f => (f.includes(`part_${partStr}`) || f.includes(`part_${chunkPart}`)) && f.includes('spliced')) ||
-                          files.find(f => f.includes(`part_${partStr}`) || f.includes(`parts_${partStr}`));
+            files.find(f => f.includes(`part_${partStr}`) || f.includes(`parts_${partStr}`));
           if (matched) {
             audioVoFileName = matched;
             fullAudioPath = path.join(dir, matched);
@@ -2258,7 +2264,7 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
           const match = f.match(/part_(\d+)/);
           if (match) partNumbersSet.add(parseInt(match[1], 10));
         });
-      } catch {}
+      } catch { }
     }
 
     const parts = Array.from(partNumbersSet).sort((a, b) => a - b);
@@ -3172,8 +3178,8 @@ import { renderIntroVideo } from '${enginePath}';
     const outJsonPath = path.join(tmpDir, `tmp_test_transcript_${timestamp}.json`);
     const pythonBin = process.platform === 'win32'
       ? (fs.existsSync(path.join(p.PROJECT_ROOT, 'whisperx', 'venv', 'Scripts', 'python.exe'))
-          ? path.join(p.PROJECT_ROOT, 'whisperx', 'venv', 'Scripts', 'python.exe')
-          : 'python')
+        ? path.join(p.PROJECT_ROOT, 'whisperx', 'venv', 'Scripts', 'python.exe')
+        : 'python')
       : path.join(p.PROJECT_ROOT, 'whisperx', 'venv', 'bin', 'python3');
     const alignCli = path.join(p.PROJECT_ROOT, 'whisperx', 'align_cli.py');
 

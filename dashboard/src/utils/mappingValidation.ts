@@ -263,13 +263,13 @@ export function validateAlurfilmMapping(
   // 5. Fair-use variety check (if total clips >= 4)
   if (totalVisualClips >= 4) {
     const usedTypes = Object.keys(effectTypeCounts);
-    if (usedTypes.length === 1) {
+    if (usedTypes.length === 1 && usedTypes[0] !== 'video_cut' && usedTypes[0] !== 'slow_motion') {
       issues.push({
         id: 'fair-use-single-type',
         type: 'FAIR_USE_VARIETY_WARNING',
         severity: 'warning',
         sentenceIndex: null,
-        message: `Peringatan Fair-Use: Seluruh ${totalVisualClips} klip hanya menggunakan 1 tipe visual (${usedTypes[0]}). Variasikan tipe efek (slow_motion, mirror_cut, video_cut, pan_and_zoom_cut) untuk bypass Content ID.`,
+        message: `Peringatan Fair-Use: Seluruh ${totalVisualClips} klip hanya menggunakan 1 tipe visual (${usedTypes[0]}). Disarankan memvariasikan tipe efek untuk bypass Content ID.`,
         fixable: false,
       });
     }
@@ -359,7 +359,7 @@ export function autoFixAlurfilmMapping(
           type: 'slow_motion',
           duration: targetVoDur,
           source_start_seconds: Number((idx * 3.5).toFixed(1)),
-          slow_mo_factor: 0.6,
+          slow_mo_factor: 0.30,
           color_grading_shift: { mode: 'normal', contrast: 1.04, brightness: 0.005, saturation: 1.05, gamma: 1.0 },
         },
       ];

@@ -74,7 +74,7 @@ function register(ipcMain, { paths: p, media, ffmpeg }) {
       ];
 
       const ffmpegProc = spawn(ffmpeg.ffmpegPath, args);
-      ffmpegProc.stderr.on('data', () => {});
+      ffmpegProc.stderr.on('data', () => { });
 
       ffmpegProc.on('close', (code) => {
         if (code !== 0) return reject(new Error(`FFmpeg exited with code ${code}`));

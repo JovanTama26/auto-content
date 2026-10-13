@@ -123,7 +123,7 @@ const AlurfilmMappingStep: React.FC = () => {
         promptTpl = await api.readFromProject?.('dashboard/prompts/longform/mapping-prompt.md');
       }
       if (!promptTpl) {
-        promptTpl = `Kamu adalah Editor Video Profesional untuk Alur Cerita Film (16:9). Part {{chunk_part}} dari {{total_chunks}}. Source: {{source_video_name}}. Voiceover sentences: {{voiceover_sentences}}`;
+        promptTpl = `Kamu adalah Editor Video Profesional untuk Alur Cerita Film (16:9). Part {{chunk_part}} dari {{total_chunks}}. Source: {{source_video_name}}. Output MUTLAK WAJIB berupa TEKS FLAT RAW JSON murni tanpa markdown code box sama sekali (karakter pertama { dan karakter terakhir }). Voiceover sentences: {{voiceover_sentences}}`;
       }
 
       const audioInfo = audios[targetPart];
@@ -155,7 +155,8 @@ const AlurfilmMappingStep: React.FC = () => {
         .replace(/\{\{audio_start_timestamp\}\}/g, audioStartTimestamp)
         .replace(/\{\{audio_end_timestamp\}\}/g, audioEndTimestamp)
         .replace(/\{\{chunk_video_duration_sec\}\}/g, String(chunkInfo?.durationSec || 1200))
-        .replace(/\{\{chunk_video_duration_formatted\}\}/g, '20:00');
+        .replace(/\{\{chunk_video_duration_formatted\}\}/g, '20:00')
+        .replace(/\{\{scene_breakdown\}\}/g, '[Acuan adegan dari Step 2 Script Generator]');
     }
 
     return formattedPrompt;
