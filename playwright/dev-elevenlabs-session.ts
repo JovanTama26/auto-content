@@ -4,6 +4,7 @@ import {
   isElevenLabsSessionActive,
   ELEVENLABS_SESSION_PATH,
 } from './actions/elevenlabs/session';
+import { configureElevenLabsTTS } from './actions/elevenlabs/configure-tts';
 import fs from 'fs';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -13,6 +14,7 @@ async function main() {
   let profileName = 'user_1';
   let isSaveOnly = false;
   let isHeadless = false;
+  let shouldConfigure = true;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--profile' && args[i + 1]) {
@@ -24,6 +26,9 @@ async function main() {
     if (args[i] === '--headless') {
       isHeadless = true;
     }
+    if (args[i] === '--skip-config') {
+      shouldConfigure = false;
+    }
   }
 
   console.log('====================================================');
@@ -32,6 +37,7 @@ async function main() {
   console.log(`👤 Profile     : ${profileName}`);
   console.log(`📂 Session File: ${ELEVENLABS_SESSION_PATH}`);
   console.log(`🖥️ Mode        : ${isHeadless ? 'Headless' : 'Headed'}`);
+  console.log(`🎛️ Auto-Config : ${shouldConfigure && !isSaveOnly ? 'YA (Model v3 -> Voice -> Stability)' : 'TIDAK'}`);
   console.log('====================================================\n');
 
   const session = await launchBrowser({
@@ -73,6 +79,29 @@ async function main() {
         console.log('[Dev] Mode --save-only: Sesi berhasil disimpan, menutup browser.');
         await context.close();
         return;
+      }
+
+      // Jalankan konfigurasi TTS: Model v3 -> Cek Modal -> Voice Dany Saputra -> Stability Robust
+      if (shouldConfigure) {
+        console.log('[Dev] Memulai konfigurasi otomatis pengaturan TTS...');
+        const configResult = await configureElevenLabsTTS(page, {
+          modelName: 'Eleven v3',
+          voiceName: 'Dany Saputra',
+          stability: 'robust',
+          onLog: (m) => console.log(`[TTS Config] ${m}`),
+        });
+
+        console.log('\n====================================================');
+        console.log('✅ KONFIGURASI TTS SELESAI');
+        console.log(`📌 Model     : ${configResult.model}`);
+        console.log(`📌 Voice     : ${configResult.voice}`);
+        console.log(`📌 Stability : ${configResult.stability}`);
+        console.log('====================================================\n');
+      }
+
+      if (!isSaveOnly && !isHeadless) {
+        console.log('👉 Sesi siap! Browser tetap terbuka selama 15 detik untuk inspeksi visual...');
+        await sleep(15000);
       }
     } else {
       console.warn('\n⚠️ [Dev Warning] Sesi ElevenLabs belum login atau sudah expired.');
