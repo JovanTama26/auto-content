@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { executeElevenLabsOnboarding } from './onboarding';
 import { fetchVerificationLinkFromGmail } from '../gmail/fetch-verification';
+import { saveElevenLabsSession } from './session';
 
 export interface AutoSignupConfig {
   domain?: string;
@@ -344,6 +345,13 @@ export async function executeElevenLabsAutoSignup(
         error: 'Timeout menunggu dashboard ElevenLabs termuat setelah verifikasi.',
         screenshotPath: screenshot,
       };
+    }
+
+    // Simpan session storage state untuk dev
+    try {
+      await saveElevenLabsSession(context);
+    } catch (saveErr: any) {
+      console.warn('⚠️ Gagal menyimpan session state ElevenLabs:', saveErr?.message);
     }
 
     const finalUrl = tab1.url();
