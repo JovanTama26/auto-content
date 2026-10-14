@@ -24,6 +24,8 @@ downloads/
 scratch/
 test-results/
 playwright/screenshots/
+playwright/reports/
+.playwright-mcp/
 
 # Environment files
 .env
