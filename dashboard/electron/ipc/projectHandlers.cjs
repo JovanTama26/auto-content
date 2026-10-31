@@ -13,8 +13,14 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt, getM
 
   // ─── Reset project workspace ───────────────────────────
   ipcMain.handle('reset-project', async (_event, mode = 'longform') => {
-    if (mode === 'shorts') {
-      return { success: true, content_id: 'WV-SHORTS-DRAFT' };
+    if (mode === 'faceless') {
+      try {
+        const facelessStateFile = path.join(p.FACELESS_INPUT_DIR, 'faceless_state.json');
+        if (fs.existsSync(facelessStateFile)) fs.unlinkSync(facelessStateFile);
+      } catch (err) {
+        console.warn('[Reset Faceless] Gagal membersihkan state:', err.message);
+      }
+      return { success: true, content_id: 'WV-FACELESS-DRAFT' };
     }
     if (mode === 'humanologi') {
       try {

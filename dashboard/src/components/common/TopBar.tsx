@@ -80,15 +80,15 @@ const TopBar: React.FC<TopBarProps> = ({ onResetProject, contentMode }) => {
           {/* Mode Indicator Badge */}
           <span
             className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-md border ${
-              contentMode === 'shorts'
+              contentMode === 'faceless'
                 ? 'bg-amber-950/80 text-amber-300 border-amber-800/80'
                 : contentMode === 'humanologi'
                 ? 'bg-emerald-950/80 text-emerald-300 border-emerald-800/80'
                 : 'bg-purple-950/80 text-purple-300 border-purple-800/80'
             }`}
           >
-            {contentMode === 'shorts'
-              ? '⚡ Shorts Mode'
+            {contentMode === 'faceless'
+              ? '🎭 Faceless Mode'
               : contentMode === 'humanologi'
               ? '🧠 Humanologi Mode'
               : '🍿 Alur Film Mode'}
@@ -100,7 +100,7 @@ const TopBar: React.FC<TopBarProps> = ({ onResetProject, contentMode }) => {
               onClick={handleCopyId}
               title="Click to copy Content ID"
               className={`px-2 py-0.5 rounded-md border text-[10px] font-mono font-semibold transition-all flex items-center gap-1.5 ${
-                contentMode === 'shorts'
+                contentMode === 'faceless'
                   ? 'bg-amber-950/60 hover:bg-amber-900/80 border-amber-700/50 text-amber-300'
                   : contentMode === 'humanologi'
                   ? 'bg-emerald-950/60 hover:bg-emerald-900/80 border-emerald-700/50 text-emerald-300'
@@ -143,12 +143,18 @@ const TopBar: React.FC<TopBarProps> = ({ onResetProject, contentMode }) => {
               <h3 className="text-base font-bold text-white">
                 {contentMode === 'humanologi'
                   ? 'Reset Workspace Humanologi?'
+                  : contentMode === 'faceless'
+                  ? 'Reset Workspace Faceless Content?'
                   : 'Reset Workspace & Hapus Data Cloud?'}
               </h3>
               <p className="text-xs text-gray-400 mt-1 leading-relaxed">
                 {contentMode === 'humanologi' ? (
                   <>
                     Tindakan ini akan membuat Content ID baru untuk <strong className="text-white uppercase">Humanologi</strong>, membersihkan seluruh naskah narasi, audio rekaman, transkrip, adegan, gambar AI, dan video render lokal di workspace Humanologi.
+                  </>
+                ) : contentMode === 'faceless' ? (
+                  <>
+                    Tindakan ini akan membuat Content ID baru untuk <strong className="text-white uppercase">Faceless Content</strong> dan menghapus state ide beserta riwayat chat di workspace Faceless.
                   </>
                 ) : (
                   <>
@@ -181,6 +187,8 @@ const TopBar: React.FC<TopBarProps> = ({ onResetProject, contentMode }) => {
                     <span>
                       {contentMode === 'humanologi'
                         ? 'Ya, Reset Humanologi'
+                        : contentMode === 'faceless'
+                        ? 'Ya, Reset Faceless'
                         : 'Ya, Reset & Hapus Data Cloud'}
                     </span>
                   </>

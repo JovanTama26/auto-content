@@ -2,6 +2,14 @@
 // Logika controller untuk Native Side Panel Chrome / Brave
 // Memvalidasi keberadaan file di Google Drive Picker tanpa ekstensi & update Supabase
 
+// Definisi URL Google AI Studio untuk masing-masing modul
+const AI_STUDIO_SCRIPT_MODEL = 'gemini-3.1-pro-preview';
+const AI_STUDIO_MAPPING_MODEL = 'gemini-flash-latest';
+
+const AI_STUDIO_SCRIPT_NEW_CHAT_URL = `https://aistudio.google.com/prompts/new_chat?model=${AI_STUDIO_SCRIPT_MODEL}`;
+const AI_STUDIO_MAPPING_NEW_CHAT_URL = `https://aistudio.google.com/prompts/new_chat?model=${AI_STUDIO_MAPPING_MODEL}`;
+const AI_STUDIO_NEW_CHAT_URL = AI_STUDIO_SCRIPT_NEW_CHAT_URL;
+
 document.addEventListener('DOMContentLoaded', async () => {
   const connStatus = document.getElementById('connStatus');
   const domStatus = document.getElementById('domStatus');
@@ -359,19 +367,19 @@ document.addEventListener('DOMContentLoaded', async () => {
               ${isScriptDone ? '📋 Script' : '🚀 Script'}
             </button>
             ${(() => {
-              const hasChunkPrompt = !!((chunk.mapping_prompt && chunk.mapping_prompt.trim()) || (chunk.prompt && chunk.prompt.trim()));
-              const isMapDisabled = isRunningMapping || isAutoProgressMappingActive || (!isMappingDone && !hasChunkPrompt);
-              const mapTitle = isMappingDone 
-                ? 'Salin Hasil Output Mapping JSON (Klik kanan untuk hapus part ini)' 
-                : hasChunkPrompt 
-                  ? 'AI Video Mapping' 
-                  : 'Prompt mapping belum diset di Supabase. Set di Dashboard Step 5 terlebih dahulu.';
-              return `
+          const hasChunkPrompt = !!((chunk.mapping_prompt && chunk.mapping_prompt.trim()) || (chunk.prompt && chunk.prompt.trim()));
+          const isMapDisabled = isRunningMapping || isAutoProgressMappingActive || (!isMappingDone && !hasChunkPrompt);
+          const mapTitle = isMappingDone
+            ? 'Salin Hasil Output Mapping JSON (Klik kanan untuk hapus part ini)'
+            : hasChunkPrompt
+              ? 'AI Video Mapping'
+              : 'Prompt mapping belum diset di Supabase. Set di Dashboard Step 5 terlebih dahulu.';
+          return `
                 <button class="btn-map-chunk ${isMappingDone ? 'done' : ''}" id="btn-map-${chunk.part_number}" ${isMapDisabled ? 'disabled' : ''} title="${mapTitle}">
                   ${isMappingDone ? '📋 Map' : hasChunkPrompt ? '🎯 Map' : '🔒 Map'}
                 </button>
               `;
-            })()}
+        })()}
             <button class="btn-toggle-done" id="btn-toggle-${chunk.part_number}" title="${isDone ? 'Tandai Pending' : 'Tandai Selesai Manual'}">
               ${isDone ? '↩️' : '✓'}
             </button>
@@ -486,7 +494,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  async function getAIStudioTab() {
+  async function getAIStudioTab(defaultUrl = AI_STUDIO_SCRIPT_NEW_CHAT_URL) {
     try {
       const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
       if (activeTabs && activeTabs.length > 0 && activeTabs[0].url && activeTabs[0].url.includes('aistudio.google.com')) {
@@ -498,7 +506,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         return allAiTabs[0];
       }
       // Buka otomatis tab New Chat jika belum ada tab AI Studio sama sekali
-      const newTab = await chrome.tabs.create({ url: 'https://aistudio.google.com/prompts/new_chat' });
+      const newTab = await chrome.tabs.create({ url: defaultUrl });
       await new Promise((r) => setTimeout(r, 4500));
       return newTab;
     } catch (e) {
@@ -558,7 +566,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const targetTab = await getAIStudioTab();
     if (!targetTab || !targetTab.id) {
-      alert('Buka tab Google AI Studio (https://aistudio.google.com/prompts/new_chat) terlebih dahulu!');
+      alert(`Buka tab Google AI Studio (${AI_STUDIO_NEW_CHAT_URL}) terlebih dahulu!`);
       return;
     }
 
@@ -653,9 +661,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     try {
-      const tab = await getAIStudioTab();
+      const tab = await getAIStudioTab(AI_STUDIO_SCRIPT_NEW_CHAT_URL);
       if (!tab || !tab.id) {
-        throw new Error('Tab Google AI Studio tidak ditemukan. Buka https://aistudio.google.com/prompts/new_chat terlebih dahulu.');
+        throw new Error(`Tab Google AI Studio tidak ditemukan. Buka ${AI_STUDIO_SCRIPT_NEW_CHAT_URL} terlebih dahulu.`);
       }
 
       // Pastikan prompt tersedia atau auto-generate jika belum ada di database
@@ -678,7 +686,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             previousParts: finishedParts,
           });
           targetChunk.prompt = genPrompt;
-          await window.SupabaseBridge.updatePart(targetChunk.id, { prompt: genPrompt }).catch(() => {});
+          await window.SupabaseBridge.updatePart(targetChunk.id, { prompt: genPrompt }).catch(() => { });
         }
       }
 
@@ -706,7 +714,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             'modules/script-generator.js',
             'modules/mapping-generator.js',
           ],
-        }).catch(() => {});
+        }).catch(() => { });
         await new Promise((r) => setTimeout(r, 600));
         prepRes = await chrome.tabs.sendMessage(tab.id, {
           module: 'scriptGenerator',
@@ -761,7 +769,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (scriptStepLog) {
               scriptStepLog.innerHTML += `<br><span style="color: #38bdf8;">🔄 Membuka New Chat bersih untuk Part #${saveRes.nextPartNumber}...</span>`;
             }
-            await chrome.tabs.update(tab.id, { url: 'https://aistudio.google.com/prompts/new_chat' });
+            await chrome.tabs.update(tab.id, { url: AI_STUDIO_SCRIPT_NEW_CHAT_URL });
             await new Promise((r) => setTimeout(r, 4000));
           }
 
@@ -776,16 +784,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         action: 'SCRIPT_CHECK_TURNS',
       }).catch(() => null);
 
-      // Jika ada chat turn sebelumnya atau bukan di new_chat, buka new chat bersih
-      if (turnsRes?.hasTurns || (!tab.url.includes('/prompts/new_chat') && !prepRes?.hasMedia)) {
+      // Jika ada chat turn sebelumnya atau bukan di new_chat dengan model target, buka new chat bersih
+      const isTargetUrl = tab.url && tab.url.includes('/prompts/new_chat') && tab.url.includes(AI_STUDIO_SCRIPT_MODEL);
+      if (turnsRes?.hasTurns || (!isTargetUrl && !prepRes?.hasMedia)) {
         if (scriptStepLog) {
-          scriptStepLog.textContent = `[Part #${targetChunk.part_number}] Membuka halaman New Chat bersih di Google AI Studio...`;
+          scriptStepLog.textContent = `[Part #${targetChunk.part_number}] Membuka halaman New Chat (Gemini 3.1 Pro Preview) di Google AI Studio...`;
         }
-        if (tab.url.includes('/prompts/new_chat')) {
-          await chrome.tabs.reload(tab.id);
-        } else {
-          await chrome.tabs.update(tab.id, { url: 'https://aistudio.google.com/prompts/new_chat' });
-        }
+        await chrome.tabs.update(tab.id, { url: AI_STUDIO_SCRIPT_NEW_CHAT_URL });
         await new Promise((r) => setTimeout(r, 4500));
         prepRes = null;
       }
@@ -922,6 +927,25 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       if (!pollRes) {
+        // Cek final sebelum timeout: apakah respon sebenarnya sudah lengkap di DOM?
+        try {
+          const finalCheck = await chrome.tabs.sendMessage(tab.id, {
+            module: 'scriptGenerator',
+            action: 'SCRIPT_CHECK_STATUS',
+          });
+          if (finalCheck?.status === 'completed' && finalCheck.parsedJson) {
+            pollRes = {
+              hasError: false,
+              rawText: finalCheck.rawText,
+              cleanedJson: finalCheck.cleanedJson,
+              parsedJson: finalCheck.parsedJson,
+              elapsedSec: maxPollSec,
+            };
+          }
+        } catch { }
+      }
+
+      if (!pollRes) {
         throw new Error('Timeout: Pemantauan naskah melebihi 6 menit.');
       }
 
@@ -931,11 +955,11 @@ document.addEventListener('DOMContentLoaded', async () => {
           scriptStepLog.innerHTML = `⚠️ <b>Error AI Studio:</b> "${pollRes.errorMessage}".<br><span style="color: #94a3b8;">Merefresh dan membuka New Chat bersih...</span>`;
         }
 
-        // Requirement 3: Jika terdeteksi error, refresh dan buka New Chat
+        // Requirement 3: Jika terdeteksi error, refresh dan buka New Chat dengan model yang tepat
         try {
-          await chrome.tabs.update(tab.id, { url: 'https://aistudio.google.com/prompts/new_chat' });
+          await chrome.tabs.update(tab.id, { url: AI_STUDIO_SCRIPT_NEW_CHAT_URL });
           await new Promise((r) => setTimeout(r, 4000));
-        } catch {}
+        } catch { }
 
         throw new Error(`AI Studio error: "${pollRes.errorMessage}". Halaman telah di-reset ke New Chat.`);
       }
@@ -975,7 +999,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (scriptStepLog) {
           scriptStepLog.innerHTML += `<br><span style="color: #38bdf8;">🔄 Membuka New Chat bersih untuk Part #${saveRes.nextPartNumber}...</span>`;
         }
-        await chrome.tabs.update(tab.id, { url: 'https://aistudio.google.com/prompts/new_chat' });
+        await chrome.tabs.update(tab.id, { url: AI_STUDIO_SCRIPT_NEW_CHAT_URL });
         await new Promise((r) => setTimeout(r, 4000));
       }
 
@@ -991,9 +1015,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       try {
         const [curTab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (curTab && curTab.id) {
-          await chrome.tabs.update(curTab.id, { url: 'https://aistudio.google.com/prompts/new_chat' }).catch(() => {});
+          await chrome.tabs.update(curTab.id, { url: AI_STUDIO_SCRIPT_NEW_CHAT_URL }).catch(() => { });
         }
-      } catch {}
+      } catch { }
 
       throw err;
     } finally {
@@ -1084,11 +1108,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         // Requirement 3: Refresh & New Chat jika error
         try {
-          const tab = await getAIStudioTab();
+          const tab = await getAIStudioTab(AI_STUDIO_SCRIPT_NEW_CHAT_URL);
           if (tab && tab.id) {
-            await chrome.tabs.update(tab.id, { url: 'https://aistudio.google.com/prompts/new_chat' });
+            await chrome.tabs.update(tab.id, { url: AI_STUDIO_SCRIPT_NEW_CHAT_URL });
           }
-        } catch {}
+        } catch { }
         await new Promise((r) => setTimeout(r, 6000));
       }
 
@@ -1206,7 +1230,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           targetChunk = freshTarget;
           hasPrompt = true;
         }
-      } catch {}
+      } catch { }
     }
 
     if (!hasPrompt) {
@@ -1227,9 +1251,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     try {
-      const tab = await getAIStudioTab();
+      const tab = await getAIStudioTab(AI_STUDIO_MAPPING_NEW_CHAT_URL);
       if (!tab || !tab.id) {
-        throw new Error('Tab Google AI Studio tidak ditemukan. Buka https://aistudio.google.com/prompts/new_chat terlebih dahulu.');
+        throw new Error(`Tab Google AI Studio tidak ditemukan. Buka ${AI_STUDIO_MAPPING_NEW_CHAT_URL} terlebih dahulu.`);
       }
 
       // Pastikan video mapping prompt tersedia
@@ -1273,7 +1297,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             'modules/script-generator.js',
             'modules/mapping-generator.js',
           ],
-        }).catch(() => {});
+        }).catch(() => { });
         await new Promise((r) => setTimeout(r, 600));
         prepRes = await chrome.tabs.sendMessage(tab.id, {
           module: 'mappingGenerator',
@@ -1315,7 +1339,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
           // Buka new chat bersih untuk part berikutnya
           console.log('[SidePanel] 🔄 Membuka New Chat bersih untuk part selanjutnya...');
-          await chrome.tabs.update(tab.id, { url: 'https://aistudio.google.com/prompts/new_chat' });
+          await chrome.tabs.update(tab.id, { url: AI_STUDIO_MAPPING_NEW_CHAT_URL });
           await new Promise((r) => setTimeout(r, 4000));
 
           await loadChunks(sessionSelect.value);
@@ -1329,16 +1353,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         action: 'MAPPING_CHECK_TURNS',
       }).catch(() => null);
 
-      // Jika ada chat turn sebelumnya atau bukan di new_chat, buka new chat bersih
-      if (turnsRes?.hasTurns || (!tab.url.includes('/prompts/new_chat') && !prepRes?.hasMedia)) {
+      // Jika ada chat turn sebelumnya atau bukan di new_chat dengan model target, buka new chat bersih
+      const isTargetUrlMapping = tab.url && tab.url.includes('/prompts/new_chat') && tab.url.includes(AI_STUDIO_MAPPING_MODEL);
+      if (turnsRes?.hasTurns || (!isTargetUrlMapping && !prepRes?.hasMedia)) {
         if (mappingStepLog) {
-          mappingStepLog.textContent = `[Part #${targetChunk.part_number}] Membuka halaman New Chat bersih di Google AI Studio...`;
+          mappingStepLog.textContent = `[Part #${targetChunk.part_number}] Membuka halaman New Chat (Gemini Flash) di Google AI Studio...`;
         }
-        if (tab.url.includes('/prompts/new_chat')) {
-          await chrome.tabs.reload(tab.id);
-        } else {
-          await chrome.tabs.update(tab.id, { url: 'https://aistudio.google.com/prompts/new_chat' });
-        }
+        await chrome.tabs.update(tab.id, { url: AI_STUDIO_MAPPING_NEW_CHAT_URL });
         await new Promise((r) => setTimeout(r, 4500));
         prepRes = null;
       }
@@ -1474,6 +1495,25 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       if (!pollRes) {
+        // Cek final sebelum timeout: apakah respon sebenarnya sudah lengkap di DOM?
+        try {
+          const finalCheck = await chrome.tabs.sendMessage(tab.id, {
+            module: 'mappingGenerator',
+            action: 'MAPPING_CHECK_STATUS',
+          });
+          if (finalCheck?.status === 'completed' && finalCheck.parsedJson) {
+            pollRes = {
+              hasError: false,
+              rawText: finalCheck.rawText,
+              cleanedJson: finalCheck.cleanedJson,
+              parsedJson: finalCheck.parsedJson,
+              elapsedSec: maxPollSec,
+            };
+          }
+        } catch { }
+      }
+
+      if (!pollRes) {
         throw new Error('Timeout: Pemantauan video mapping melebihi 6 menit.');
       }
 
@@ -1484,9 +1524,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         try {
-          await chrome.tabs.update(tab.id, { url: 'https://aistudio.google.com/prompts/new_chat' });
+          await chrome.tabs.update(tab.id, { url: AI_STUDIO_MAPPING_NEW_CHAT_URL });
           await new Promise((r) => setTimeout(r, 4000));
-        } catch {}
+        } catch { }
 
         throw new Error(`AI Studio error: "${pollRes.errorMessage}". Halaman telah di-reset ke New Chat.`);
       }
@@ -1514,9 +1554,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       // Reset tab ke New Chat untuk part berikutnya
       try {
         console.log('[SidePanel] 🔄 Membuka New Chat bersih untuk mapping selanjutnya...');
-        await chrome.tabs.update(tab.id, { url: 'https://aistudio.google.com/prompts/new_chat' });
+        await chrome.tabs.update(tab.id, { url: AI_STUDIO_MAPPING_NEW_CHAT_URL });
         await new Promise((r) => setTimeout(r, 4000));
-      } catch {}
+      } catch { }
 
       await loadChunks(sessionSelect.value);
     } catch (err) {
@@ -1529,9 +1569,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       try {
         const [curTab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (curTab && curTab.id) {
-          await chrome.tabs.update(curTab.id, { url: 'https://aistudio.google.com/prompts/new_chat' }).catch(() => {});
+          await chrome.tabs.update(curTab.id, { url: AI_STUDIO_MAPPING_NEW_CHAT_URL }).catch(() => { });
         }
-      } catch {}
+      } catch { }
 
       throw err;
     } finally {
@@ -1559,7 +1599,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const hasTargetPrompt = !!(
         targetMappingPart &&
         ((targetMappingPart.mapping_prompt && targetMappingPart.mapping_prompt.trim().length > 0) ||
-         (targetMappingPart.prompt && targetMappingPart.prompt.trim().length > 0))
+          (targetMappingPart.prompt && targetMappingPart.prompt.trim().length > 0))
       );
 
       if (btnRunMapping) {
@@ -1666,11 +1706,11 @@ document.addEventListener('DOMContentLoaded', async () => {
           mappingStepLog.innerHTML = `⚠️ <b>Kendala di Part #${nextPending.part_number}:</b> ${err.message}.<br><span style="color: #94a3b8;">Halaman di-reset ke New Chat, mencoba ulang dalam 6 detik...</span>`;
         }
         try {
-          const tab = await getAIStudioTab();
+          const tab = await getAIStudioTab(AI_STUDIO_MAPPING_NEW_CHAT_URL);
           if (tab && tab.id) {
-            await chrome.tabs.update(tab.id, { url: 'https://aistudio.google.com/prompts/new_chat' });
+            await chrome.tabs.update(tab.id, { url: AI_STUDIO_MAPPING_NEW_CHAT_URL });
           }
-        } catch {}
+        } catch { }
         await new Promise((r) => setTimeout(r, 6000));
       }
 
@@ -1769,9 +1809,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   btnOpenAIStudio.addEventListener('click', () => {
     if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.create) {
-      chrome.tabs.create({ url: 'https://aistudio.google.com/prompts/new_chat' });
+      chrome.tabs.create({ url: AI_STUDIO_NEW_CHAT_URL });
     } else {
-      window.open('https://aistudio.google.com/prompts/new_chat', '_blank');
+      window.open(AI_STUDIO_NEW_CHAT_URL, '_blank');
     }
   });
 
@@ -1802,9 +1842,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.set({ extensionActiveTab: tabName }).catch(() => {});
+      chrome.storage.local.set({ extensionActiveTab: tabName }).catch(() => { });
     } else {
-      try { localStorage.setItem('extensionActiveTab', tabName); } catch (e) {}
+      try { localStorage.setItem('extensionActiveTab', tabName); } catch (e) { }
     }
   }
 
@@ -1821,7 +1861,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           if (existing && existing.id) {
             await chrome.tabs.update(existing.id, { active: true });
             if (existing.windowId) {
-              await chrome.windows.update(existing.windowId, { focused: true }).catch(() => {});
+              await chrome.windows.update(existing.windowId, { focused: true }).catch(() => { });
             }
             return;
           }
@@ -2167,7 +2207,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       // 2. Buka tab & form sign up ElevenLabs
       if (signupBtnText) signupBtnText.textContent = '2/5 Mendaftar di form...';
-      setSignupStatus(`2/5 Mengisi form & mendaftar di https://elevenlabs.io/app/sign-up...`, 'warn');
+      setSignupStatus(`2/5 Mengisi form pendaftaran untuk ${email}...`, 'warn');
 
       const signupRes = await chrome.runtime.sendMessage({
         action: 'OPEN_AND_SIGNUP_ELEVENLABS',
@@ -2192,23 +2232,23 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       }
 
-      // 3. Ambil link verifikasi dari inbox Gmail
-      if (signupBtnText) signupBtnText.textContent = '3/5 Mengambil link verifikasi...';
-      setSignupStatus(`3/5 Form terkirim! Membuka Gmail untuk mengambil link verifikasi...`, 'warn');
+      // 3. Ambil link verifikasi langsung dari server VPS (tanpa Gmail!)
+      if (signupBtnText) signupBtnText.textContent = '3/5 Mengambil link verifikasi (VPS)...';
+      setSignupStatus(`3/5 Form terkirim! Mengambil link verifikasi otomatis dari VPS server...`, 'warn');
 
       if (!window.ElevenLabsVerify) {
         throw new Error('Modul ElevenLabsVerify belum terpasang.');
       }
 
       const verifyRes = await window.ElevenLabsVerify.pollForVerifyUrl(email, {
-        initialDelayMs: 2500,
-        maxWaitSeconds: 120,
-        pollIntervalMs: 3500,
+        initialDelayMs: 1500,
+        maxWaitSeconds: 90,
+        pollIntervalMs: 2000,
         onProgress: (msg) => setSignupStatus(`3/5 ${msg}`, 'warn'),
       });
 
       if (!verifyRes || !verifyRes.verifyUrl) {
-        throw new Error('Link verifikasi tidak ditemukan di inbox.');
+        throw new Error('Link verifikasi tidak ditemukan di server VPS.');
       }
 
       // Simpan link verifikasi ke Supabase
@@ -2220,8 +2260,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (signupBtnText) signupBtnText.textContent = '4/5 Verifikasi & lewati onboarding...';
       setSignupStatus(`4/5 Membuka link verifikasi, login, & melewati onboarding sampai Dashboard...`, 'warn');
 
-      const dashboardPromise = waitForDashboardCompletion(email, 85000);
-
       await chrome.runtime.sendMessage({
         action: 'VERIFY_ELEVENLABS_ACCOUNT',
         payload: {
@@ -2232,63 +2270,181 @@ document.addEventListener('DOMContentLoaded', async () => {
         },
       });
 
-      const dashboardResult = await dashboardPromise;
-      if (!dashboardResult || !dashboardResult.success) {
-        console.warn('[ElevenLabs] Dashboard completion timeout/manual check.');
+      // ------------------------------------------------------------------
+      // SUPERVISOR STATE MACHINE LOOP (Cek Posisi -> Eksekusi Sesuai Posisi)
+      // Patokan Camoufox: Biarkan loop onboarding berjalan sampai dashboard tercapai,
+      // lalu arahkan ke TTS dan selesaikan setup voice.
+      // ------------------------------------------------------------------
+      const supervisorMaxWaitMs = 135000; // Maksimal 135 detik
+      const supervisorStart = Date.now();
+      let flowFinished = false;
+      let lastReportedStatus = '';
+      let stableTtsTicks = 0;
+      let dashboardHomeTicks = 0;
+      let ttsConfigAttempted = false;
+      let lastExecTrigger = 0;
+
+      // Listener untuk event penyelesaian otomatis dari content script
+      let autoCompleted = false;
+      const completionListener = (msg) => {
+        if (msg.action === 'ELEVENLABS_ONBOARDING_COMPLETED') {
+          console.log('[ElevenLabs Supervisor] 🎯 Event ELEVENLABS_ONBOARDING_COMPLETED diterima dari tab!');
+          autoCompleted = true;
+        }
+      };
+      if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
+        chrome.runtime.onMessage.addListener(completionListener);
       }
 
-      // Pastikan tab berada di halaman Text-to-Speech
-      let reachedTts = false;
-      for (let wait = 0; wait < 25; wait++) {
-        const tabCheck = await chrome.runtime.sendMessage({ action: 'GET_ELEVENLABS_STATUS' });
-        if (tabCheck?.status === 'DASHBOARD_TTS') {
-          reachedTts = true;
+      while (Date.now() - supervisorStart < supervisorMaxWaitMs) {
+        if (autoCompleted) {
+          flowFinished = true;
           break;
         }
-        if (tabCheck?.status === 'DASHBOARD_HOME') {
-          setSignupStatus('Mengarahkan ke halaman Text-to-Speech...', 'warn');
+
+        // 1. CEK POSISI TAB SAAT INI
+        const statusRes = await chrome.runtime.sendMessage({ action: 'GET_ELEVENLABS_STATUS' });
+        const currentStatus = statusRes?.status || 'UNKNOWN';
+        const currentUrl = statusRes?.url || '';
+        const currentTabId = statusRes?.tabId || signupRes?.tabId;
+
+        if (currentStatus !== lastReportedStatus) {
+          console.log(`[ElevenLabs Supervisor] 📍 Posisi tab: ${currentStatus} (${currentUrl})`);
+          lastReportedStatus = currentStatus;
+        }
+
+        // 2. JIKA POSISI DI ONBOARDING:
+        if (currentStatus === 'ONBOARDING' || currentUrl.includes('/onboarding')) {
+          stableTtsTicks = 0;
+          dashboardHomeTicks = 0;
+          ttsConfigAttempted = false; // Reset status TTS karena belum selesai onboarding!
+          if (signupBtnText) signupBtnText.textContent = '4/5 Menyelesaikan onboarding...';
+          setSignupStatus(`[ONBOARDING] Terdeteksi layar Onboarding. Menyelesaikan langkah onboarding (Platform/Umur/Survei)...`, 'warn');
+
+          const now = Date.now();
+          if (currentTabId && now - lastExecTrigger > 8000) {
+            lastExecTrigger = now;
+            await chrome.runtime.sendMessage({
+              action: 'EXECUTE_POST_VERIFY_ONBOARDING',
+              payload: { tabId: currentTabId, email, password }
+            }).catch(() => { });
+          }
+          await sleep(2000);
+          continue;
+        }
+
+        // 3. JIKA POSISI DI SIGN IN:
+        if (currentStatus === 'SIGN_IN' || currentUrl.includes('/sign-in') || currentUrl.includes('/login')) {
+          stableTtsTicks = 0;
+          dashboardHomeTicks = 0;
+          if (signupBtnText) signupBtnText.textContent = '4/5 Memproses Sign In...';
+          setSignupStatus(`[SIGN IN] Terdeteksi form login. Memasukkan kredensial...`, 'warn');
+
+          const now = Date.now();
+          if (currentTabId && now - lastExecTrigger > 8000) {
+            lastExecTrigger = now;
+            await chrome.runtime.sendMessage({
+              action: 'EXECUTE_POST_VERIFY_ONBOARDING',
+              payload: { tabId: currentTabId, email, password }
+            }).catch(() => { });
+          }
+          await sleep(2000);
+          continue;
+        }
+
+        // 4. JIKA POSISI DI ACTION VERIFIKASI:
+        if (currentStatus === 'VERIFY_ACTION' || currentUrl.includes('/action') || currentUrl.includes('mode=verifyEmail')) {
+          stableTtsTicks = 0;
+          dashboardHomeTicks = 0;
+          setSignupStatus(`[VERIFIKASI] Memproses konfirmasi email di browser...`, 'warn');
+
+          const now = Date.now();
+          if (currentTabId && now - lastExecTrigger > 8000) {
+            lastExecTrigger = now;
+            await chrome.runtime.sendMessage({
+              action: 'EXECUTE_POST_VERIFY_ONBOARDING',
+              payload: { tabId: currentTabId, email, password }
+            }).catch(() => { });
+          }
+          await sleep(2000);
+          continue;
+        }
+
+        // 5. JIKA POSISI DI DASHBOARD HOME (Menu utama /app/home, dsb):
+        // Tunggu tab redirect otomatis ke TTS (Camoufox pattern)
+        if (currentStatus === 'DASHBOARD_HOME' || (currentUrl.includes('/app') && !currentUrl.includes('/onboarding') && !currentUrl.includes('/speech-synthesis') && !currentUrl.includes('/text-to-speech'))) {
+          stableTtsTicks = 0;
+          dashboardHomeTicks++;
+          if (dashboardHomeTicks < 3) {
+            setSignupStatus(`[VERIFIKASI STABILITAS ${dashboardHomeTicks}/2] Memeriksa akun di dashboard & memastikan onboarding tuntas...`, 'warn');
+            await sleep(2000);
+            continue;
+          }
+
+          setSignupStatus(`[DASHBOARD] Akun stabil terkonfirmasi! Mengarahkan ke Dashboard Text-to-Speech...`, 'warn');
           await chrome.runtime.sendMessage({
             action: 'NAVIGATE_ELEVENLABS_TAB',
-            payload: { tabId: tabCheck.tabId, url: 'https://elevenlabs.io/app/speech-synthesis/text-to-speech' }
-          });
+            payload: { tabId: currentTabId, url: 'https://elevenlabs.io/app/speech-synthesis/text-to-speech' }
+          }).catch(() => { });
           await sleep(2500);
-          reachedTts = true;
+          continue;
+        }
+
+        // 6. JIKA POSISI DI DASHBOARD TEXT-TO-SPEECH:
+        if (currentStatus === 'DASHBOARD_TTS' || currentUrl.includes('/speech-synthesis') || currentUrl.includes('/text-to-speech')) {
+          dashboardHomeTicks = 0;
+          stableTtsTicks++;
+          if (stableTtsTicks < 2) {
+            setSignupStatus(`[VERIFIKASI STABILITAS] Memastikan Dashboard TTS stabil (${stableTtsTicks}/2)...`, 'warn');
+            await sleep(2000);
+            continue;
+          }
+
+          // Lakukan konfigurasi TTS jika belum pernah dicoba pada sesi stabil ini
+          if (!ttsConfigAttempted) {
+            ttsConfigAttempted = true;
+            if (signupBtnText) signupBtnText.textContent = '5/5 Setup voice setting...';
+            setSignupStatus(`5/5 Mengonfigurasi Voice Setting (Dany Saputra, Eleven v3, Robust)...`, 'warn');
+            await sleep(1000);
+
+            try {
+              await chrome.runtime.sendMessage({
+                action: 'CONFIGURE_ELEVENLABS_TTS',
+                payload: {
+                  tabId: currentTabId,
+                  voiceName: 'Dany Saputra',
+                  modelName: 'Eleven v3',
+                  stability: 'robust',
+                },
+              });
+            } catch (cfgErr) {
+              console.warn('[ElevenLabs Supervisor] Error saat CONFIGURE_ELEVENLABS_TTS:', cfgErr);
+            }
+          }
+
+          // Cek ulang apakah terpental ke Onboarding
+          await sleep(1200);
+          const finalCheck = await chrome.runtime.sendMessage({ action: 'GET_ELEVENLABS_STATUS' });
+          if (finalCheck?.status === 'ONBOARDING' || (finalCheck?.url && finalCheck.url.includes('/onboarding'))) {
+            console.warn('[ElevenLabs Supervisor] ⚠️ Tab terpental kembali ke Onboarding pasca TTS! Mengulang penanganan onboarding...');
+            stableTtsTicks = 0;
+            ttsConfigAttempted = false;
+            continue;
+          }
+
+          flowFinished = true;
           break;
         }
-        if (tabCheck?.status === 'ONBOARDING') {
-          setSignupStatus(`Menyelesaikan langkah onboarding ElevenLabs (${wait}s)...`, 'warn');
-          await chrome.runtime.sendMessage({
-            action: 'EXECUTE_POST_VERIFY_ONBOARDING',
-            payload: { tabId: tabCheck.tabId }
-          }).catch(() => {});
-        }
-        await sleep(1200);
+
+        await sleep(1500);
       }
 
-      if (!reachedTts) {
-        await chrome.runtime.sendMessage({
-          action: 'NAVIGATE_ELEVENLABS_TAB',
-          payload: { url: 'https://elevenlabs.io/app/speech-synthesis/text-to-speech' }
-        });
-        await sleep(3000);
+      if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
+        chrome.runtime.onMessage.removeListener(completionListener);
       }
 
-      // 5. Setup voice setting: Dany Saputra, Eleven v3, Robust
-      if (signupBtnText) signupBtnText.textContent = '5/5 Setup voice setting...';
-      setSignupStatus(`5/5 Mengonfigurasi Voice Setting (Dany Saputra, Eleven v3, Robust)...`, 'warn');
-      await sleep(2000);
-
-      try {
-        await chrome.runtime.sendMessage({
-          action: 'CONFIGURE_ELEVENLABS_TTS',
-          payload: {
-            voiceName: 'Dany Saputra',
-            modelName: 'Eleven v3',
-            stability: 'robust',
-          },
-        });
-      } catch (cfgErr) {
-        console.warn('[ElevenLabs] Voice setting warning:', cfgErr.message);
+      if (!flowFinished) {
+        throw new Error('Batas waktu otomasi ElevenLabs habis (135 detik) tanpa mencapai Dashboard TTS stabil.');
       }
 
       // Update akun aktif di Supabase
@@ -2360,22 +2516,165 @@ document.addEventListener('DOMContentLoaded', async () => {
         },
       });
 
-      const res = await dashboardPromise;
+      // ------------------------------------------------------------------
+      // SUPERVISOR STATE MACHINE LOOP (Cek Posisi -> Eksekusi Sesuai Posisi)
+      // ------------------------------------------------------------------
+      const supervisorMaxWaitMs = 135000;
+      const supervisorStart = Date.now();
+      let flowFinished = false;
+      let lastReportedStatus = '';
+      let stableTtsTicks = 0;
+      let dashboardHomeTicks = 0;
+      let ttsConfigAttempted = false;
+      let lastExecTrigger = 0;
 
-      // Setup Voice Setting: Dany Saputra, Eleven v3, Robust
-      setSignupStatus(`3/3 Menyiapkan Voice Setting (Dany Saputra, Eleven v3, Robust)...`, 'warn');
-      await sleep(2000);
-      try {
-        await chrome.runtime.sendMessage({
-          action: 'CONFIGURE_ELEVENLABS_TTS',
-          payload: {
-            voiceName: 'Dany Saputra',
-            modelName: 'Eleven v3',
-            stability: 'robust',
-          },
-        });
-      } catch (cfgErr) {
-        console.warn('[DirectVerify] Voice setting warning:', cfgErr.message);
+      let directAutoCompleted = false;
+      const directCompletionListener = (msg) => {
+        if (msg.action === 'ELEVENLABS_ONBOARDING_COMPLETED') {
+          console.log('[DirectVerify Supervisor] 🎯 Event ELEVENLABS_ONBOARDING_COMPLETED diterima dari tab!');
+          directAutoCompleted = true;
+        }
+      };
+      if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
+        chrome.runtime.onMessage.addListener(directCompletionListener);
+      }
+
+      while (Date.now() - supervisorStart < supervisorMaxWaitMs) {
+        if (directAutoCompleted) {
+          flowFinished = true;
+          break;
+        }
+
+        const statusRes = await chrome.runtime.sendMessage({ action: 'GET_ELEVENLABS_STATUS' });
+        const currentStatus = statusRes?.status || 'UNKNOWN';
+        const currentUrl = statusRes?.url || '';
+        const currentTabId = statusRes?.tabId;
+
+        if (currentStatus !== lastReportedStatus) {
+          console.log(`[DirectVerify Supervisor] 📍 Posisi tab: ${currentStatus} (${currentUrl})`);
+          lastReportedStatus = currentStatus;
+        }
+
+        if (currentStatus === 'ONBOARDING' || currentUrl.includes('/onboarding')) {
+          stableTtsTicks = 0;
+          dashboardHomeTicks = 0;
+          ttsConfigAttempted = false;
+          setSignupStatus(`[ONBOARDING] Terdeteksi layar Onboarding. Menyelesaikan langkah onboarding (Platform/Umur/Survei)...`, 'warn');
+
+          const now = Date.now();
+          if (currentTabId && now - lastExecTrigger > 8000) {
+            lastExecTrigger = now;
+            await chrome.runtime.sendMessage({
+              action: 'EXECUTE_POST_VERIFY_ONBOARDING',
+              payload: { tabId: currentTabId, email: targetEmail, password: (inputSignupPassword?.value || '').trim() || 'Jovan@1224' }
+            }).catch(() => { });
+          }
+          await sleep(2000);
+          continue;
+        }
+
+        if (currentStatus === 'SIGN_IN' || currentUrl.includes('/sign-in') || currentUrl.includes('/login')) {
+          stableTtsTicks = 0;
+          dashboardHomeTicks = 0;
+          setSignupStatus(`[SIGN IN] Terdeteksi form login. Memasukkan kredensial...`, 'warn');
+
+          const now = Date.now();
+          if (currentTabId && now - lastExecTrigger > 8000) {
+            lastExecTrigger = now;
+            await chrome.runtime.sendMessage({
+              action: 'EXECUTE_POST_VERIFY_ONBOARDING',
+              payload: { tabId: currentTabId, email: targetEmail, password: (inputSignupPassword?.value || '').trim() || 'Jovan@1224' }
+            }).catch(() => { });
+          }
+          await sleep(2000);
+          continue;
+        }
+
+        if (currentStatus === 'VERIFY_ACTION' || currentUrl.includes('/action') || currentUrl.includes('mode=verifyEmail')) {
+          stableTtsTicks = 0;
+          dashboardHomeTicks = 0;
+          setSignupStatus(`[VERIFIKASI] Memproses konfirmasi email di browser...`, 'warn');
+
+          const now = Date.now();
+          if (currentTabId && now - lastExecTrigger > 8000) {
+            lastExecTrigger = now;
+            await chrome.runtime.sendMessage({
+              action: 'EXECUTE_POST_VERIFY_ONBOARDING',
+              payload: { tabId: currentTabId, email: targetEmail, password: (inputSignupPassword?.value || '').trim() || 'Jovan@1224' }
+            }).catch(() => { });
+          }
+          await sleep(2000);
+          continue;
+        }
+
+        if (currentStatus === 'DASHBOARD_HOME' || (currentUrl.includes('/app') && !currentUrl.includes('/onboarding') && !currentUrl.includes('/speech-synthesis') && !currentUrl.includes('/text-to-speech'))) {
+          stableTtsTicks = 0;
+          dashboardHomeTicks++;
+          if (dashboardHomeTicks < 3) {
+            setSignupStatus(`[VERIFIKASI STABILITAS ${dashboardHomeTicks}/2] Memeriksa akun di dashboard & memastikan onboarding tuntas...`, 'warn');
+            await sleep(2000);
+            continue;
+          }
+
+          setSignupStatus(`[DASHBOARD] Akun stabil terkonfirmasi! Mengarahkan ke Dashboard Text-to-Speech...`, 'warn');
+          await chrome.runtime.sendMessage({
+            action: 'NAVIGATE_ELEVENLABS_TAB',
+            payload: { tabId: currentTabId, url: 'https://elevenlabs.io/app/speech-synthesis/text-to-speech' }
+          }).catch(() => { });
+          await sleep(2500);
+          continue;
+        }
+
+        if (currentStatus === 'DASHBOARD_TTS' || currentUrl.includes('/speech-synthesis') || currentUrl.includes('/text-to-speech')) {
+          dashboardHomeTicks = 0;
+          stableTtsTicks++;
+          if (stableTtsTicks < 2) {
+            setSignupStatus(`[VERIFIKASI STABILITAS] Memastikan Dashboard TTS stabil & onboarding tuntas (${stableTtsTicks}/2)...`, 'warn');
+            await sleep(2000);
+            continue;
+          }
+
+          if (!ttsConfigAttempted) {
+            ttsConfigAttempted = true;
+            setSignupStatus(`3/3 Menyiapkan Voice Setting (Dany Saputra, Eleven v3, Robust)...`, 'warn');
+            await sleep(1000);
+            try {
+              await chrome.runtime.sendMessage({
+                action: 'CONFIGURE_ELEVENLABS_TTS',
+                payload: {
+                  tabId: currentTabId,
+                  voiceName: 'Dany Saputra',
+                  modelName: 'Eleven v3',
+                  stability: 'robust',
+                },
+              });
+            } catch (cfgErr) {
+              console.warn('[DirectVerify] Voice setting warning:', cfgErr.message);
+            }
+          }
+
+          await sleep(1200);
+          const finalCheck = await chrome.runtime.sendMessage({ action: 'GET_ELEVENLABS_STATUS' });
+          if (finalCheck?.status === 'ONBOARDING' || (finalCheck?.url && finalCheck.url.includes('/onboarding'))) {
+            console.warn('[DirectVerify Supervisor] ⚠️ Tab terpental kembali ke Onboarding pasca TTS! Mengulang penanganan onboarding...');
+            stableTtsTicks = 0;
+            ttsConfigAttempted = false;
+            continue;
+          }
+
+          flowFinished = true;
+          break;
+        }
+
+        await sleep(1500);
+      }
+
+      if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
+        chrome.runtime.onMessage.removeListener(directCompletionListener);
+      }
+
+      if (!flowFinished) {
+        throw new Error('Batas waktu verifikasi manual habis (135 detik) tanpa mencapai Dashboard TTS stabil.');
       }
 
       if (targetEmail) {
@@ -2439,7 +2738,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (saved?.extensionActiveTab === 'elevenlabs') {
       switchTab('elevenlabs');
     }
-  } catch (e) {}
+  } catch (e) { }
 
   // Listener notifikasi jika tab ElevenLabs telah berhasil menyelesaikan auto-skip onboarding & sampai di dashboard
   if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {

@@ -273,46 +273,118 @@
      * Mencari indikator tombol Stop (menandakan AI sedang meng-generate)
      */
     findStopButton() {
-      const buttons = Array.from(document.querySelectorAll('button'));
+      const buttons = Array.from(document.querySelectorAll('button, [role="button"]'));
       return (
         buttons.find((b) => {
           const txt = (b.textContent || '').trim().toLowerCase();
           const aria = (b.getAttribute('aria-label') || '').toLowerCase();
-          return (txt.includes('stop') || aria.includes('stop')) && this.isElementVisible(b);
+          const title = (b.getAttribute('title') || '').toLowerCase();
+          return (
+            (txt === 'stop' ||
+              txt.startsWith('stop ') ||
+              aria.includes('stop') ||
+              aria.includes('cancel') ||
+              title.includes('stop')) &&
+            this.isElementVisible(b)
+          );
         }) || null
       );
     },
 
     /**
-     * Cek apakah ada pesan error dari AI Studio di layar
+     * Memeriksa apakah AI Studio saat ini sedang aktif memproses / streaming output
+     */
+    isGenerating() {
+      if (this.findStopButton()) return true;
+
+      const progressSelectors = [
+        'mat-progress-bar',
+        'mat-spinner',
+        'mat-progress-spinner',
+        '.streaming-indicator',
+        '.loading-indicator',
+        '[role="progressbar"]',
+        'ms-chat-turn.streaming',
+        '[data-test-id*="streaming" i]',
+        '[class*="streaming" i]',
+      ];
+      for (const sel of progressSelectors) {
+        try {
+          const el = document.querySelector(sel);
+          if (el && this.isElementVisible(el)) return true;
+        } catch {}
+      }
+
+      return false;
+    },
+
+    /**
+     * Cek apakah ada pesan error fatal sistem dari AI Studio di layar
      */
     checkForError() {
-      const errorRegex =
-        /(?:an error occurred|an internal error has occurred|error querying drive|failed to generate content|quota exceeded|resource has been exhausted|something went wrong|unable to process request|safety policy|blocked by safety filters|content policy violation|violates content policy)/i;
+      // JANGAN cek error jika AI masih aktif men-generate respon!
+      if (this.isGenerating()) {
+        return null;
+      }
 
-      // Cek elemen error banner / alert
-      const errorElements = Array.from(
-        document.querySelectorAll(
-          '.error-message, ms-error-message, .mat-mdc-snack-bar-container, [role="alert"], .banner-error'
-        )
-      );
+      const fatalErrorRegex =
+        /(?:quota exceeded|resource has been exhausted|internal error has occurred|failed to generate content|model is overloaded|rate limit exceeded|safety policy violation|blocked by safety filters|content policy violation|unable to process request)/i;
 
-      for (const el of errorElements) {
-        if (this.isElementVisible(el)) {
-          const txt = (el.textContent || '').trim();
-          if (txt && (errorRegex.test(txt) || txt.toLowerCase().includes('error'))) {
-            return txt;
+      // 1. Cek banner / alert spesifik tingkat sistem AI Studio
+      const bannerSelectors = [
+        'ms-banner[variant="error"]',
+        '.banner-error',
+        '.error-banner',
+        '.callout-error',
+        '.banner.error',
+        '.mat-mdc-snack-bar-container',
+      ];
+
+      for (const sel of bannerSelectors) {
+        const banners = Array.from(document.querySelectorAll(sel));
+        for (const el of banners) {
+          if (this.isElementVisible(el)) {
+            const txt = (el.textContent || '').trim();
+            if (txt && fatalErrorRegex.test(txt)) {
+              return txt;
+            }
           }
         }
       }
 
-      // Cek turn chat model terakhir
-      const modelTurns = Array.from(document.querySelectorAll('ms-chat-turn, .model-response, ms-response-bubble'));
+      // 2. Cek apakah ada turn model yang gagal total (misal turn-error atau error-state)
+      const modelTurns = Array.from(
+        document.querySelectorAll('ms-chat-turn, .model-response, ms-response-bubble, [data-test-id="chat-turn"]')
+      );
       if (modelTurns.length > 0) {
         const lastTurn = modelTurns[modelTurns.length - 1];
-        const lastText = (lastTurn.textContent || '').trim();
-        if (errorRegex.test(lastText)) {
-          return lastText.slice(0, 200);
+
+        const isUserTurn =
+          lastTurn.querySelector('ms-prompt-editor, textarea, [contenteditable="true"]') ||
+          lastTurn.getAttribute('data-turn-role') === 'user' ||
+          lastTurn.classList.contains('user-turn');
+
+        if (!isUserTurn) {
+          const turnErrorEl = lastTurn.querySelector(
+            '.error-state, .turn-error, .error-container, [data-test-id="turn-error"]'
+          );
+          const lastText = (lastTurn.textContent || '').trim();
+
+          const hasJsonOrCode =
+            lastTurn.querySelector('code, pre, ms-code-block') ||
+            lastText.includes('mappings') ||
+            lastText.includes('scene_id') ||
+            lastText.includes('sentence_index') ||
+            lastText.includes('{');
+
+          if (!hasJsonOrCode) {
+            if (turnErrorEl && this.isElementVisible(turnErrorEl)) {
+              return (turnErrorEl.textContent || '').trim() || 'AI Studio model turn error';
+            }
+            if (lastText.length > 0 && lastText.length < 350 && fatalErrorRegex.test(lastText)) {
+              return lastText;
+            }
+          }
         }
       }
 
@@ -334,8 +406,15 @@
         'ms-thought-viewer',
         'ms-collapsible-thought',
         'ms-thought',
+        'ms-thought-container',
+        'ms-reasoning-chunk',
+        'ms-reasoning',
         '[data-test-id*="thought" i]',
+        '[data-test-id*="thinking" i]',
         '[class*="thought" i]',
+        '[class*="thinking" i]',
+        '[aria-label*="thought" i]',
+        '[aria-label*="thinking" i]',
         'button[aria-label*="thought" i]',
         'button[title*="thought" i]',
         '.thought-container',
@@ -352,12 +431,13 @@
         } catch {}
       }
 
-      // 2. Singkirkan elemen yang teksnya memuat header "✦ Thoughts"
+      // 2. Singkirkan elemen yang teksnya memuat header "✦ Thoughts" atau "Thinking Process"
       Array.from(clone.querySelectorAll('*')).forEach((el) => {
         const t = (el.textContent || '').trim();
         if (
           (t.startsWith('✦ Thoughts') ||
             t.startsWith('Thoughts\n') ||
+            t.startsWith('Thinking Process') ||
             t === 'Expand to view model thoughts' ||
             t === 'Collapse model thoughts') &&
           el.children.length <= 4
@@ -418,6 +498,22 @@
           continue;
         }
 
+        // Cek elemen code block langsung di dalam turn model (paling bersih dan terhindar dari thoughts)
+        const codeEls = Array.from(
+          turn.querySelectorAll('ms-code-block, pre code, pre, [data-test-id="code-block"]')
+        );
+        for (const codeEl of codeEls) {
+          const cText = (codeEl.textContent || '').trim();
+          if (
+            cText.includes('mappings') ||
+            cText.includes('scene_id') ||
+            cText.includes('sentence_index') ||
+            cText.includes('source_start_seconds')
+          ) {
+            return cText;
+          }
+        }
+
         const extracted = this.extractCleanTurnText(turn);
         if (
           extracted.includes('mappings') ||
@@ -429,17 +525,10 @@
         }
       }
 
-      // Fallback turn terakhir jika ada teks signifikan
-      if (turns.length > 0) {
-        const lastTurn = turns[turns.length - 1];
-        const extracted = this.extractCleanTurnText(lastTurn);
-        if (extracted.trim().length > 30) {
-          return extracted;
-        }
-      }
-
-      // Prioritas 2: Cari tag code / pre di seluruh halaman (gabungkan jika ada beberapa)
-      const codes = Array.from(document.querySelectorAll('code, pre'));
+      // Prioritas 2: Cari tag code / pre di seluruh halaman (pilih yang memuat data mapping)
+      const codes = Array.from(
+        document.querySelectorAll('ms-code-block, pre code, pre, [data-test-id="code-block"]')
+      );
       const candidateCodeTexts = [];
       for (const c of codes) {
         const txt = (c.textContent || '').trim();
@@ -453,7 +542,22 @@
         }
       }
       if (candidateCodeTexts.length > 0) {
-        return candidateCodeTexts.join('\n');
+        return candidateCodeTexts[candidateCodeTexts.length - 1];
+      }
+
+      // Fallback turn model terakhir jika ada teks signifikan
+      for (let i = turns.length - 1; i >= 0; i--) {
+        const turn = turns[i];
+        const isUserTurn =
+          turn.querySelector('ms-prompt-editor, textarea, [contenteditable="true"]') ||
+          turn.getAttribute('data-turn-role') === 'user' ||
+          turn.classList.contains('user-turn');
+        if (!isUserTurn) {
+          const extracted = this.extractCleanTurnText(turn);
+          if (extracted.trim().length > 30) {
+            return extracted;
+          }
+        }
       }
 
       // Prioritas 3: Teks seluruh body
@@ -468,14 +572,34 @@
 
       let cleaned = String(rawText);
 
-      // 1. Bersihkan blok "✦ Thoughts" (baik collapsed maupun expanded) beserta teks di dalamnya
+      // 1. Prioritas utama: jika teks memuat markdown code block ```json ... ``` atau ``` ... ```
+      const codeBlockRegex = /```(?:json)?\s*([\s\S]*?)```/gi;
+      let match;
+      let targetCodeBlock = '';
+      while ((match = codeBlockRegex.exec(cleaned)) !== null) {
+        const blockContent = match[1].trim();
+        if (
+          blockContent.includes('{') &&
+          (blockContent.includes('mappings') ||
+            blockContent.includes('scene_id') ||
+            blockContent.includes('chunk_part'))
+        ) {
+          targetCodeBlock = blockContent;
+        }
+      }
+      if (targetCodeBlock) {
+        cleaned = targetCodeBlock;
+      }
+
+      // 2. Bersihkan blok "✦ Thoughts" (baik collapsed maupun expanded) beserta teks di dalamnya
       cleaned = cleaned.replace(
         /\s*✦\s*Thoughts[\s\S]*?(?:(?:Expand|Collapse|Hide)\s+(?:to\s+view\s+)?model\s+thoughts|\bthought\b|[\r\n]{2,})\s*/gi,
         ''
       );
       cleaned = cleaned.replace(/\s*(?:Expand|Collapse|Hide)\s+(?:to\s+view\s+)?model\s+thoughts\s*/gi, '');
+      cleaned = cleaned.replace(/^(?:Thinking Process|Thoughts):?\s*[\s\S]*?\n(?=\{)/i, '');
 
-      // 2. Cari batas kurung kurawal terluar { ... }
+      // 3. Cari batas kurung kurawal terluar { ... }
       const startIdx = cleaned.indexOf('{');
       const endIdx = cleaned.lastIndexOf('}');
 
@@ -485,7 +609,7 @@
         cleaned = cleaned.slice(startIdx);
       }
 
-      // 3. Di dalam struktur JSON, singkirkan semua pagar markdown ``` atau ```json
+      // 4. Di dalam struktur JSON, singkirkan semua pagar markdown ``` atau ```json
       cleaned = cleaned.replace(/`{3,}(?:json)?/gi, '');
 
       return cleaned.trim();
@@ -515,13 +639,14 @@
     safeParseJson(jsonString) {
       const cleaned = this.cleanJsonString(jsonString);
 
+      // Level 1: Standard JSON parse
       try {
         const parsed = JSON.parse(cleaned);
         this.postProcessParsedJson(parsed);
         return parsed;
       } catch (err1) {
+        // Level 2: Character scanner fixing unescaped newlines/tabs inside strings
         try {
-          // Scanner character-by-character untuk memperbaiki unescaped newlines/tabs di dalam string literal
           let inString = false;
           let escaped = false;
           let result = '';
@@ -556,7 +681,18 @@
           this.postProcessParsedJson(parsed);
           return parsed;
         } catch (err2) {
-          throw new Error(`JSON mapping parsing gagal: ${err1.message} (sanitized fallback: ${err2.message})`);
+          // Level 3: Ganti smart quotes & trailing commas fallback
+          try {
+            let repaired = cleaned
+              .replace(/[\u201C\u201D]/g, '\\"')
+              .replace(/[\u2018\u2019]/g, "'")
+              .replace(/,\s*([\]}])/g, '$1');
+            const parsed = JSON.parse(repaired);
+            this.postProcessParsedJson(parsed);
+            return parsed;
+          } catch (err3) {
+            throw new Error(`JSON mapping parsing gagal: ${err1.message} (sanitized fallback: ${err2.message})`);
+          }
         }
       }
     },
@@ -565,17 +701,10 @@
      * Cek status generasi mapping saat ini secara non-blocking
      */
     checkCurrentStatus() {
-      const errorMsg = this.checkForError();
-      if (errorMsg) {
-        return { status: 'error', errorMessage: errorMsg };
-      }
-
-      const stopBtn = this.findStopButton();
-      if (stopBtn) {
-        return { status: 'generating' };
-      }
-
+      // 1. Ekstrak output teks saat ini
       const rawOutput = this.extractRawResponse();
+
+      // 2. Cek apakah output JSON sudah terbentuk dan valid (Prioritas tertinggi!)
       if (rawOutput && rawOutput.length > 80) {
         const hasMappings = rawOutput.includes('mappings');
         const hasScene = rawOutput.includes('scene_id') || rawOutput.includes('chunk_part');
@@ -585,7 +714,6 @@
           const cleaned = this.cleanJsonString(rawOutput);
           try {
             const parsed = this.safeParseJson(cleaned);
-            // Validasi bahwa parsed memiliki properti mappings atau struktur valid
             if (parsed && (Array.isArray(parsed.mappings) || parsed.scene_id || parsed.chunk_part)) {
               return {
                 status: 'completed',
@@ -595,9 +723,38 @@
               };
             }
           } catch (pe) {
-            return { status: 'generating_streaming', partialLen: rawOutput.length };
+            if (this.isGenerating()) {
+              return { status: 'generating_streaming', partialLen: rawOutput.length };
+            }
           }
         }
+      }
+
+      // 3. Cek apakah model masih aktif men-generate / streaming
+      if (this.isGenerating()) {
+        return { status: 'generating', outputLen: rawOutput ? rawOutput.length : 0 };
+      }
+
+      // 4. Jika sudah tidak streaming dan teks cukup panjang, coba parse sekali lagi
+      if (rawOutput && rawOutput.length > 100) {
+        const cleaned = this.cleanJsonString(rawOutput);
+        try {
+          const parsed = this.safeParseJson(cleaned);
+          if (parsed && (Array.isArray(parsed.mappings) || parsed.scene_id || parsed.chunk_part)) {
+            return {
+              status: 'completed',
+              rawText: rawOutput,
+              cleanedJson: cleaned,
+              parsedJson: parsed,
+            };
+          }
+        } catch {}
+      }
+
+      // 5. HANYA jika TIDAK sedang generate dan TIDAK ada output valid, periksa error sistem
+      const errorMsg = this.checkForError();
+      if (errorMsg) {
+        return { status: 'error', errorMessage: errorMsg };
       }
 
       return { status: 'waiting', outputLen: rawOutput ? rawOutput.length : 0 };
@@ -618,31 +775,13 @@
         await sleep(2000);
         const elapsedSec = Math.round((Date.now() - startTime) / 1000);
 
-        // 1. Cek apakah ada error AI Studio
-        const errorMsg = this.checkForError();
-        if (errorMsg) {
-          console.warn(`[MappingGenerator] ⚠️ Terdeteksi error AI Studio: "${errorMsg}"`);
-          return {
-            success: true,
-            hasError: true,
-            errorMessage: errorMsg,
-            elapsedSec,
-          };
-        }
-
-        // 2. Cek tombol Stop
-        const stopBtn = this.findStopButton();
-        if (stopBtn) {
-          console.log(`[MappingGenerator] ⏳ Model sedang memproses video & menyusun mapping (Detik ${elapsedSec})...`);
-          continue;
-        }
-
-        // 3. Jika tombol Stop sudah tidak ada, periksa respon yang sudah tertulis
+        // 1. Ekstrak output teks saat ini
         const rawOutput = this.extractRawResponse();
-        const currentLen = rawOutput.length;
+        const currentLen = rawOutput ? rawOutput.length : 0;
+        const isGen = this.isGenerating();
 
-        // Jika output sudah ada isinya yang signifikan
-        if (currentLen > 100) {
+        // 2. Cek apakah output sudah selesai dan valid
+        if (currentLen > 80) {
           if (currentLen === lastOutputLen) {
             stableCount++;
           } else {
@@ -654,28 +793,67 @@
           const hasDoneStatus = /"status"\s*:\s*"(?:done|Done)"/i.test(rawOutput);
           const isStable = stableCount >= 2;
 
-          if ((hasDoneStatus || hasMappings) && (isStable || !stopBtn)) {
-            console.log(`[MappingGenerator] 🎉 Respon mapping selesai di detik ${elapsedSec}! Panjang: ${currentLen} karakter.`);
-
+          if ((hasDoneStatus || hasMappings) && (isStable || !isGen)) {
             const cleanedJson = this.cleanJsonString(rawOutput);
             try {
               const parsed = this.safeParseJson(cleanedJson);
-              return {
-                success: true,
-                hasError: false,
-                rawText: rawOutput,
-                cleanedJson,
-                parsedJson: parsed,
-                elapsedSec,
-              };
-            } catch (parseErr) {
-              if (elapsedSec < 30) {
-                continue;
+              if (parsed && (Array.isArray(parsed.mappings) || parsed.scene_id || parsed.chunk_part)) {
+                console.log(`[MappingGenerator] 🎉 Respon mapping selesai di detik ${elapsedSec}! Panjang: ${currentLen} karakter.`);
+                return {
+                  success: true,
+                  hasError: false,
+                  rawText: rawOutput,
+                  cleanedJson,
+                  parsedJson: parsed,
+                  elapsedSec,
+                };
               }
-              console.warn('[MappingGenerator] Output mapping belum valid JSON, menunggu sebentar lagi...', parseErr.message);
+            } catch (parseErr) {
+              if (elapsedSec < 30 || isGen) {
+                // Masih streaming, lanjut tunggu
+              } else {
+                console.warn('[MappingGenerator] Output mapping belum valid JSON, menunggu sebentar lagi...', parseErr.message);
+              }
             }
           }
         }
+
+        // 3. Jika model masih generate, lanjutkan loop
+        if (isGen) {
+          console.log(`[MappingGenerator] ⏳ Model sedang memproses video & menyusun mapping (Detik ${elapsedSec})...`);
+          continue;
+        }
+
+        // 4. HANYA jika tidak streaming dan belum valid, periksa error fatal sistem
+        const errorMsg = this.checkForError();
+        if (errorMsg && currentLen < 80) {
+          console.warn(`[MappingGenerator] ⚠️ Terdeteksi error fatal AI Studio: "${errorMsg}"`);
+          return {
+            success: true,
+            hasError: true,
+            errorMessage: errorMsg,
+            elapsedSec,
+          };
+        }
+      }
+
+      // Terakhir kali sebelum timeout: coba parse jika ada teks yang tertinggal di layar
+      const finalRaw = this.extractRawResponse();
+      if (finalRaw && finalRaw.length > 80) {
+        try {
+          const finalCleaned = this.cleanJsonString(finalRaw);
+          const finalParsed = this.safeParseJson(finalCleaned);
+          if (finalParsed && (Array.isArray(finalParsed.mappings) || finalParsed.scene_id || finalParsed.chunk_part)) {
+            return {
+              success: true,
+              hasError: false,
+              rawText: finalRaw,
+              cleanedJson: finalCleaned,
+              parsedJson: finalParsed,
+              elapsedSec: Math.round((Date.now() - startTime) / 1000),
+            };
+          }
+        } catch {}
       }
 
       return {

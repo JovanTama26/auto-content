@@ -233,20 +233,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getContentId: (mode) => ipcRenderer.invoke('get-content-id', mode),
   resetProject: (mode) => ipcRenderer.invoke('reset-project', mode),
 
-  // Shorts Linear Video Merger Helpers
-  mergeShortsVideos: (part1Path, part2Path, outputName) =>
-    ipcRenderer.invoke('merge-shorts-videos', { part1Path, part2Path, outputName }),
-  onMergeShortsProgress: (callback) => {
-    const handler = (_event, data) => callback(data);
-    ipcRenderer.on('merge-shorts-progress', handler);
-    return () => ipcRenderer.removeListener('merge-shorts-progress', handler);
-  },
+  // Generic file helpers
   openInFolder: (filePath) => ipcRenderer.invoke('open-in-folder', filePath),
 
-  // Shorts Prompt & Script AI Director Helpers
-  generateShortsPrompt: (opts) => ipcRenderer.invoke('generate-shorts-prompt', opts),
-  getLatestShortsPrompt: () => ipcRenderer.invoke('get-latest-shorts-prompt'),
-  saveShortsPrompt: (data) => ipcRenderer.invoke('save-shorts-prompt', { data }),
+  // Faceless Idea Agent & Project State Helpers
+  facelessAgentChat: (opts) => ipcRenderer.invoke('faceless-agent-chat', opts),
+  getFacelessState: () => ipcRenderer.invoke('get-faceless-state'),
+  saveFacelessState: (data) => ipcRenderer.invoke('save-faceless-state', { data }),
+  resetFacelessState: () => ipcRenderer.invoke('reset-faceless-state'),
 
   // Humanologi Helpers (Prompt, Narration JSON, Audio, and Transcript Mapping)
   getHumanologiPrompt: () => ipcRenderer.invoke('get-humanologi-prompt'),

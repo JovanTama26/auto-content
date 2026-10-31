@@ -38,6 +38,8 @@
     "https://mail.google.com/*",
     "https://n8n.riztama.my.id/*",
     "https://supabase.riztama.my.id/*",
+    "http://43.129.43.29:*/*",
+    "http://*.riztama.my.id:*/*",
     "http://127.0.0.1:*/*",
     "http://localhost:*/*"
   ],

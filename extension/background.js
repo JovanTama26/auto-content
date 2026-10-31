@@ -204,30 +204,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             await chrome.windows.update(targetTab.windowId, { focused: true }).catch(() => {});
           }
 
-          const isAlreadySignUp = targetTab.url && targetTab.url.includes('/sign-up');
-          if (!isAlreadySignUp) {
-            await chrome.tabs.update(targetTab.id, { url: 'https://elevenlabs.io/app/sign-up', active: true });
-            // Tunggu tab selesai memuat halaman sign-up (status: complete)
-            await new Promise((resolve) => {
-              let timeoutId;
-              function listener(tabId, changeInfo) {
-                if (tabId === targetTab.id && changeInfo.status === 'complete') {
-                  chrome.tabs.onUpdated.removeListener(listener);
-                  clearTimeout(timeoutId);
-                  resolve();
-                }
-              }
-              chrome.tabs.onUpdated.addListener(listener);
-              timeoutId = setTimeout(() => {
+          console.log('[Background] Memuat ulang tab ElevenLabs ke halaman sign-up agar form bersih...');
+          await chrome.tabs.update(targetTab.id, { url: 'https://elevenlabs.io/app/sign-up', active: true });
+          await chrome.tabs.reload(targetTab.id);
+          // Tunggu tab selesai memuat halaman sign-up (status: complete)
+          await new Promise((resolve) => {
+            let timeoutId;
+            function listener(tabId, changeInfo) {
+              if (tabId === targetTab.id && changeInfo.status === 'complete') {
                 chrome.tabs.onUpdated.removeListener(listener);
+                clearTimeout(timeoutId);
                 resolve();
-              }, 12000);
-            });
-            await new Promise((r) => setTimeout(r, 2200));
-          } else {
-            await chrome.tabs.update(targetTab.id, { active: true });
-            await new Promise((r) => setTimeout(r, 800));
-          }
+              }
+            }
+            chrome.tabs.onUpdated.addListener(listener);
+            timeoutId = setTimeout(() => {
+              chrome.tabs.onUpdated.removeListener(listener);
+              resolve();
+            }, 12000);
+          });
+          await new Promise((r) => setTimeout(r, 2200));
         } else {
           console.log('[Background] Membuka tab baru ke halaman sign-up...');
           targetTab = await chrome.tabs.create({ url: 'https://elevenlabs.io/app/sign-up', active: true });
@@ -451,7 +447,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
       try {
         const { email, maxWaitSeconds, pollIntervalMs } = message.payload || {};
-        console.log(`[Background] Memulai ekstraksi link verifikasi langsung dari Gmail untuk: ${email || 'target'}`);
+        console.log(`[Background] Memulai pengambilan link verifikasi untuk: ${email || 'target'}`);
 
         const onProgress = (msg, attempt) => {
           chrome.runtime.sendMessage({
@@ -460,16 +456,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           }).catch(() => {});
         };
 
-        const result = await self.ElevenLabsVerify.fetchVerificationFromGmailTab({
-          email,
-          maxWaitSeconds: maxWaitSeconds || 120,
-          pollIntervalMs: pollIntervalMs || 3500,
+        const result = await self.ElevenLabsVerify.pollForVerifyUrl(email, {
+          maxWaitSeconds: maxWaitSeconds || 90,
+          pollIntervalMs: pollIntervalMs || 2000,
           onProgress,
         });
 
         sendResponse({ success: true, ...result });
       } catch (err) {
-        console.error('[Background] Gagal mengambil link verifikasi dari Gmail:', err.message);
+        console.error('[Background] Gagal mengambil link verifikasi:', err.message);
         sendResponse({ success: false, error: err.message });
       }
     })();
@@ -491,17 +486,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           }).catch(() => {});
         };
 
-        const verifyData = await self.ElevenLabsVerify.fetchVerificationFromGmailTab({
-          email,
+        const verifyData = await self.ElevenLabsVerify.pollForVerifyUrl(email, {
           maxWaitSeconds: 45,
+          pollIntervalMs: 2000,
           onProgress,
         });
 
         if (verifyData && verifyData.verifyUrl) {
-          console.log(`[Background] Link verifikasi baru ditemukan di Gmail: ${verifyData.verifyUrl}`);
+          console.log(`[Background] Link verifikasi baru ditemukan: ${verifyData.verifyUrl}`);
           sendResponse({ success: true, verifyUrl: verifyData.verifyUrl });
         } else {
-          sendResponse({ success: false, error: 'Link verifikasi tidak ditemukan di inbox Gmail' });
+          sendResponse({ success: false, error: 'Link verifikasi tidak ditemukan' });
         }
       } catch (err) {
         sendResponse({ success: false, error: err.message });
@@ -906,6 +901,84 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         console.error('[Background] Gagal direct download audio:', err);
         sendResponse({ success: false, error: err.message });
       }
+    })();
+    return true; // async
+  }
+
+  // 9. Modul Native CDP & Main-World Clicker (untuk checkbox Radix UI onboarding & tombol sensitif)
+  if (message.action === 'CLICK_ONBOARDING_CHECKBOX') {
+    (async () => {
+      const tabId = sender.tab?.id || message.tabId;
+      const { x, y } = message.payload || {};
+
+      console.log(`[Background] 🎯 Permintaan klik native checkbox onboarding pada tab ${tabId} (x: ${x}, y: ${y})...`);
+
+      // Strategi A: CDP Native Hardware Click via chrome.debugger (paling tangguh & authentic)
+      if (tabId && x && y && chrome.debugger) {
+        try {
+          await chrome.debugger.attach({ tabId }, '1.3');
+          await chrome.debugger.sendCommand({ tabId }, 'Input.dispatchMouseEvent', {
+            type: 'mousePressed',
+            x: Math.round(x),
+            y: Math.round(y),
+            button: 'left',
+            clickCount: 1,
+          });
+          await new Promise((r) => setTimeout(r, 60));
+          await chrome.debugger.sendCommand({ tabId }, 'Input.dispatchMouseEvent', {
+            type: 'mouseReleased',
+            x: Math.round(x),
+            y: Math.round(y),
+            button: 'left',
+            clickCount: 1,
+          });
+          await chrome.debugger.detach({ tabId });
+          console.log('[Background] ✅ CDP Native Click berhasil dieksekusi!');
+          sendResponse({ success: true, method: 'cdp' });
+          return;
+        } catch (cdpErr) {
+          console.warn('[Background] CDP Click fallback:', cdpErr.message);
+          try { await chrome.debugger.detach({ tabId }); } catch (e) {}
+        }
+      }
+
+      // Strategi B: Main World execution via chrome.scripting.executeScript
+      if (tabId && chrome.scripting) {
+        try {
+          await chrome.scripting.executeScript({
+            target: { tabId },
+            world: 'MAIN',
+            func: () => {
+              const inp = document.querySelector('input[name="adult"], input[type="checkbox"]');
+              if (inp) {
+                try {
+                  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'checked')?.set;
+                  if (setter) setter.call(inp, true);
+                  else inp.checked = true;
+                  inp.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+                  inp.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+                } catch (e) {}
+              }
+              const b = document.querySelector('button[role="checkbox"], button[data-agent-id*="checkbox"]');
+              if (b) {
+                const isChecked = b.getAttribute('aria-checked') === 'true' || b.getAttribute('data-state') === 'checked';
+                if (!isChecked) {
+                  b.focus?.();
+                  b.click?.();
+                  b.closest('label')?.click?.();
+                }
+              }
+            },
+          });
+          console.log('[Background] ✅ Main-World click berhasil dieksekusi!');
+          sendResponse({ success: true, method: 'main_world' });
+          return;
+        } catch (scriptErr) {
+          console.warn('[Background] Main-World click error:', scriptErr.message);
+        }
+      }
+
+      sendResponse({ success: false });
     })();
     return true; // async
   }

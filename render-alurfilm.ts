@@ -548,7 +548,8 @@ program
     fs.mkdirSync(tmpDir, { recursive: true });
 
     try {
-      const CONCURRENCY = Math.min(Math.max(1, os.cpus().length - 1), 4);
+      // Optimize concurrency based on available CPU cores (up to 8 parallel workers)
+      const CONCURRENCY = Math.min(Math.max(2, os.cpus().length), 8);
       const clipFiles: string[] = new Array(clips.length);
 
       for (let batch = 0; batch < clips.length; batch += CONCURRENCY) {
@@ -562,15 +563,26 @@ program
 
           const fxFilters: string[] = [];
 
-          // 1. Mirror cut
-          if (clip.mirrorMode === 'horizontal') fxFilters.push('hflip');
-          else if (clip.mirrorMode === 'vertical') fxFilters.push('vflip');
+          // 1. Mirror cut & Alternating Auto-Mirror (Throws off spatial Content ID detection)
+          const autoMirror = (jsonSettings as any).autoMirror !== false;
+          const isMirrored = clip.mirrorMode === 'horizontal' || (autoMirror && !clip.mirrorMode && clip.id % 2 === 0);
+          if (isMirrored) {
+            fxFilters.push('hflip');
+          } else if (clip.mirrorMode === 'vertical') {
+            fxFilters.push('vflip');
+          }
 
           // 2. PTS normalization & Slow motion (setpts)
           // Subtracting STARTPTS is mandatory when using fast seek (-ss before -i)
-          // to prevent PTS forward-shift that truncates 30-100ms off every clip
+          let baseDur = clip.duration;
           if (clip.type === 'slow_motion' && clip.slowMoFactor && clip.slowMoFactor > 0 && clip.slowMoFactor !== 1) {
+            baseDur = clip.duration * clip.slowMoFactor;
             const ptsFactor = (1 / clip.slowMoFactor).toFixed(2);
+            fxFilters.push(`setpts=(PTS-STARTPTS)*${ptsFactor}`);
+          } else if (clip.duration > 2.0 && clip.type !== 'freeze_frame_with_zoom') {
+            // Safety Clamp: If a raw cut is >2.0s, stretch the 2.0s raw footage smoothly to keep raw <= 2.0s
+            baseDur = 2.0;
+            const ptsFactor = (clip.duration / 2.0).toFixed(2);
             fxFilters.push(`setpts=(PTS-STARTPTS)*${ptsFactor}`);
           } else if (clip.type !== 'freeze_frame_with_zoom') {
             fxFilters.push('setpts=PTS-STARTPTS');
@@ -585,26 +597,27 @@ program
             fxFilters.push(`eq=contrast=${contrast.toFixed(3)}:brightness=${brightness.toFixed(3)}:saturation=${saturation.toFixed(3)}:gamma=${gamma.toFixed(3)}`);
           }
 
+          // 4. Anti-Content ID Spatial Defense: Authentic 35mm Luma Film Grain (c0s luma-only is 2x faster than chroma noise)
+          fxFilters.push('noise=c0s=6:allf=t');
+
           const fxChain = fxFilters.length > 0 ? ',' + fxFilters.join(',') : '';
 
-          const scaledWidth = Math.round(width * 1.06); // 2035
-          const scaledHeight = Math.round(height * 1.06); // 1145
+          // 15% Safe Zoom to break bounding boxes & camera framing signatures
+          const zoomRate = (jsonSettings as any).zoomRate ?? 1.15;
+          const scaledWidth = Math.round(width * zoomRate);
+          const scaledHeight = Math.round(height * zoomRate);
 
           let scaleFilter = '';
           let inputReadDur = '';
 
           if (clip.type === 'freeze_frame_with_zoom') {
-            // Extract first frame at sourceStart, loop, scale/crop, apply smooth subtle zoompan (1.00x -> 1.035x) & limit output to duration with lanczos crisp sharpness
             inputReadDur = '0.5';
             const clipFrames = Math.max(1, Math.round(clip.duration * 30));
             scaleFilter = `loop=loop=-1:size=1:start=0,scale=${width}:${height}:force_original_aspect_ratio=increase:flags=lanczos,crop=${width}:${height},zoompan=z='1+0.035*(on/${clipFrames})':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${width}x${height}:fps=30,setsar=1${fxChain},fps=fps=30:round=near`;
           } else {
             scaleFilter = `scale=${scaledWidth}:${scaledHeight}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1${fxChain},fps=fps=30:round=near`;
-            const baseDur = (clip.type === 'slow_motion' && clip.slowMoFactor && clip.slowMoFactor > 0)
-              ? (clip.duration * clip.slowMoFactor)
-              : clip.duration;
             // Add +1.5s headroom so decoder is never starved of input frames before output reaches clip.duration
-            inputReadDur = (baseDur + 1.5).toFixed(3);
+            inputReadDur = (Math.min(2.0, baseDur) + 1.5).toFixed(3);
           }
 
           const readDurNum = parseFloat(inputReadDur) || 0.5;
@@ -618,11 +631,13 @@ program
             '-y',
             '-ss', String(safeSourceStart),
             '-t', inputReadDur,
+            '-threads', '2',
+            '-an',
+            '-sn',
             '-i', resolvedVideo,
             '-vf', scaleFilter,
             '-t', String(clip.duration),
             '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '18', '-r', '30',
-            '-an',
             '-avoid_negative_ts', 'make_zero',
             '-pix_fmt', 'yuv420p',
             outFile
@@ -910,7 +925,7 @@ program
       }
 
       if (logoIndex !== null) {
-        fargs.push('-c:v', 'libx264', '-preset', 'fast', '-crf', '18', '-pix_fmt', 'yuv420p');
+        fargs.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p');
       } else {
         fargs.push('-c:v', 'copy');
       }

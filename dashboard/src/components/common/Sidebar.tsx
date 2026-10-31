@@ -13,8 +13,9 @@ export type StepId =
   | 'thumbnail'
   | 'topic'
   | 'script'
-  | 'visual';
-export type ContentMode = 'longform' | 'shorts' | 'humanologi';
+  | 'visual'
+  | 'idea';
+export type ContentMode = 'longform' | 'faceless' | 'humanologi';
 
 interface Step {
   id: StepId;
@@ -34,9 +35,8 @@ const LONGFORM_STEPS: Step[] = [
   { id: 'upload', icon: '🚀', label: '7. Metadata Hub', subText: 'AI SEO Title, Description & Tags' },
 ];
 
-const SHORTS_STEPS: Step[] = [
-  { id: 'analyze', icon: '⚡', label: '1. Prompt & Script Studio', subText: 'AI Director: 8-Shot & VO JSON' },
-  { id: 'render', icon: '🎬', label: '2. Video Merger (Part 1 & 2)', subText: 'Upload & gabung video linier' },
+const FACELESS_STEPS: Step[] = [
+  { id: 'idea', icon: '💬', label: '1. Idea Agent', subText: 'Tentukan ide via chat' },
 ];
 
 const HUMANOLOGI_STEPS: Step[] = [
@@ -88,16 +88,16 @@ const Sidebar: React.FC<SidebarProps> = ({
               <span className="truncate text-[11px]">Film</span>
             </button>
             <button
-              onClick={() => onModeChange('shorts')}
-              title="YouTube Shorts (9:16)"
+              onClick={() => onModeChange('faceless')}
+              title="Faceless Content (Video Panjang & Pendek)"
               className={`py-2 px-1 rounded-lg text-xs font-bold transition-all text-center flex flex-col items-center justify-center gap-0.5 ${
-                contentMode === 'shorts'
+                contentMode === 'faceless'
                   ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/30'
                   : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/60'
               }`}
             >
-              <span className="text-sm">⚡</span>
-              <span className="truncate text-[11px]">Shorts</span>
+              <span className="text-sm">🎭</span>
+              <span className="truncate text-[11px]">Faceless</span>
             </button>
             <button
               onClick={() => onModeChange('humanologi')}
@@ -120,15 +120,15 @@ const Sidebar: React.FC<SidebarProps> = ({
             <span>WORKFLOW STEPS</span>
             <span
               className={
-                contentMode === 'shorts'
+                contentMode === 'faceless'
                   ? 'text-amber-400 font-bold'
                   : contentMode === 'humanologi'
                   ? 'text-emerald-400 font-bold'
                   : 'text-purple-400 font-bold'
               }
             >
-              {contentMode === 'shorts'
-                ? '9:16 Shorts'
+              {contentMode === 'faceless'
+                ? 'Faceless Content'
                 : contentMode === 'humanologi'
                 ? '16:9 Humanologi'
                 : '16:9 Alur Film'}
@@ -195,10 +195,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                 );
               })}
             </>
-          ) : contentMode === 'shorts' ? (
+          ) : contentMode === 'faceless' ? (
             <div className="space-y-1">
-              {SHORTS_STEPS.map((step) => {
-                const isActive = step.id === 'render' ? activeStep === 'render' : activeStep !== 'render';
+              {FACELESS_STEPS.map((step) => {
+                const isActive = activeStep === step.id;
                 return (
                   <button
                     key={step.id}
@@ -277,15 +277,15 @@ const Sidebar: React.FC<SidebarProps> = ({
           </span>
           <span
             className={`text-xs font-bold block ${
-              contentMode === 'shorts'
+              contentMode === 'faceless'
                 ? 'text-amber-400'
                 : contentMode === 'humanologi'
                 ? 'text-emerald-400'
                 : 'text-purple-400'
             }`}
           >
-            {contentMode === 'shorts'
-              ? '⚡ YouTube Shorts (9:16)'
+            {contentMode === 'faceless'
+              ? '🎭 Faceless Content (Panjang & Pendek)'
               : contentMode === 'humanologi'
               ? '🧠 Humanologi Longform (16:9)'
               : '🍿 Alur Cerita Film (16:9)'}

@@ -18,19 +18,51 @@
   }
 
   /**
-   * Helper untuk trigger klik native lengkap (Pointer & Mouse events)
+   * Helper untuk trigger klik native lengkap (Pointer & Mouse events dengan koordinat realistis)
    * Penting untuk komponen React/Radix UI/Shadcn dialog & buttons
    */
   function triggerNativeClick(el) {
+    simulateRealClick(el);
+  }
+
+  function simulateRealClick(el) {
     if (!el) return;
     try {
+      el.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+      const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : { left: 0, top: 0, width: 0, height: 0 };
+      const clientX = rect.left + rect.width / 2;
+      const clientY = rect.top + rect.height / 2;
+
+      const opts = {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        view: window,
+        detail: 1,
+        screenX: clientX,
+        screenY: clientY,
+        clientX: clientX,
+        clientY: clientY,
+        button: 0,
+        buttons: 1,
+        pointerId: 1,
+        pointerType: 'mouse',
+        isPrimary: true,
+        width: 1,
+        height: 1,
+      };
+
       el.focus?.();
-      const opts = { bubbles: true, cancelable: true, view: window };
+      el.dispatchEvent(new PointerEvent('pointerover', opts));
+      el.dispatchEvent(new PointerEvent('pointerenter', opts));
       el.dispatchEvent(new PointerEvent('pointerdown', opts));
       el.dispatchEvent(new MouseEvent('mousedown', opts));
-      el.dispatchEvent(new PointerEvent('pointerup', opts));
-      el.dispatchEvent(new MouseEvent('mouseup', opts));
-      el.click();
+      // TUNGGAL: Hanya panggil .click(), JANGAN dispatchEvent('click') ganda
+      if (typeof el.click === 'function') {
+        el.click();
+      } else {
+        el.dispatchEvent(new MouseEvent('click', opts));
+      }
     } catch (e) {
       el.click?.();
     }
@@ -47,34 +79,38 @@
     try {
       inputEl.disabled = false;
       inputEl.removeAttribute('disabled');
+      inputEl.removeAttribute('readonly');
       inputEl.focus();
 
+      // 1. Coba browser native execCommand ('insertText') - mensimulasikan ketikan/paste nyata pengguna
+      try {
+        inputEl.select();
+        const success = document.execCommand('insertText', false, value);
+        if (success && inputEl.value === value) {
+          inputEl.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+          inputEl.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+          return;
+        }
+      } catch (e) { }
+
+      // 2. Fallback: Prototype setter descriptor + InputEvent + KeyboardEvent
       const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
         window.HTMLInputElement.prototype,
         'value'
       )?.set;
 
-      // 1. Reset / Clear terlebih dahulu agar React internal tracker mendeteksi perubahan baru
-      if (nativeInputValueSetter) {
-        nativeInputValueSetter.call(inputEl, '');
-      } else {
-        inputEl.value = '';
-      }
-      inputEl.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
-
-      // 2. Isi value target
       if (nativeInputValueSetter) {
         nativeInputValueSetter.call(inputEl, value);
       } else {
         inputEl.value = value;
       }
 
+      inputEl.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, data: value, inputType: 'insertText' }));
       inputEl.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
       inputEl.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
       inputEl.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: value.slice(-1) }));
       inputEl.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: value.slice(-1) }));
 
-      // 3. Verifikasi value terpasang dengan benar
       if (inputEl.value !== value) {
         inputEl.value = value;
         inputEl.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
@@ -102,12 +138,18 @@
             window.location.href.includes('mode=verifyEmail') ||
             window.location.search.includes('oobCode') ||
             window.location.pathname.includes('/action');
+          const isTtsPath = (window.location.pathname || '').toLowerCase().includes('/speech-synthesis/text-to-speech');
 
           if (flow && flow.active) {
             const elapsed = Date.now() - (flow.startedAt || 0);
             if (elapsed < 120000) {
-              console.log('[ElevenLabsSignup] 🔄 Melanjutkan flow verifikasi & onboarding otomatis dari storage...');
-              this.executePostVerifyAndOnboarding(flow);
+              if (flow.step === 'configure_tts' && isTtsPath) {
+                console.log('[ElevenLabsSignup] 🎯 Halaman TTS terbuka pasca onboarding! Melanjutkan konfigurasi TTS...');
+                this.finishTTSSetupOnPage({ email: flow.email });
+              } else {
+                console.log('[ElevenLabsSignup] 🔄 Melanjutkan flow verifikasi & onboarding otomatis dari storage...');
+                this.executePostVerifyAndOnboarding(flow);
+              }
             } else {
               console.log('[ElevenLabsSignup] Flow auto-onboarding expired (>2 menit), menghapus flag.');
               chrome.storage.local.remove(['elevenlabs_auto_flow']);
@@ -207,6 +249,24 @@
     },
 
     /**
+     * Helper untuk mencentang checkbox jika ada di form signup
+     */
+    clickAllUncheckedCheckboxes() {
+      try {
+        const checkboxes = Array.from(document.querySelectorAll('input[type="checkbox"], button[role="checkbox"]'));
+        for (const cb of checkboxes) {
+          if (cb.tagName.toLowerCase() === 'input' && !cb.checked) {
+            cb.checked = true;
+            cb.dispatchEvent(new Event('input', { bubbles: true }));
+            cb.dispatchEvent(new Event('change', { bubbles: true }));
+          } else if (cb.getAttribute('role') === 'checkbox' && cb.getAttribute('aria-checked') !== 'true') {
+            triggerNativeClick(cb);
+          }
+        }
+      } catch (e) { }
+    },
+
+    /**
      * Jalankan proses otomatisasi signup awal
      */
     async executeSignup({ email, password }) {
@@ -274,6 +334,17 @@
 
       console.log('[ElevenLabsSignup] Mengklik tombol Sign up spesifik:', submitBtn);
       triggerNativeClick(submitBtn);
+      try { submitBtn.click(); } catch (e) { }
+
+      try {
+        passwordInput.focus();
+        passwordInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+      } catch (e) { }
+
+      try {
+        const formEl = document.querySelector('form');
+        if (formEl && typeof formEl.requestSubmit === 'function') formEl.requestSubmit();
+      } catch (e) { }
 
       // 6. Pantau indikasi pengiriman / verifikasi
       let statusResult = {
@@ -460,73 +531,119 @@
         chrome.runtime.sendMessage({
           action: 'ELEVENLABS_FLOW_STEP',
           payload: { step, message },
-        }).catch(() => {});
+        }).catch(() => { });
       }
     },
 
     /**
-     * Cek apakah browser sudah mencapai Dashboard utama ElevenLabs
+    /**
+     * Cek apakah browser sudah berada di halaman Text-to-Speech aktif dengan editor siap pakai
+     */
+    isTTSDashboardReached() {
+      const path = window.location.pathname;
+      const isTTS = path.includes('/speech-synthesis') || path.includes('/text-to-speech');
+      const hasEditor = !!document.querySelector('textarea, [contenteditable="true"], [data-testid="tts-editor"]');
+      const hasModelOrVoice = !!document.querySelector('[data-testid="tts-model-selector"], [data-testid="tts-voice-selector"]');
+      const hasGenerateBtn = !!this.findGenerateSpeechButton();
+      return isTTS && (hasEditor || hasModelOrVoice || hasGenerateBtn);
+    },
+
+    /**
+     * Memeriksa secara ketat apakah browser sudah mencapai Dashboard utama ElevenLabs.
+     * PERSIS IDENTIK DENGAN CAMOUFOX: is_dashboard_reached(page) di camoufox/elevenlabs/signup.py
+     * PENTING: Jangan return True jika masih di /sign-in, /sign-up, /action, /onboarding,
+     * atau jika masih ada modal 'Email Verification' / input password.
      */
     isDashboardReached() {
-      const path = window.location.pathname;
-      const fullUrl = window.location.href;
+      try {
+        const path = (window.location.pathname || '').toLowerCase();
+        const fullUrl = (window.location.href || '').toLowerCase();
 
-      // Halaman autentikasi, verifikasi, atau onboarding BELUM dashboard
-      if (
-        path.includes('/action') ||
-        path.includes('/sign-in') ||
-        path.includes('/sign-up') ||
-        path.includes('/login') ||
-        path.includes('/onboarding') ||
-        fullUrl.includes('mode=verifyEmail') ||
-        fullUrl.includes('oobCode') ||
-        fullUrl.includes('onboarding')
-      ) {
+        // Jangan pernah anggap dashboard jika masih berada di halaman autentikasi/onboarding
+        const authPaths = ['/sign-in', '/sign-up', '/login', '/action', '/onboarding'];
+        if (authPaths.some((ap) => path.includes(ap) || fullUrl.includes(ap))) {
+          return false;
+        }
+
+        const body = (document.body?.innerText || '').toLowerCase();
+
+        // Jika dialog modal email verification atau form sign in masih ada
+        if (body.includes('email verification') || body.includes('welcome back') || body.includes('almost there')) {
+          return false;
+        }
+
+        // Jika masih ada input password yang terlihat
+        const passInputs = Array.from(document.querySelectorAll('input[type="password"]'));
+        for (const inp of passInputs) {
+          if (isElementVisible(inp)) {
+            return false;
+          }
+        }
+
+        // Rute dashboard ElevenLabs yang sah
+        const dashboardPaths = [
+          '/app/speech-synthesis',
+          '/app/text-to-speech',
+          '/app/voices',
+          '/app/voice-lab',
+          '/app/overview',
+          '/app/home',
+          '/app/projects',
+        ];
+
+        const matchesPath = dashboardPaths.some((dp) => path.startsWith(dp)) || path === '/app' || path === '/app/';
+        const hasUserMenu = Boolean(document.querySelector('button[data-testid="user-menu-button"], button[aria-label*="profile" i]'));
+        const hasTtsEditor = Boolean(document.querySelector('textarea, [contenteditable="true"], [data-testid="tts-editor"]'));
+        const hasHeading = body.includes('what would you like to create');
+
+        return matchesPath && (hasUserMenu || hasTtsEditor || hasHeading);
+      } catch (e) {
         return false;
       }
+    },
 
-      // Pastikan form Sign In tidak sedang aktif di layar
+    /**
+     * Langkah 1: Cek dialog modal pop-up "Email Verification" ("Almost there! Please sign in once more...")
+     * Persis seperti yang tampil pada screenshot pengguna & Camoufox:
+     * - Target: div[role="dialog"] button:has-text("Continue"), div[aria-modal="true"] button:has-text("Continue"), button:has-text("Continue")
+     * - Tutup jika ada tombol X / Close
+     */
+    async handleEmailVerificationModal() {
       const bodyText = (document.body?.innerText || '').toLowerCase();
-      if (bodyText.includes('welcome back') && !!this.findPasswordInput()) {
-        return false;
-      }
-      if (bodyText.includes('email verification') && path.includes('/action')) {
+      if (!bodyText.includes('almost there') && !bodyText.includes('email verification')) {
         return false;
       }
 
-      // Daftar rute khas dashboard ElevenLabs
-      const dashboardPaths = [
-        '/app/speech-synthesis',
-        '/app/text-to-speech',
-        '/app/home',
-        '/app/voice-lab',
-        '/app/voices',
-        '/app/projects',
-        '/app/audio-native',
-        '/app/dubbing',
-        '/app/overview',
-        '/app/explore',
-        '/app/history',
-        '/app/sound-generation',
-      ];
+      const modalDialog = document.querySelector('div[role="dialog"], div[aria-modal="true"], [data-state="open"]');
+      const root = modalDialog || document;
+      const buttons = Array.from(root.querySelectorAll('button')).filter(isElementVisible);
 
-      const matchesDashboardPath = dashboardPaths.some((p) => path.startsWith(p)) || path === '/app' || path === '/app/';
+      const modalContinue = buttons.find((b) => {
+        const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+        return txt === 'continue' || txt.startsWith('continue');
+      });
 
-      const hasSynthesisInput = !!document.querySelector('textarea, [contenteditable="true"]');
-      const isTTSPath =
-        path.includes('/speech-synthesis') ||
-        path.includes('/text-to-speech') ||
-        path.includes('/app/home') ||
-        path === '/app' ||
-        path === '/app/';
+      if (modalContinue) {
+        console.log('[ElevenLabsOnboarding] Modal dialog "Email Verification" terdeteksi! Mengklik tombol Continue...');
+        this.reportStep('verify', 'Modal Email Verification terdeteksi. Mengklik Continue...');
+        triggerNativeClick(modalContinue);
+        try { modalContinue.click(); } catch (e) { }
+        await sleep(1500);
+        return true;
+      }
 
-      // Cek apakah ada modal blocking dialog (onboarding / welcome back dialog)
-      const hasBlockingDialog = !!document.querySelector(
-        '[role="dialog"]:not([aria-hidden="true"]), [data-state="open"][role="dialog"]'
-      );
+      // Tutup jika ada tombol X / Close
+      const modalClose = buttons.find((b) => {
+        const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+        const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+        return aria.includes('close') || aria.includes('dismiss') || txt === '✕' || txt === 'x' || txt === 'close';
+      });
 
-      // Target utama: speech-synthesis / text-to-speech / home dashboard dengan input editor TTS aktif
-      if ((isTTSPath || matchesDashboardPath) && (hasSynthesisInput || !hasBlockingDialog)) {
+      if (modalClose) {
+        console.log('[ElevenLabsOnboarding] Menutup modal dengan tombol close...');
+        triggerNativeClick(modalClose);
+        try { modalClose.click(); } catch (e) { }
+        await sleep(1000);
         return true;
       }
 
@@ -534,158 +651,103 @@
     },
 
     /**
-     * Cari dan klik semua checkbox yang belum tercentang
-     * Sesuai request: "kalau ada checkbox maka di klik dulu checkbox nya"
+     * Langkah 2: Cek apakah ada form Sign In / Password ("Welcome back")
+     * Persis seperti Camoufox:
+     * - pass_inputs = page.locator('input[type="password"]')
+     * - email_inputs = page.locator('input[type="email"], input[name="email"]')
+     * - button[type="submit"] filter has_text("Sign in") filter has_not_text("Google") filter has_not_text("Apple")
      */
-    clickAllUncheckedCheckboxes() {
-      let count = 0;
+    async handleSignInForm(email, password) {
+      const passInputs = Array.from(document.querySelectorAll('input[type="password"]')).filter(isElementVisible);
+      if (passInputs.length === 0) return false;
 
-      // 1. Native HTML checkbox
-      const nativeCheckboxes = document.querySelectorAll('input[type="checkbox"]:not(:checked)');
-      for (const cb of nativeCheckboxes) {
-        if (isElementVisible(cb) || isElementVisible(cb.parentElement)) {
-          console.log('[ElevenLabsOnboarding] 🔘 Mencentang native checkbox...');
-          cb.focus();
-          cb.checked = true;
-          cb.dispatchEvent(new Event('change', { bubbles: true }));
-          cb.dispatchEvent(new Event('input', { bubbles: true }));
-          cb.click();
-          count++;
+      console.log('[ElevenLabsOnboarding] Form Sign In ("Welcome back") terdeteksi...');
+      this.reportStep('login', 'Form Sign In terdeteksi, mengisi kredensial...');
+
+      const emailInputs = Array.from(document.querySelectorAll('input[type="email"], input[name="email"]')).filter(isElementVisible);
+      if (emailInputs.length > 0) {
+        const curVal = emailInputs[0].value || '';
+        if (!curVal || (email && curVal !== email)) {
+          if (email) setReactInputValue(emailInputs[0], email);
+          await sleep(300);
         }
       }
 
-      // 2. ARIA / Radix UI / Tailwind / Shadcn UI checkbox
-      const ariaCheckboxes = document.querySelectorAll(
-        '[role="checkbox"][aria-checked="false"], [role="checkbox"][data-state="unchecked"], button[data-state="unchecked"][role="checkbox"]'
-      );
-      for (const cb of ariaCheckboxes) {
-        if (isElementVisible(cb)) {
-          console.log('[ElevenLabsOnboarding] 🔘 Mencentang ARIA checkbox...');
-          cb.focus();
-          cb.click();
-          count++;
-        }
-      }
+      const passVal = password || 'Jovan@1224';
+      setReactInputValue(passInputs[0], passVal);
+      await sleep(300);
 
-      return count;
-    },
-
-    /**
-     * Cari tombol "Skip" untuk melewati onboarding
-     * Sesuai request: "kalau ada skip maka skip aja di onboarding"
-     */
-    findSkipButton() {
-      const candidates = Array.from(document.querySelectorAll('button, a, [role="button"], span'));
-      for (const el of candidates) {
-        if (!isElementVisible(el)) continue;
-        const text = (el.innerText || el.textContent || '').trim().toLowerCase();
-        if (
-          text === 'skip' ||
-          text.startsWith('skip ') ||
-          text.endsWith(' skip') ||
-          text.includes('skip for now') ||
-          text.includes('skip onboarding') ||
-          text.includes('skip intro') ||
-          text.includes('skip this step') ||
-          text.includes("i'll do this later") ||
-          text.includes('not now') ||
-          el.getAttribute('aria-label')?.toLowerCase().includes('skip')
-        ) {
-          return el.closest('button, a, [role="button"]') || el;
-        }
-      }
-      return null;
-    },
-
-    /**
-     * Cari tombol "Continue", "Next", "Done", "Get started"
-     */
-    findNextOrContinueButton() {
-      const candidates = Array.from(document.querySelectorAll('button, [role="button"], a.btn, a[role="button"]'));
-      for (const btn of candidates) {
-        if (!isElementVisible(btn)) continue;
-        if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') continue;
-        const text = (btn.innerText || btn.textContent || '').trim().toLowerCase();
-        if (
-          text === 'continue' ||
-          text.startsWith('continue') ||
-          text === 'next' ||
-          text.startsWith('next') ||
-          text === 'next step' ||
-          text === 'get started' ||
-          text === "let's go" ||
-          text === 'done' ||
-          text === 'finish' ||
-          text === 'agree and continue' ||
-          text === 'agree & continue' ||
-          text === 'start creating' ||
-          text === 'explore on my own' ||
-          text === 'got it'
-        ) {
-          return btn;
-        }
-      }
-      return null;
-    },
-
-    /**
-     * Khusus menangani layar onboarding "Choose your platform"
-     * Memilih platform ElevenCreative (Text-to-Speech) lalu mengklik tombol Continue
-     */
-    handleChoosePlatformOnboarding() {
-      const bodyText = (document.body?.innerText || '').toLowerCase();
-      if (!bodyText.includes('choose your platform') && !bodyText.includes('elevencreative')) {
-        return false;
-      }
-
-      console.log('[ElevenLabsOnboarding] 🎨 Layar "Choose your platform" terdeteksi! Memilih ElevenCreative...');
-
-      // 1. Cari elemen teks ElevenCreative
-      const allEls = Array.from((document.body || document.documentElement).querySelectorAll('*:not(script):not(style)'));
-      const creativeTextEl = allEls.find((el) => {
-        if (el.children.length > 0) return false;
-        const t = (el.textContent || '').trim().toLowerCase();
-        return t === 'elevencreative' || t.includes('elevencreative');
+      // Cari tombol Sign In spesifik (Bukan login Google atau Apple)
+      const allButtons = Array.from(document.querySelectorAll('button[type="submit"], button')).filter(isElementVisible);
+      let signInBtn = allButtons.find((b) => {
+        const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+        const isGoogleOrApple = txt.includes('google') || txt.includes('apple');
+        return !isGoogleOrApple && (txt === 'sign in' || txt.startsWith('sign in'));
       });
 
-      let creativeCard = null;
-      if (creativeTextEl) {
-        creativeCard =
-          creativeTextEl.closest('button, [role="button"], [role="radio"], div[tabindex], div.cursor-pointer') ||
-          creativeTextEl.closest('div.border, div.rounded-xl, div.rounded-2xl, div.rounded-lg') ||
-          creativeTextEl.parentElement ||
-          creativeTextEl.parentElement?.parentElement;
-      }
-
-      if (!creativeCard) {
-        creativeCard = Array.from((document.body || document.documentElement).querySelectorAll('div, button, [role="button"]')).find((el) => {
-          const txt = (el.innerText || el.textContent || '').toLowerCase();
-          return txt.includes('elevencreative') && (txt.includes('create, edit') || txt.includes('text to speech'));
+      if (!signInBtn) {
+        signInBtn = allButtons.find((b) => {
+          const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+          const isGoogleOrApple = txt.includes('google') || txt.includes('apple');
+          return !isGoogleOrApple && (txt === 'log in' || txt.startsWith('log in') || b.type === 'submit');
         });
       }
 
-      if (creativeCard) {
-        console.log('[ElevenLabsOnboarding] 🎯 Mengklik card ElevenCreative...', creativeCard);
-        triggerNativeClick(creativeCard);
-        creativeCard.click?.();
+      if (signInBtn && !signInBtn.disabled && signInBtn.getAttribute('aria-disabled') !== 'true') {
+        const now = Date.now();
+        if (this.lastSignInClick && now - this.lastSignInClick < 3500) {
+          console.log('[ElevenLabsOnboarding] Menunggu respons Sign In sebelumnya...');
+          return true;
+        }
+        this.lastSignInClick = now;
+        console.log('[ElevenLabsOnboarding] Mengklik tombol Sign In spesifik:', signInBtn);
+        this.reportStep('login', `Mengklik tombol Sign In untuk ${email || 'akun'}...`);
+        triggerNativeClick(signInBtn);
+        try { signInBtn.click(); } catch (e) { }
+        await sleep(2000);
+        return true;
       }
 
-      // 2. Cari & Klik tombol Continue
-      const allButtons = Array.from((document.body || document.documentElement).querySelectorAll('button, [role="button"], a.btn, div[role="button"]'));
+      return true;
+    },
+
+    /**
+     * Langkah 3: Cek Layar Onboarding "Choose your platform"
+     * Persis seperti Camoufox:
+     * - creative_card = page.locator('text="ElevenCreative"').first
+     * - continue_btn = page.locator('button:has-text("Continue"), [role="button"]:has-text("Continue")').first
+     */
+    async handleChoosePlatform() {
+      const bodyText = (document.body?.innerText || '').toLowerCase();
+      if (!bodyText.includes('choose your platform') && !bodyText.includes('switch between platforms')) {
+        return false;
+      }
+
+      console.log('[ElevenLabsOnboarding] Layar "Choose your platform" terdeteksi! Memilih ElevenCreative...');
+      this.reportStep('onboarding', 'Memilih platform ElevenCreative...');
+
+      const allEls = Array.from(document.querySelectorAll('div, button, [role="button"], section, article')).filter(isElementVisible);
+      const creativeCard = allEls.find((el) => {
+        const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
+        return txt.includes('elevencreative');
+      });
+
+      if (creativeCard) {
+        triggerNativeClick(creativeCard);
+        try { creativeCard.click(); } catch (e) { }
+        await sleep(500);
+      }
+
+      const allButtons = Array.from(document.querySelectorAll('button, [role="button"]')).filter(isElementVisible);
       const continueBtn = allButtons.find((b) => {
-        if (!isElementVisible(b)) return false;
         const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
         return txt === 'continue' || txt.startsWith('continue');
       });
 
       if (continueBtn) {
-        console.log('[ElevenLabsOnboarding] ➡️ Mengklik Continue pada layar platform...', continueBtn);
-        if (continueBtn.disabled || continueBtn.getAttribute('aria-disabled') === 'true') {
-          continueBtn.removeAttribute('disabled');
-          continueBtn.setAttribute('aria-disabled', 'false');
-        }
         triggerNativeClick(continueBtn);
-        continueBtn.click?.();
+        try { continueBtn.click(); } catch (e) { }
+        await sleep(2000);
         return true;
       }
 
@@ -693,244 +755,221 @@
     },
 
     /**
-     * Khusus menangani layar onboarding "Help us personalize your experience" (Step 2)
-     * Mencentang konfirmasi umur 18 tahun dan mengklik tombol "Next"
+     * Langkah 4: Cek Layar Onboarding "Help us personalize your experience" (Konfirmasi Umur 18+)
+     * Persis seperti Camoufox:
+     * - adult_input = page.locator('input[name="adult"]').first
+     * - adult_btn = page.locator('button[role="checkbox"], [role="checkbox"]').first (aria-checked != "true")
+     * - next_btn = page.locator('button[type="submit"], button:has-text("Next")').filter(has_not_text="Google").first
      */
-    handlePersonalizeExperienceOnboarding() {
+    async handlePersonalizeExperience() {
       const bodyText = (document.body?.innerText || '').toLowerCase();
-      if (
-        !bodyText.includes('personalize your experience') &&
-        !bodyText.includes('reached the age of 18') &&
-        !bodyText.includes('18 years old')
-      ) {
-        return false;
+      const adultInput = document.querySelector('input[name="adult"]');
+      const isPersonalize =
+        bodyText.includes('personalize your experience') ||
+        bodyText.includes('18 years old') ||
+        bodyText.includes('reached the age of 18') ||
+        Boolean(adultInput);
+
+      if (!isPersonalize) return false;
+
+      console.log('[ElevenLabsOnboarding] Layar konfirmasi umur 18 tahun terdeteksi! Mencentang checkbox...');
+      this.reportStep('onboarding', 'Mencentang konfirmasi umur 18 tahun...');
+
+      // 1. Centang native input jika ada
+      if (adultInput) {
+        try {
+          const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'checked')?.set;
+          if (setter) setter.call(adultInput, true);
+          else adultInput.checked = true;
+          adultInput.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+          adultInput.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+        } catch (e) { }
       }
 
-      console.log('[ElevenLabsOnboarding] 📝 Layar "Help us personalize your experience" terdeteksi!');
-
-      // 1. Cari elemen teks yang menyebut umur 18 tahun
-      const allEls = Array.from((document.body || document.documentElement).querySelectorAll('*:not(script):not(style)'));
-      const ageTextEl = allEls.find((el) => {
-        if (el.children.length > 0) return false;
-        const txt = (el.textContent || '').toLowerCase();
-        return txt.includes('18 years old') || txt.includes('reached the age of 18');
-      });
-
-      let checkboxEl = null;
-      if (ageTextEl) {
-        const container = ageTextEl.closest('label, div.flex, div.grid') || ageTextEl.parentElement;
-        if (container) {
-          checkboxEl = container.querySelector(
-            'input[type="checkbox"], [role="checkbox"], button[role="checkbox"], span.border'
-          );
-          if (!checkboxEl && container.tagName === 'LABEL') {
-            checkboxEl = container;
+      // 2. Centang custom ARIA checkbox
+      const adultBtn = document.querySelector('button[role="checkbox"], [role="checkbox"]');
+      if (adultBtn && isElementVisible(adultBtn)) {
+        const ariaChecked = adultBtn.getAttribute('aria-checked');
+        if (ariaChecked !== 'true') {
+          triggerNativeClick(adultBtn);
+          try { adultBtn.click(); } catch (e) { }
+          const lbl = adultBtn.closest('label');
+          if (lbl) {
+            triggerNativeClick(lbl);
+            try { lbl.click(); } catch (e) { }
           }
+          await sleep(400);
         }
       }
 
-      if (!checkboxEl) {
-        checkboxEl = document.querySelector(
-          'input[type="checkbox"]:not(:checked), [role="checkbox"][aria-checked="false"], [role="checkbox"][data-state="unchecked"], button[role="checkbox"]'
-        );
-      }
-
-      if (checkboxEl) {
-        console.log('[ElevenLabsOnboarding] 🔘 Mencentang konfirmasi 18 tahun...', checkboxEl);
-        if (checkboxEl.tagName === 'INPUT') {
-          checkboxEl.checked = true;
-          checkboxEl.dispatchEvent(new Event('input', { bubbles: true }));
-          checkboxEl.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-        triggerNativeClick(checkboxEl);
-        checkboxEl.click?.();
-
-        const parentLabel = checkboxEl.closest('label');
-        if (parentLabel && parentLabel !== checkboxEl) {
-          triggerNativeClick(parentLabel);
-          parentLabel.click?.();
-        }
-      }
-
-      // 2. Klik tombol Next
-      const allButtons = Array.from((document.body || document.documentElement).querySelectorAll('button, [role="button"], a.btn, div[role="button"]'));
+      // 3. Klik tombol Next
+      const allButtons = Array.from(document.querySelectorAll('button[type="submit"], button')).filter(isElementVisible);
       const nextBtn = allButtons.find((b) => {
-        if (!isElementVisible(b)) return false;
         const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
-        return txt === 'next' || txt.startsWith('next');
+        const isGoogleOrApple = txt.includes('google') || txt.includes('apple');
+        return !isGoogleOrApple && (txt === 'next' || txt.startsWith('next') || txt === 'continue' || txt.startsWith('continue') || b.type === 'submit');
       });
 
       if (nextBtn) {
-        console.log('[ElevenLabsOnboarding] ➡️ Mengklik tombol Next...', nextBtn);
-        if (nextBtn.disabled || nextBtn.getAttribute('aria-disabled') === 'true') {
-          nextBtn.removeAttribute('disabled');
-          nextBtn.setAttribute('aria-disabled', 'false');
-        }
+        console.log('[ElevenLabsOnboarding] Mengklik tombol Next 18+:', nextBtn);
         triggerNativeClick(nextBtn);
-        nextBtn.click?.();
+        try { nextBtn.click(); } catch (e) { }
+        await sleep(2000);
         return true;
       }
-
-      return !!checkboxEl;
-    },
-
-    /**
-     * Cari tombol dismiss / close pada pop-up modal
-     */
-    findDismissButton() {
-      const candidates = Array.from(
-        document.querySelectorAll('button[aria-label*="close" i], button[aria-label*="dismiss" i], button.close')
-      );
-      for (const btn of candidates) {
-        if (isElementVisible(btn)) return btn;
-      }
-      return null;
-    },
-
-    /**
-     * Buka blokir tombol Continue jika onboarding mewajibkan memilih opsi survei terlebih dahulu
-     */
-    selectFirstOptionIfBlocked() {
-      const inputs = Array.from(
-        document.querySelectorAll('input[type="radio"]:not(:checked), input[type="checkbox"]:not(:checked), [role="radio"][aria-checked="false"], [role="checkbox"][aria-checked="false"]')
-      ).filter(isElementVisible);
-      if (inputs.length > 0) {
-        console.log('[ElevenLabsOnboarding] Memilih opsi input pertama untuk membuka tombol...');
-        triggerNativeClick(inputs[0]);
-        inputs[0].click?.();
-        return true;
-      }
-
-      const cards = Array.from(
-        document.querySelectorAll('[data-state="unchecked"], [aria-pressed="false"], [role="option"]')
-      ).filter(isElementVisible);
-      if (cards.length > 0) {
-        console.log('[ElevenLabsOnboarding] Memilih opsi card pertama untuk membuka tombol...');
-        triggerNativeClick(cards[0]);
-        cards[0].click?.();
-        return true;
-      }
-
-      // Tombol opsi survey umum yang bukan tombol navigasi
-      const optionPills = Array.from(
-        document.querySelectorAll('button:not([type="submit"]), [role="button"]')
-      ).filter((el) => {
-        if (!isElementVisible(el)) return false;
-        const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
-        if (
-          txt === 'continue' ||
-          txt.startsWith('continue') ||
-          txt === 'skip' ||
-          txt.startsWith('skip') ||
-          txt === 'back' ||
-          txt.includes('back') ||
-          txt.includes('sign out')
-        ) {
-          return false;
-        }
-        return el.offsetWidth > 40 && el.offsetHeight > 20;
-      });
-
-      if (optionPills.length > 0) {
-        console.log('[ElevenLabsOnboarding] Memilih opsi pill pertama...', optionPills[0]);
-        triggerNativeClick(optionPills[0]);
-        optionPills[0].click?.();
-        return true;
-      }
-
-      return false;
-    },
-
-    /**
-     * Tutup modal "Email Verification" jika muncul di layar (misal di /app/sign-in)
-     */
-    dismissEmailVerificationModal() {
-      const dialog = document.querySelector('[role="dialog"]');
-      const bodyText = (document.body?.innerText || '').toLowerCase();
-      const hasModal = dialog || bodyText.includes('email verification') || bodyText.includes('almost there');
-
-      if (!hasModal) return false;
-
-      console.log('[ElevenLabsOnboarding] Menutup modal Email Verification...');
-      const root = dialog || document;
-
-      // 1. Klik tombol Continue di dalam dialog
-      const continueBtn = Array.from(root.querySelectorAll('button')).find((b) => {
-        if (!isElementVisible(b)) return false;
-        const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
-        return txt === 'continue' || txt.includes('continue');
-      });
-
-      if (continueBtn) {
-        triggerNativeClick(continueBtn);
-      }
-
-      // 2. Klik tombol Close (✕) di dalam dialog jika masih ada
-      const closeBtn = root.querySelector('button[aria-label*="close" i], button:has(svg), button.close');
-      if (closeBtn && isElementVisible(closeBtn)) {
-        triggerNativeClick(closeBtn);
-      }
-
-      // 3. Tekan tombol Escape untuk memastikan dialog tertutup
-      document.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true })
-      );
 
       return true;
     },
 
     /**
-     * Handle Sign In jika ElevenLabs menampilkan layar "Welcome back" / /app/sign-in
+     * Langkah 5: Cek jika onboarding mengharuskan memilih opsi kuesioner pertama
+     * Persis seperti Camoufox:
+     * main [data-state="unchecked"], main [aria-pressed="false"], main [role="radio"][aria-checked="false"], main input[type="radio"]:not(:checked)
      */
-    async handleSignInIfPresent(email, password) {
-      const path = window.location.pathname;
-      const isSignInPage = path.includes('sign-in') || path.includes('login') || window.location.href.includes('sign-in');
-      const bodyText = (document.body?.innerText || '').toLowerCase();
-      const hasWelcomeBack = bodyText.includes('welcome back') || bodyText.includes('sign in to your account');
+    async handleSurveyOption() {
+      const surveyOption = document.querySelector(
+        'main [data-state="unchecked"], main [aria-pressed="false"], main [role="radio"][aria-checked="false"], main input[type="radio"]:not(:checked)'
+      );
+      if (surveyOption && isElementVisible(surveyOption)) {
+        console.log('[ElevenLabsOnboarding] Memilih opsi kuesioner pertama untuk melanjutkan...');
+        triggerNativeClick(surveyOption);
+        try { surveyOption.click(); } catch (e) { }
+        await sleep(500);
+        return true;
+      }
+      return false;
+    },
 
-      const emailInput = this.findEmailInput();
-      const passwordInput = this.findPasswordInput();
+    /**
+     * Langkah 6: Cek Tombol "Skip" / "Explore on my own" / "Maybe later"
+     * Persis seperti Camoufox list selector:
+     * - button:has-text("Skip")
+     * - button:has-text("Skip for now")
+     * - button:has-text("Explore on my own")
+     * - button:has-text("Maybe later")
+     * - button:has-text("Not now")
+     * - button:has-text("Got it")
+     * - button:has-text("Continue with free")
+     * - button:has-text("Start with free")
+     */
+    async handleSkipButtons() {
+      const skipTargets = [
+        'skip',
+        'skip for now',
+        'explore on my own',
+        'maybe later',
+        'not now',
+        'got it',
+        'continue with free',
+        'start with free',
+      ];
+      const allButtons = Array.from(document.querySelectorAll('button, [role="button"], a.btn')).filter(isElementVisible);
 
-      if ((isSignInPage || hasWelcomeBack || passwordInput) && passwordInput) {
-        console.log('[ElevenLabsOnboarding] Form Sign In terdeteksi, memastikan modal tertutup & mengisi kredensial...');
-
-        // Tutup modal email verification jika masih menutupi layar
-        this.dismissEmailVerificationModal();
-        await sleep(350);
-
-        if (emailInput && (!emailInput.value || (email && emailInput.value !== email))) {
-          if (email) setReactInputValue(emailInput, email);
-          await sleep(250);
-        }
-
-        if (passwordInput && (!passwordInput.value || passwordInput.value !== password)) {
-          setReactInputValue(passwordInput, password);
-          await sleep(250);
-        }
-
-        // Cari tombol submit Sign In spesifik (JANGAN gunakan button[type="submit"] umum karena itu adalah Google)
-        const buttons = Array.from(document.querySelectorAll('button'));
-        const submitBtn = buttons.find((b) => {
-          if (!isElementVisible(b)) return false;
+      for (const target of skipTargets) {
+        const btn = allButtons.find((b) => {
           const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
-          return (txt === 'sign in' || txt === 'log in') && !txt.includes('google') && !txt.includes('apple');
+          return txt === target || txt.startsWith(target);
         });
-
-        if (submitBtn && !submitBtn.disabled) {
-          const now = Date.now();
-          if (this.lastSignInClick && now - this.lastSignInClick < 3500) {
-            console.log('[ElevenLabsOnboarding] Menunggu respons Sign In sebelumnya...');
-            return true;
-          }
-          console.log('[ElevenLabsOnboarding] Mengklik tombol Sign In spesifik:', submitBtn);
-          this.reportStep('login', `Mengisi form Sign In (${email || ''}) dan masuk...`);
-          this.lastSignInClick = now;
-          triggerNativeClick(submitBtn);
-          await sleep(2500);
+        if (btn) {
+          const btnTxt = (btn.innerText || btn.textContent || '').trim();
+          console.log(`[ElevenLabsOnboarding] Mengklik tombol lewati: '${btnTxt}'...`);
+          this.reportStep('onboarding', `Mengklik tombol lewati: ${btnTxt}...`);
+          triggerNativeClick(btn);
+          try { btn.click(); } catch (e) { }
+          await sleep(1500);
           return true;
         }
       }
       return false;
+    },
+
+    /**
+     * Langkah 7: Cek Tombol "Continue" / "Next" umum jika aktif
+     * Persis seperti Camoufox:
+     * button:has-text("Continue"), button:has-text("Next") filter has_not_text("Google")
+     * btn_txt in ["continue", "next", "done", "finish", "get started"]
+     */
+    async handleGenericContinue() {
+      const allButtons = Array.from(document.querySelectorAll('button, [role="button"], a.btn')).filter(isElementVisible);
+      const continueBtn = allButtons.find((b) => {
+        if (b.disabled || b.getAttribute('aria-disabled') === 'true') return false;
+        const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+        if (txt.includes('google') || txt.includes('apple')) return false;
+        return ['continue', 'next', 'done', 'finish', 'get started'].includes(txt);
+      });
+
+      if (continueBtn) {
+        const btnTxt = (continueBtn.innerText || continueBtn.textContent || '').trim();
+        console.log(`[ElevenLabsOnboarding] Mengklik tombol lanjut: '${btnTxt}'...`);
+        this.reportStep('onboarding', `Mengklik tombol lanjut: ${btnTxt}...`);
+        triggerNativeClick(continueBtn);
+        try { continueBtn.click(); } catch (e) { }
+        await sleep(2000);
+        return true;
+      }
+      return false;
+    },
+
+    /**
+     * LOOP LENGKAP ONBOARDING & SIGN IN ELEVENLABS
+     * PERSIS IDENTIK DENGAN CAMOUFOX: handle_onboarding_and_signin di camoufox/elevenlabs/signup.py
+     * Menjalankan siklus:
+     * 0. isDashboardReached() -> True
+     * 1. Modal "Email Verification" / "Almost there! Please sign in once more..." -> Klik Continue / Close
+     * 2. Form Sign In ("Welcome back") -> Isi password & submit non-Google non-Apple
+     * 3. Layar "Choose your platform" -> Klik ElevenCreative -> Continue
+     * 4. Layar "Help us personalize your experience" -> Check 18+ adult -> Next
+     * 5. Opsi kuesioner pertama jika ada
+     * 6. Tombol Skip / Explore on my own / Maybe later / dll.
+     * 7. Tombol Continue / Next umum jika aktif
+     */
+    async handleOnboardingAndSignIn({ email, password, maxDurationSeconds = 90 } = {}) {
+      console.log('\n=================================================================');
+      console.log('  [ONBOARDING] MENYELESAIKAN ONBOARDING & SIGN IN ELEVENLABS');
+      console.log('=================================================================');
+
+      const startTime = Date.now();
+      const maxMs = maxDurationSeconds * 1000;
+
+      while (Date.now() - startTime < maxMs) {
+        await sleep(1500);
+
+        // 0. Cek apakah sudah resmi mendarat di dashboard
+        if (this.isDashboardReached()) {
+          console.log('[✓] DASHBOARD UTAMA ELEVENLABS BERHASIL DICAPAI!');
+          this.reportStep('dashboard', '🎉 Dashboard utama ElevenLabs berhasil dicapai!');
+          return true;
+        }
+
+        // 1. Cek dialog modal pop-up "Email Verification" ("Almost there! Please sign in once more...")
+        const didModal = await this.handleEmailVerificationModal();
+        if (didModal) continue;
+
+        // 2. Cek apakah ada form Sign In / Password ("Welcome back")
+        const didSignIn = await this.handleSignInForm(email, password);
+        if (didSignIn) continue;
+
+        // 3. Cek Layar Onboarding: "Choose your platform"
+        const didPlatform = await this.handleChoosePlatform();
+        if (didPlatform) continue;
+
+        // 4. Cek Layar Onboarding: "Help us personalize your experience" (Konfirmasi Umur 18+)
+        const didAge = await this.handlePersonalizeExperience();
+        if (didAge) continue;
+
+        // 5. Cek jika onboarding mengharuskan memilih opsi kuesioner pertama
+        await this.handleSurveyOption();
+
+        // 6. Cek Tombol "Skip" / "Explore on my own" / "Maybe later"
+        const didSkip = await this.handleSkipButtons();
+        if (didSkip) continue;
+
+        // 7. Cek Tombol "Continue" / "Next" umum jika aktif
+        const didGeneric = await this.handleGenericContinue();
+        if (didGeneric) continue;
+      }
+
+      return this.isDashboardReached();
     },
 
     /**
@@ -979,7 +1018,7 @@
             o.style.pointerEvents = 'none';
           }
         }
-      } catch (e) {}
+      } catch (e) { }
 
       await sleep(400);
 
@@ -1097,7 +1136,7 @@
       try {
         localStorage.clear();
         sessionStorage.clear();
-      } catch (e) {}
+      } catch (e) { }
 
       window.location.href = 'https://elevenlabs.io/app/sign-out';
       await sleep(2500);
@@ -1107,241 +1146,129 @@
     /**
      * Eksekusi alur post-verifikasi & lewati onboarding sampai masuk ke Dashboard
      */
+    /**
+     * Eksekusi alur post-verifikasi & onboarding sampai masuk ke Page TTS
+     * PATOKAN 100% IDENTIK CAMOUFOX:
+     * 1. Jalankan handleOnboardingAndSignIn()
+     * 2. Setelah dashboard tercapai:
+     *    Pastikan halaman terakhir mendarat di https://elevenlabs.io/app/speech-synthesis/text-to-speech
+     * 3. Konfigurasi TTS (Model Eleven v3 -> Voice Dany Saputra -> Stability Robust)
+     */
     async executePostVerifyAndOnboarding({ email, password }) {
-      if (this.isLoopRunning && this._loopStartTime && Date.now() - this._loopStartTime < 20000) {
+      if (this.isLoopRunning && this._loopStartTime && Date.now() - this._loopStartTime < 25000) {
         console.log('[ElevenLabsOnboarding] Loop auto-skip sudah berjalan aktif di tab ini.');
         return { running: true };
       }
 
       this.isLoopRunning = true;
       this._loopStartTime = Date.now();
-      this.isSignInSubmitting = false;
       const pass = password || 'Jovan@1224';
-      console.log(`[ElevenLabsOnboarding] 🚀 Memulai loop verifikasi & auto-skip onboarding (Email: ${email || 'auto'})...`);
-
-      const startTime = Date.now();
-      const maxTimeMs = 75000; // Maksimal 75 detik
 
       try {
-        while (Date.now() - startTime < maxTimeMs) {
-          // 1. Cek apakah sudah sampai di Dashboard Text-to-Speech
-          if (this.isDashboardReached()) {
-            console.log('[ElevenLabsOnboarding] 🎉 DASHBOARD TEXT-TO-SPEECH TERCAPAI! Onboarding selesai.');
-            this.reportStep('dashboard', '🎉 Dashboard Text-to-Speech tercapai! Onboarding berhasil dilewati.');
-            
-            // Berikan jeda hidrasi Next.js agar UI Text-to-Speech stabil sebelum konfigurasi TTS
-            await sleep(3500);
+        const completed = await this.handleOnboardingAndSignIn({ email, password: pass, maxDurationSeconds: 90 });
 
-            // Tutup popover / tooltip tutorial jika ada
-            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true }));
+        if (completed) {
+          console.log('\n=================================================================');
+          console.log('  [✓✓✓] ONBOARDING SUKSES - MEMULAI NAVIGASI & KONFIGURASI TTS!');
+          console.log('=================================================================');
+          this.reportStep('dashboard', '🎉 Onboarding selesai! Memastikan mendarat di halaman Text-to-Speech...');
 
-            // Otomatis konfigurasi Voice (Dany Saputra), Model (Eleven v3), dan Stability (Robust) secara berurutan
-            try {
-              await this.configureTTS({
-                voiceName: 'Dany Saputra',
-                modelName: 'Eleven v3',
-                stability: 'robust',
-              });
-            } catch (cfgErr) {
-              console.warn('[ElevenLabsOnboarding] Peringatan setup TTS:', cfgErr.message);
-            }
+          const currentPath = (window.location.pathname || '').toLowerCase();
+          const targetTtsUrl = 'https://elevenlabs.io/app/speech-synthesis/text-to-speech';
 
+          // Pastikan halaman terakhir mendarat di https://elevenlabs.io/app/speech-synthesis/text-to-speech
+          if (!currentPath.includes('/speech-synthesis/text-to-speech')) {
+            console.log(`[*] Menavigasi ke halaman utama Text-to-Speech (${targetTtsUrl})...`);
             if (typeof chrome !== 'undefined' && chrome.storage?.local) {
-              chrome.storage.local.remove(['elevenlabs_auto_flow']);
-            }
-            if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
-              chrome.runtime.sendMessage({
-                action: 'ELEVENLABS_ONBOARDING_COMPLETED',
-                payload: { email, url: window.location.href },
-              }).catch(() => {});
-            }
-            this.isLoopRunning = false;
-            return {
-              success: true,
-              message: 'Berhasil verifikasi, masuk Dashboard, dan setup Voice Dany Saputra + Eleven v3 + Stability Robust!',
-              dashboardUrl: window.location.href,
-            };
-          }
-
-          // 1b. Jika sudah login (di /app/home, /app/overview dll.) tapi belum di target Text-to-Speech
-          const currentPath = window.location.pathname;
-          const isAppPath = currentPath.startsWith('/app') &&
-            !currentPath.includes('sign-in') &&
-            !currentPath.includes('sign-up') &&
-            !currentPath.includes('onboarding') &&
-            !currentPath.includes('action');
-
-          if (isAppPath && !currentPath.includes('/speech-synthesis')) {
-            console.log('[ElevenLabsOnboarding] 🎯 Terautentikasi! Mengarahkan langsung ke target: https://elevenlabs.io/app/speech-synthesis/text-to-speech');
-            this.reportStep('dashboard', 'Mengarahkan ke Dashboard Text-to-Speech...');
-            window.location.href = 'https://elevenlabs.io/app/speech-synthesis/text-to-speech';
-            await sleep(2500);
-            continue;
-          }
-
-          // 2. Handle jika berada di halaman pemrosesan link verifikasi (/action?mode=verifyEmail)
-          const isActionUrl = window.location.pathname.includes('/action') || window.location.search.includes('mode=verifyEmail');
-          if (isActionUrl) {
-            this.reportStep('verify', 'Memproses konfirmasi link verifikasi ElevenLabs di browser...');
-            this.dismissEmailVerificationModal();
-            await sleep(2500);
-            continue;
-          }
-
-          // 2b. Handle modal "Almost there! Please sign in once more..." di /app/sign-in
-          const bodyText = (document.body?.innerText || '').toLowerCase();
-          const isAlmostThereModal = bodyText.includes('almost there') || bodyText.includes('please sign in once more');
-          if (isAlmostThereModal) {
-            console.log('[ElevenLabsOnboarding] Modal "Almost there! Please sign in once more" terdeteksi, menutup modal dan lanjut login...');
-            this.reportStep('verify', 'Konfirmasi email berhasil! Melanjutkan pengisian kredensial Sign In...');
-            this.dismissEmailVerificationModal();
-            await sleep(500);
-          }
-
-          // 2c. Handle tombol "Resend" jika berada di layar "We've sent a verification link to..."
-          const isAwaitingEmail = bodyText.includes("we've sent a verification link") || bodyText.includes("check your spam or click resend");
-          if (isAwaitingEmail && !this.findPasswordInput()) {
-            const resendBtn = Array.from(document.querySelectorAll('button')).find(b => {
-              const txt = (b.innerText || '').trim().toLowerCase();
-              return txt === 'resend' || (txt.startsWith('resend') && !txt.includes('('));
-            });
-
-            if (resendBtn && !resendBtn.disabled) {
-              console.log('[ElevenLabsOnboarding] Mengklik tombol Resend untuk meminta email verifikasi baru...');
-              this.reportStep('verify', 'Mengklik Resend untuk meminta email verifikasi baru dari ElevenLabs...');
-              triggerNativeClick(resendBtn);
-              await sleep(3000);
-            } else {
-              this.reportStep('verify', 'Menunggu email verifikasi baru (cek folder SPAM di Gmail jika belum masuk)...');
-            }
-
-            // Ambil link verifikasi langsung dari Gmail browser jika belum pernah dipakai
-            if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage && !this.isPollingFreshLink) {
-              this.isPollingFreshLink = true;
-              chrome.runtime.sendMessage({
-                action: 'REQUEST_FRESH_VERIFICATION_LINK',
-                payload: { email },
-              }, (resp) => {
-                this.isPollingFreshLink = false;
-                if (resp && resp.verifyUrl && resp.verifyUrl !== window.location.href) {
-                  console.log('[ElevenLabsOnboarding] Link verifikasi fresh ditemukan! Membuka link:', resp.verifyUrl);
-                  window.location.href = resp.verifyUrl;
-                }
+              chrome.storage.local.set({
+                elevenlabs_auto_flow: {
+                  active: true,
+                  step: 'configure_tts',
+                  email,
+                  password: pass,
+                  startedAt: Date.now(),
+                },
               });
             }
-
-            await sleep(3000);
-            continue;
+            window.location.href = targetTtsUrl;
+            return { success: true, navigatingToTTS: true };
           }
 
-          // 3. Handle jika layar meminta Sign In ("Welcome back")
-          const didSignIn = await this.handleSignInIfPresent(email, pass);
-          if (didSignIn) {
-            await sleep(2500);
-            continue;
-          }
-
-          // 3b. Khusus layar "Choose your platform"
-          const didChoosePlatform = this.handleChoosePlatformOnboarding();
-          if (didChoosePlatform) {
-            this.reportStep('onboarding', 'Memilih platform ElevenCreative & melanjutkan...');
-            await sleep(1500);
-            continue;
-          }
-
-          // 3c. Khusus layar "Help us personalize your experience" (Checkbox 18yo + Next)
-          const didPersonalize = this.handlePersonalizeExperienceOnboarding();
-          if (didPersonalize) {
-            this.reportStep('onboarding', 'Mencentang konfirmasi 18 tahun & melanjutkan personalize...');
-            await sleep(1500);
-            continue;
-          }
-
-          // 4. Periksa checkbox di halaman/modal onboarding
-          // Aturan: "kalau ada checkbox maka di klik dulu checkbox nya"
-          const checkedCount = this.clickAllUncheckedCheckboxes();
-          if (checkedCount > 0) {
-            console.log(`[ElevenLabsOnboarding] ✅ Berhasil mencentang ${checkedCount} checkbox.`);
-            this.reportStep('onboarding', `Mencentang ${checkedCount} checkbox onboarding...`);
-            await sleep(400);
-          }
-
-          // 5. Periksa tombol Skip
-          // Aturan: "kalau ada skip maka skip aja di onboarding"
-          const skipBtn = this.findSkipButton();
-          if (skipBtn) {
-            console.log('[ElevenLabsOnboarding] ⏩ Tombol Skip ditemukan, mengklik Skip:', skipBtn);
-            this.reportStep('onboarding', 'Melewati langkah onboarding (klik Skip)...');
-            triggerNativeClick(skipBtn);
-            skipBtn.click();
-            await sleep(1500);
-            continue;
-          }
-
-          // 6. Jika tidak ada tombol Skip, periksa tombol Continue / Next / Done
-          let nextBtn = this.findNextOrContinueButton();
-          if (nextBtn) {
-            console.log('[ElevenLabsOnboarding] ➡️ Mengklik tombol Continue / Next:', nextBtn);
-            this.reportStep('onboarding', 'Melanjutkan langkah onboarding (klik Continue/Next)...');
-            triggerNativeClick(nextBtn);
-            nextBtn.click();
-            await sleep(1500);
-            continue;
-          }
-
-          // 7. Jika tombol Continue masih disable karena survey butuh pilih 1 opsi
-          const unblocked = this.selectFirstOptionIfBlocked();
-          if (unblocked) {
-            this.reportStep('onboarding', 'Memilih opsi kuesioner onboarding untuk membuka tombol Continue...');
-            await sleep(500);
-            nextBtn = this.findNextOrContinueButton();
-            if (nextBtn) {
-              console.log('[ElevenLabsOnboarding] ➡️ Mengklik tombol Continue setelah memilih opsi:', nextBtn);
-              triggerNativeClick(nextBtn);
-              nextBtn.click();
-              await sleep(1500);
-              continue;
-            }
-          }
-
-          // 8. Cek popup dismiss / close
-          const dismissBtn = this.findDismissButton();
-          if (dismissBtn) {
-            console.log('[ElevenLabsOnboarding] ✕ Menutup popup modal intro:', dismissBtn);
-            this.reportStep('onboarding', 'Menutup popup modal intro...');
-            triggerNativeClick(dismissBtn);
-            dismissBtn.click();
-            await sleep(800);
-            continue;
-          }
-
-          // 9. Jika sudah 25 detik dan masih di /onboarding, coba arahkan langsung ke /speech-synthesis
-          const elapsedSec = (Date.now() - startTime) / 1000;
-          if (elapsedSec > 25 && window.location.pathname.includes('/onboarding')) {
-            console.log('[ElevenLabsOnboarding] ⏳ Mencoba bypass langsung ke speech-synthesis setelah 25s...');
-            window.location.href = 'https://elevenlabs.io/app/speech-synthesis/text-to-speech';
-            await sleep(3000);
-            continue;
-          }
-
-          // Jeda antar iterasi pemeriksaan
-          await sleep(800);
+          // Jika tab sudah berada di /speech-synthesis/text-to-speech
+          await this.finishTTSSetupOnPage({ email });
+          this.isLoopRunning = false;
+          return { success: true, ttsConfigured: true, dashboardUrl: window.location.href };
+        } else {
+          console.warn('[ElevenLabsOnboarding] Onboarding belum mencapai dashboard setelah batas waktu.');
+          this.isLoopRunning = false;
+          return { success: false, error: 'Batas waktu onboarding habis tanpa mencapai Dashboard.' };
         }
-
-        console.warn('[ElevenLabsOnboarding] Batas waktu auto-skip selesai (75 detik).');
-        if (typeof chrome !== 'undefined' && chrome.storage?.local) {
-          chrome.storage.local.remove(['elevenlabs_auto_flow']);
-        }
-        this.isLoopRunning = false;
-        return {
-          success: false,
-          error: 'Timeout menunggu dashboard ElevenLabs. Silakan periksa tab browser.',
-        };
       } catch (err) {
-        console.error('[ElevenLabsOnboarding] Error dalam loop auto-skip:', err);
+        console.error('[ElevenLabsOnboarding] Error saat onboarding flow:', err);
         this.isLoopRunning = false;
         throw err;
       }
+    },
+
+    /**
+     * Konfigurasi TTS setelah halaman Text-to-Speech terbuka sempurna
+     * (Sama persis seperti configure_tts_dashboard di Camoufox)
+     */
+    async finishTTSSetupOnPage({ email } = {}) {
+      console.log('[ElevenLabsTTS] 🎙️ Mempersiapkan halaman Text-to-Speech & membersihkan modal promo...');
+      this.reportStep('tts_config', 'Menyiapkan halaman Text-to-Speech...');
+
+      await sleep(2000);
+      this.dismissAllModals();
+
+      // Tunggu elemen kontrol TTS ter-mount dan siap diinteraksikan
+      for (let w = 0; w < 12; w++) {
+        if (
+          this.isTTSDashboardReached() ||
+          document.querySelector('[data-testid="tts-model-selector"], [data-testid="tts-voice-selector"], textarea, [contenteditable="true"]')
+        ) {
+          break;
+        }
+        await sleep(1000);
+        this.dismissAllModals();
+      }
+
+      console.log('[ElevenLabsTTS] 🎛️ Mengonfigurasi model & voice di Text-to-Speech (Eleven v3, Dany Saputra, Stability Robust)...');
+      this.reportStep('tts_config', 'Mengonfigurasi Model Eleven v3 & Voice Dany Saputra...');
+
+      let cfgSuccess = false;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          this.dismissAllModals();
+          const cfgRes = await this.configureTTS({
+            voiceName: 'Dany Saputra',
+            modelName: 'Eleven v3',
+            stability: 'robust',
+          });
+          if (cfgRes && cfgRes.success) {
+            cfgSuccess = true;
+            break;
+          }
+        } catch (cfgErr) {
+          console.warn(`[ElevenLabsTTS] Percobaan ${attempt}/3 konfigurasi TTS gagal:`, cfgErr.message);
+          await sleep(1500);
+        }
+      }
+
+      if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+        chrome.storage.local.remove(['elevenlabs_auto_flow']);
+      }
+      if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+        chrome.runtime.sendMessage({
+          action: 'ELEVENLABS_ONBOARDING_COMPLETED',
+          payload: { email, url: window.location.href, ttsConfigured: cfgSuccess },
+        }).catch(() => { });
+      }
+
+      console.log('\n=================================================================');
+      console.log('  [✓✓✓] PENGATURAN TTS SELESAI - HALAMAN UTAMA AKTIF!');
+      console.log('=================================================================\n');
+      return { success: true, ttsConfigured: cfgSuccess };
     },
 
     /**
@@ -1420,7 +1347,7 @@
             }
           }
         }
-      } catch (e) {}
+      } catch (e) { }
     },
 
     /**
@@ -1435,30 +1362,10 @@
       // 1. Jalankan langsung
       this.dismissCreditRemainingModal();
 
-      // 2. Polling interval setiap 400ms
+      // 2. Polling interval setiap 500ms untuk membersihkan modal blocking
       setInterval(() => {
         this.dismissCreditRemainingModal();
-
-        // Auto-pilih ElevenCreative dan Continue jika berada di layar onboarding platform
-        const path = window.location.pathname;
-        const bText = (document.body?.innerText || '').toLowerCase();
-        if (
-          path.includes('/onboarding') ||
-          bText.includes('choose your platform') ||
-          bText.includes('switch between platforms')
-        ) {
-          this.handleChoosePlatformOnboarding();
-        }
-
-        // Auto-centang konfirmasi 18 tahun dan Next jika di layar personalize experience
-        if (
-          bText.includes('personalize your experience') ||
-          bText.includes('reached the age of 18') ||
-          bText.includes('18 years old')
-        ) {
-          this.handlePersonalizeExperienceOnboarding();
-        }
-      }, 400);
+      }, 500);
 
       // 3. MutationObserver agar instan mendeteksi saat elemen ditambahkan ke DOM
       try {
@@ -1472,7 +1379,7 @@
             subtree: true,
           });
         }
-      } catch (obsErr) {}
+      } catch (obsErr) { }
     },
 
     /**
@@ -1520,7 +1427,7 @@
             el.style.setProperty('pointer-events', 'none', 'important');
           }
         }
-      } catch (e) {}
+      } catch (e) { }
     },
 
     /**
@@ -1573,21 +1480,26 @@
      * Mengatur Model ke Eleven v3
      */
     async setModel(targetModel = 'Eleven v3') {
-      let modelSelector = document.querySelector('[data-testid="tts-model-selector"]');
-      if (!modelSelector) {
-        const labels = Array.from(document.querySelectorAll('span, div, label, p'));
-        const labelEl = labels.find(el => (el.innerText || '').trim().toLowerCase() === 'model');
-        if (labelEl) {
-          let parent = labelEl.parentElement;
-          for (let i = 0; i < 4 && parent; i++) {
-            const btn = parent.querySelector('button, [role="button"], [tabindex="0"]');
-            if (btn && btn !== labelEl) {
-              modelSelector = btn;
-              break;
+      let modelSelector = null;
+      for (let w = 0; w < 10; w++) {
+        modelSelector = document.querySelector('[data-testid="tts-model-selector"]');
+        if (!modelSelector) {
+          const labels = Array.from(document.querySelectorAll('span, div, label, p'));
+          const labelEl = labels.find(el => (el.innerText || '').trim().toLowerCase() === 'model');
+          if (labelEl) {
+            let parent = labelEl.parentElement;
+            for (let i = 0; i < 4 && parent; i++) {
+              const btn = parent.querySelector('button, [role="button"], [tabindex="0"]');
+              if (btn && btn !== labelEl) {
+                modelSelector = btn;
+                break;
+              }
+              parent = parent.parentElement;
             }
-            parent = parent.parentElement;
           }
         }
+        if (modelSelector && isElementVisible(modelSelector)) break;
+        await sleep(600);
       }
 
       if (!modelSelector) {
@@ -1647,12 +1559,13 @@
     },
 
     /**
-     * Mengatur Voice ke target voice (Mendukung Tipe 1: Sidebar click & Tipe 2: Modal popup hover + Add)
+     * Cari tombol Voice selector di halaman TTS
+     * PERSIS SEPERTI getVoiceSelector DI CAMOUFOX (camoufox/elevenlabs/configure_tts.py)
      */
-    async setVoice(targetVoice = 'Dany Saputra') {
+    getVoiceSelector() {
       let voiceSelector = document.querySelector('[data-testid="tts-voice-selector"]');
       if (!voiceSelector) {
-        const labels = Array.from(document.querySelectorAll('span, div, label, p'));
+        const labels = Array.from(document.querySelectorAll('span, div, label, p, h2, h3, h4'));
         const labelEl = labels.find(el => (el.innerText || '').trim().toLowerCase() === 'voice');
         if (labelEl) {
           let parent = labelEl.parentElement;
@@ -1666,158 +1579,246 @@
           }
         }
       }
+      if (!voiceSelector) {
+        const allButtons = Array.from(document.querySelectorAll('button'));
+        voiceSelector = allButtons.find(b => {
+          const txt = (b.innerText || b.textContent || '').toLowerCase();
+          return (
+            (txt.includes('adam') ||
+              txt.includes('dany') ||
+              txt.includes('saputra') ||
+              txt.includes('roger') ||
+              txt.includes('rachel') ||
+              txt.includes('dominant')) &&
+            !txt.includes('design') &&
+            !txt.includes('settings')
+          );
+        });
+      }
+      return voiceSelector;
+    },
+
+    /**
+     * Mengatur Voice ke target voice (default: 'Dany Saputra')
+     * PERSIS 100% IDENTIK DENGAN set_voice DI CAMOUFOX (camoufox/elevenlabs/configure_tts.py:588-820)
+     */
+    async setVoice(targetVoice = 'Dany Saputra') {
+      console.log(`[ElevenLabsTTS] [*] Memeriksa & mengatur Voice ke '${targetVoice}'...`);
+      this.dismissAllModals();
+
+      // 1. Cek apakah voice saat ini sudah sesuai
+      let voiceSelector = null;
+      for (let w = 0; w < 10; w++) {
+        voiceSelector = this.getVoiceSelector();
+        if (voiceSelector && isElementVisible(voiceSelector)) break;
+        await sleep(500);
+      }
 
       if (!voiceSelector) {
-        console.warn('[ElevenLabsTTS] Selector voice tidak ditemukan.');
+        console.warn('[ElevenLabsTTS] [!] Tombol Voice selector tidak ditemukan.');
         return false;
       }
 
-      const currentText = (voiceSelector.innerText || voiceSelector.getAttribute('aria-label') || '').toLowerCase();
+      const currentText = (voiceSelector.innerText || voiceSelector.textContent || voiceSelector.getAttribute('aria-label') || '').trim().toLowerCase();
+      console.log(`[ElevenLabsTTS] [*] Voice saat ini terdeteksi: '${currentText}'`);
+
       if (currentText.includes(targetVoice.toLowerCase())) {
-        console.log(`[ElevenLabsTTS] ✅ Voice sudah terset ke ${targetVoice}.`);
+        console.log(`[ElevenLabsTTS] [✓] Voice sudah aktif di '${targetVoice}'.`);
         return true;
       }
 
-      console.log(`[ElevenLabsTTS] Membuka pemilih voice untuk '${targetVoice}'...`);
+      // 2. Buka pemilih voice
+      console.log(`[ElevenLabsTTS] [*] Membuka pemilih voice untuk '${targetVoice}'...`);
       triggerNativeClick(voiceSelector);
       await sleep(1500);
 
-      let voiceSelected = false;
+      // Helper untuk mencari input pencarian voice di dalam dialog/popover (HINDARI navbar "Search everything")
+      const findVoiceSearchInput = () => {
+        const dialog = document.querySelector('[role="dialog"], [data-state="open"], div[aria-modal="true"]');
+        const root = dialog || document;
+        const inputs = Array.from(root.querySelectorAll('input')).filter(isElementVisible);
+        return inputs.find(inp => {
+          const ph = (inp.getAttribute('placeholder') || '').toLowerCase();
+          return (ph.includes('typing to search') || ph.includes('search') || ph.includes('find')) &&
+                 !ph.includes('everything');
+        });
+      };
 
-      // Cari input pencarian voice (berlaku baik untuk dialog popup maupun panel sidebar)
-      const searchInput = document.querySelector('input[placeholder*="typing to search" i], input[placeholder*="search" i]');
+      // 3. Ketik nama voice di kolom pencarian
+      let searchInput = findVoiceSearchInput();
       if (searchInput) {
-        console.log(`[ElevenLabsTTS] Mengetik '${targetVoice}' di kolom pencarian...`);
+        console.log(`[ElevenLabsTTS] [*] Mengetik '${targetVoice}' pada kolom pencarian voice...`);
         setReactInputValue(searchInput, targetVoice);
         searchInput.dispatchEvent(new Event('input', { bubbles: true }));
-        await sleep(1500);
+      } else {
+        console.warn('[ElevenLabsTTS] [!] Kolom pencarian voice tidak ditemukan di popover.');
+      }
+      await sleep(1500);
 
-        // Cari kartu/item yang cocok dengan targetVoice
-        let matchingCards = Array.from(document.querySelectorAll('li, div[role="option"], [data-testid*="voice-item"], div[role="button"], button')).filter(el => {
-          return (el.innerText || '').toLowerCase().includes(targetVoice.toLowerCase()) && isElementVisible(el);
+      // 4. Helper untuk mencari kartu, hover, dan klik tombol + Use
+      const selectVoiceCard = async () => {
+        const dialog = document.querySelector('[role="dialog"], [data-state="open"], div[aria-modal="true"]');
+        const root = dialog || document;
+        const allItems = Array.from(root.querySelectorAll(
+          'li, [role="listitem"], [role="option"], [data-radix-collection-item], div[role="button"], button'
+        )).filter(isElementVisible);
+
+        const matching = allItems.filter(el => {
+          const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
+          return txt.includes(targetVoice.toLowerCase()) && !txt.includes('typing to search') && !txt.includes('everything');
         });
 
-        // Jika belum ada di tab aktif, coba cek tab Explore
-        if (matchingCards.length === 0) {
-          const exploreTab = Array.from(document.querySelectorAll('button, [role="tab"]')).find(t => {
-            const txt = (t.innerText || '').trim().toLowerCase();
-            return (txt === 'explore' || txt.includes('explore new voices')) && isElementVisible(t);
-          });
-          if (exploreTab) {
-            console.log('[ElevenLabsTTS] Mencari voice di tab Explore...');
-            triggerNativeClick(exploreTab);
-            await sleep(1500);
-            const searchInput2 = document.querySelector('input[placeholder*="typing to search" i], input[placeholder*="search" i]');
-            if (searchInput2) {
-              setReactInputValue(searchInput2, targetVoice);
-              searchInput2.dispatchEvent(new Event('input', { bubbles: true }));
-              await sleep(1500);
-            }
-            matchingCards = Array.from(document.querySelectorAll('li, div[role="option"], [data-testid*="voice-item"], div[role="button"], button')).filter(el => {
-              return (el.innerText || '').toLowerCase().includes(targetVoice.toLowerCase()) && isElementVisible(el);
-            });
-          }
-        }
+        if (matching.length === 0) return false;
 
-        if (matchingCards.length > 0) {
-          // Cari baris / kartu yang merepresentasikan voice target
-          const targetCard = matchingCards.find(el => el.tagName === 'LI') || matchingCards[0];
-          const cardContainer = targetCard.closest('li, [role="listitem"]') || targetCard;
+        const targetCard = matching.find(el => el.tagName === 'LI') || matching[0];
+        const cardContainer = targetCard.closest('li, [role="listitem"]') || targetCard;
 
-          // Helper untuk mendeteksi & mengabaikan tombol Play Preview
-          const isPlayPreviewButton = (btn) => {
-            if (!btn) return false;
-            const aria = (btn.getAttribute('aria-label') || '').toLowerCase();
-            const testId = (btn.getAttribute('data-testid') || '').toLowerCase();
-            const txt = (btn.innerText || btn.textContent || '').trim().toLowerCase();
-            if (aria.includes('play') || aria.includes('preview') || testId.includes('preview') || testId.includes('play')) return true;
-            if (txt === 'play' || txt === 'preview') return true;
-            return false;
-          };
-
-          // 1. HOVER terlebih dahulu pada kartu voice agar tombol "+ Use" dan "+ Add" muncul
-          console.log(`[ElevenLabsTTS] Melakukan hover pada kartu voice '${targetVoice}' untuk memunculkan tombol '+ Use'...`);
-          const hoverElement = (el) => {
-            if (!el) return;
-            el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        // Hover kartu voice agar tombol '+ Use' muncul (persis Camoufox)
+        const hoverElement = (el) => {
+          if (!el) return;
+          try {
+            el.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
             const rect = el.getBoundingClientRect();
             const clientX = rect.left + rect.width / 2;
             const clientY = rect.top + rect.height / 2;
-            const opts = { bubbles: true, cancelable: true, view: window, clientX, clientY };
+            const opts = { bubbles: true, cancelable: true, clientX, clientY };
             el.dispatchEvent(new PointerEvent('pointerenter', opts));
             el.dispatchEvent(new PointerEvent('pointerover', opts));
             el.dispatchEvent(new MouseEvent('mouseenter', opts));
             el.dispatchEvent(new MouseEvent('mouseover', opts));
             el.dispatchEvent(new MouseEvent('mousemove', opts));
-          };
+          } catch (e) { }
+        };
 
-          hoverElement(cardContainer);
-          hoverElement(targetCard);
-          await sleep(800); // Tunggu tombol Use muncul setelah hover
+        hoverElement(cardContainer);
+        hoverElement(targetCard);
+        await sleep(600);
 
-          // 2. Cari tombol "+ Use" atau "Use" (HINDARI tombol Play Preview!)
-          const allButtons = Array.from(cardContainer.querySelectorAll('button')).concat(
-            Array.from(document.querySelectorAll('[role="dialog"] button, button'))
+        const isPlayPreviewButton = (btn) => {
+          if (!btn) return false;
+          const aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+          const testId = (btn.getAttribute('data-testid') || '').toLowerCase();
+          const txt = (btn.innerText || btn.textContent || '').trim().toLowerCase();
+          if (aria.includes('play') || aria.includes('preview') || testId.includes('preview') || testId.includes('play')) return true;
+          if (txt === 'play' || txt === 'preview') return true;
+          return false;
+        };
+
+        const allButtons = Array.from(cardContainer.querySelectorAll('button')).concat(
+          Array.from(root.querySelectorAll('button'))
+        );
+
+        let useBtn = allButtons.find(b => {
+          if (isPlayPreviewButton(b)) return false;
+          const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+          const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+          return (
+            txt === '+ use' ||
+            txt === 'use' ||
+            (txt.includes('use') && !txt.includes('user') && !txt.includes('pause')) ||
+            aria === 'use voice' ||
+            aria.includes('use')
           );
+        });
 
-          let useBtn = allButtons.find(b => {
+        if (!useBtn) {
+          useBtn = allButtons.find(b => {
             if (isPlayPreviewButton(b)) return false;
             const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
             const aria = (b.getAttribute('aria-label') || '').toLowerCase();
-            // Cocokkan "+ use", "use", atau "use voice"
-            return txt === '+ use' || txt === 'use' || (txt.includes('use') && !txt.includes('user') && !txt.includes('pause')) ||
-                   aria === 'use voice' || aria.includes('use');
+            return txt === '+ add' || txt === 'add' || txt.includes('add to voice lab') || aria.includes('add');
           });
+        }
 
-          // Fallback 1: Jika tombol Use belum ada, coba tombol "+ Add" atau "Add"
-          if (!useBtn) {
-            useBtn = allButtons.find(b => {
-              if (isPlayPreviewButton(b)) return false;
-              const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
-              const aria = (b.getAttribute('aria-label') || '').toLowerCase();
-              return txt === '+ add' || txt === 'add' || txt.includes('add to voice lab') || aria.includes('add');
-            });
-          }
+        if (!useBtn) {
+          useBtn = Array.from(cardContainer.querySelectorAll('button')).find(b => {
+            return !isPlayPreviewButton(b) && (b.classList.contains('inset-0') || !b.getAttribute('aria-label'));
+          });
+        }
 
-          // Fallback 2: Jika kartu di My Voices (bukan Explore) dan tidak ada tombol Use/Add, klik overlay non-play
-          if (!useBtn) {
-            useBtn = Array.from(cardContainer.querySelectorAll('button')).find(b => {
-              return !isPlayPreviewButton(b) && (b.classList.contains('inset-0') || !b.getAttribute('aria-label'));
-            });
-          }
+        if (useBtn) {
+          console.log(`[ElevenLabsTTS] [✓] Mengklik tombol Use pada kartu '${targetVoice}':`, useBtn);
+          triggerNativeClick(useBtn);
+          try { useBtn.click(); } catch (e) { }
+          return true;
+        }
 
-          if (useBtn) {
-            console.log(`[ElevenLabsTTS] 🎯 Tombol '${useBtn.innerText || useBtn.getAttribute('aria-label') || 'Use'}' ditemukan! Mengklik tombol Use...`);
-            triggerNativeClick(useBtn);
+        // Fallback klik langsung kartu
+        console.log(`[ElevenLabsTTS] Mengklik langsung kartu voice '${targetVoice}'...`);
+        triggerNativeClick(cardContainer);
+        try { cardContainer.click(); } catch (e) { }
+        return true;
+      };
+
+      let voiceSelected = await selectVoiceCard();
+
+      // Jika tidak ditemukan di tab aktif (My Voices), beralih ke tab Explore (persis Camoufox)
+      if (!voiceSelected) {
+        console.log('[ElevenLabsTTS] [*] Voice belum ditemukan di tab default, mencoba beralih ke tab Explore...');
+        const dialog = document.querySelector('[role="dialog"], [data-state="open"], div[aria-modal="true"]');
+        const root = dialog || document;
+
+        const exploreTab = Array.from(root.querySelectorAll('button, [role="tab"]')).find(t => {
+          const txt = (t.innerText || t.textContent || '').trim().toLowerCase();
+          return (txt === 'explore' || txt.includes('explore new voices')) && isElementVisible(t);
+        });
+
+        if (exploreTab) {
+          triggerNativeClick(exploreTab);
+          try { exploreTab.click(); } catch (e) { }
+          await sleep(1500);
+
+          searchInput = findVoiceSearchInput();
+          if (searchInput) {
+            console.log(`[ElevenLabsTTS] [*] Mengetik '${targetVoice}' di tab Explore...`);
+            setReactInputValue(searchInput, targetVoice);
+            searchInput.dispatchEvent(new Event('input', { bubbles: true }));
             await sleep(1500);
-            voiceSelected = true;
-
-            // Konfirmasi dialog "Add to Voice Lab" / "Use Voice" jika muncul
-            const confirmBtn = Array.from(document.querySelectorAll('button')).find(b => {
-              const t = (b.innerText || '').toLowerCase();
-              return (t.includes('add voice') || t.includes('use voice') || t.includes('finish') || t.includes('done')) && isElementVisible(b);
-            });
-            if (confirmBtn) {
-              triggerNativeClick(confirmBtn);
-              await sleep(1200);
-            }
-          } else {
-            console.warn(`[ElevenLabsTTS] Tombol Use tidak ditemukan pada kartu '${targetVoice}'.`);
           }
-        } else {
-          console.warn(`[ElevenLabsTTS] Kartu voice '${targetVoice}' tidak ditemukan.`);
+
+          voiceSelected = await selectVoiceCard();
         }
       }
 
-      // Pastikan modal tertutup jika masih terbuka
+      await sleep(1200);
+
+      // 5. Konfirmasi dialog jika ada ("Add to Voice Lab" / "Use voice" / "Done")
+      const confirmBtn = Array.from(document.querySelectorAll('button')).find(b => {
+        const t = (b.innerText || b.textContent || '').toLowerCase();
+        return (t.includes('add voice') || t.includes('use voice') || t.includes('finish') || t.includes('done')) && isElementVisible(b);
+      });
+      if (confirmBtn) {
+        triggerNativeClick(confirmBtn);
+        try { confirmBtn.click(); } catch (e) { }
+      }
+      await sleep(800);
+
+      // 6. Tutup panel jika masih terbuka (Back atau Escape)
       const backBtn = document.querySelector('button[aria-label="Back"], button[aria-label*="back" i]');
       if (backBtn && isElementVisible(backBtn)) {
         triggerNativeClick(backBtn);
-        await sleep(600);
+        try { backBtn.click(); } catch (e) { }
+      } else {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       }
+      await sleep(600);
 
       this.dismissAllModals();
-      return voiceSelected;
+
+      // 7. Verifikasi akhir (persis Camoufox loop 6x)
+      let verifyStatus = '';
+      for (let attempt = 0; attempt < 6; attempt++) {
+        await sleep(500);
+        const sel = this.getVoiceSelector();
+        verifyStatus = (sel?.innerText || sel?.textContent || '').trim().toLowerCase();
+        if (verifyStatus.includes(targetVoice.toLowerCase())) {
+          console.log(`[ElevenLabsTTS] [✓✓✓] Voice berhasil diubah ke '${targetVoice}'!`);
+          return true;
+        }
+      }
+
+      console.warn(`[ElevenLabsTTS] [!] Peringatan: Voice akhir masih terbaca '${verifyStatus}'.`);
+      return verifyStatus.includes(targetVoice.toLowerCase());
     },
 
     /**
@@ -1825,24 +1826,29 @@
      */
     async setStability(target = 'robust') {
       // Cari slider Stability secara presisi (hindari salah memilih timeline player audio)
-      let slider = document.querySelector(
-        '#stability-slider [role="slider"], span[role="slider"][aria-label="Stability"], [aria-label="Stability"][role="slider"], [aria-label*="Stability" i][role="slider"], #stability-slider'
-      );
+      let slider = null;
+      for (let w = 0; w < 10; w++) {
+        slider = document.querySelector(
+          '#stability-slider [role="slider"], span[role="slider"][aria-label="Stability"], [aria-label="Stability"][role="slider"], [aria-label*="Stability" i][role="slider"], #stability-slider'
+        );
 
-      if (!slider) {
-        const labels = Array.from(document.querySelectorAll('span, div, label, p'));
-        const stabLabel = labels.find(l => (l.innerText || '').trim().toLowerCase() === 'stability');
-        if (stabLabel) {
-          let parent = stabLabel.parentElement;
-          for (let i = 0; i < 4 && parent; i++) {
-            const s = parent.querySelector('[role="slider"], input[type="range"]');
-            if (s) {
-              slider = s;
-              break;
+        if (!slider) {
+          const labels = Array.from(document.querySelectorAll('span, div, label, p'));
+          const stabLabel = labels.find(l => (l.innerText || '').trim().toLowerCase() === 'stability');
+          if (stabLabel) {
+            let parent = stabLabel.parentElement;
+            for (let i = 0; i < 4 && parent; i++) {
+              const s = parent.querySelector('[role="slider"], input[type="range"]');
+              if (s) {
+                slider = s;
+                break;
+              }
+              parent = parent.parentElement;
             }
-            parent = parent.parentElement;
           }
         }
+        if (slider && isElementVisible(slider)) break;
+        await sleep(600);
       }
 
       // Klik label "Robust" secara langsung jika elemen teks dapat memicu slider snap
@@ -2042,7 +2048,7 @@
 
         try {
           editor.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        } catch (e) {}
+        } catch (e) { }
 
         console.log('[ElevenLabsTTS] ✅ Teks narasi ([pauses]) berhasil dimasukkan ke TipTap editor.');
         return true;
@@ -2172,7 +2178,7 @@
             };
           }
         }
-      } catch (e) {}
+      } catch (e) { }
 
       // 3. Cek apakah tombol Generate disabled karena kredit habis
       const genBtn = this.findGenerateSpeechButton();
@@ -2421,7 +2427,7 @@
 
       // 1. Hentikan pemutaran audio sebelumnya (misal Generation 1 yang sedang jalan di bottom bar)
       document.querySelectorAll('audio').forEach((a) => {
-        try { a.pause(); } catch (e) {}
+        try { a.pause(); } catch (e) { }
       });
 
       // 2. Ambil kartu target yang terisolasi khusus Generation X (BUKAN wrapper bersama)
@@ -2499,7 +2505,7 @@
               action: 'SET_TARGET_AUDIO_FILENAME',
               payload: { filename: safeFilename },
             });
-          } catch (e) {}
+          } catch (e) { }
         }
 
         // 2. Interceptor pada link anchor yang dibuat secara dinamis oleh ElevenLabs
@@ -2778,7 +2784,7 @@
      */
     getTabStatus() {
       const url = window.location.href;
-      const path = window.location.pathname;
+      const path = (window.location.pathname || '').toLowerCase();
       const bodyText = (document.body?.innerText || '').toLowerCase();
 
       // 1. Cek limit kredit
@@ -2787,33 +2793,42 @@
         return { status: 'CREDIT_LIMIT', reason: limit.reason, url };
       }
 
-      // 2. Cek onboarding
+      // 2. Cek onboarding (Prioritas tinggi: cegah race condition saat SPA me-redirect ke onboarding)
       if (
         path.includes('/onboarding') ||
         url.includes('onboarding') ||
         bodyText.includes('choose your platform') ||
         bodyText.includes('switch between platforms') ||
+        bodyText.includes('personalize your experience') ||
+        bodyText.includes('reached the age of 18') ||
+        bodyText.includes('18 years old') ||
+        bodyText.includes('what will you use elevenlabs for') ||
         bodyText.includes('tell us about yourself') ||
-        bodyText.includes('what will you use elevenlabs for')
+        bodyText.includes('how do you plan to use') ||
+        Boolean(document.querySelector('input[name="adult"]')) ||
+        (Boolean(document.querySelector('button[role="checkbox"]')) && !path.includes('/speech-synthesis') && !path.includes('/text-to-speech'))
       ) {
         return { status: 'ONBOARDING', url };
       }
 
-      // 3. Cek halaman verifikasi email / action
+      // 3. Cek halaman verifikasi email / action / modal pop-up verifikasi
       if (
         path.includes('/action') ||
         url.includes('mode=verifyEmail') ||
         url.includes('oobCode') ||
-        bodyText.includes("we've sent a verification link")
+        bodyText.includes("we've sent a verification link") ||
+        bodyText.includes('almost there') ||
+        bodyText.includes('email verification')
       ) {
         return { status: 'VERIFY_ACTION', url };
       }
 
-      // 4. Cek halaman Sign In
+      // 4. Cek halaman Sign In ("Welcome back")
       if (
         path.includes('/sign-in') ||
         path.includes('/login') ||
-        (bodyText.includes('welcome back') && !!this.findPasswordInput())
+        (bodyText.includes('welcome back') && Boolean(this.findPasswordInput())) ||
+        (Boolean(this.findPasswordInput()) && !path.includes('/speech-synthesis') && !path.includes('/text-to-speech'))
       ) {
         return { status: 'SIGN_IN', url };
       }
@@ -2821,25 +2836,21 @@
       // 5. Cek halaman Sign Up
       if (
         path.includes('/sign-up') ||
-        (bodyText.includes('create an account') && !!this.findEmailInput() && !!this.findPasswordInput())
+        (bodyText.includes('create an account') && Boolean(this.findEmailInput()) && Boolean(this.findPasswordInput()))
       ) {
         return { status: 'SIGN_UP', url };
       }
 
       // 6. Cek dashboard Text-to-Speech
       if (
-        path.includes('/speech-synthesis') ||
-        path.includes('/text-to-speech') ||
-        (path.startsWith('/app') && !!this.findGenerateSpeechButton())
+        (path.includes('/speech-synthesis') || path.includes('/text-to-speech')) &&
+        this.isDashboardReached()
       ) {
         return { status: 'DASHBOARD_TTS', url, ready: true };
       }
 
-      // 7. Cek dashboard umum (/app/home, dll.)
-      if (
-        path.startsWith('/app') &&
-        document.querySelector('button[data-testid="user-menu-button"], button[aria-label*="profile" i]')
-      ) {
+      // 7. Cek dashboard umum (/app/home, /app/overview, dll.)
+      if (this.isDashboardReached()) {
         return { status: 'DASHBOARD_HOME', url };
       }
 
@@ -2880,6 +2891,6 @@
   // Jalankan Auto-Dismiss Watcher segera setelah script dimuat di tab ElevenLabs
   try {
     ElevenLabsSignupModule.startAutoDismissWatcher();
-  } catch (e) {}
+  } catch (e) { }
 })();
 

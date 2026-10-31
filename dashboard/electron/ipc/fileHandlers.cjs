@@ -237,6 +237,20 @@ function register(ipcMain, { paths: p, media, ffmpeg }) {
     return true;
   });
 
+  // ─── Open file location in OS file manager ─────────────
+  ipcMain.handle('open-in-folder', async (_event, filePath) => {
+    try {
+      const { shell } = require('electron');
+      if (filePath && fs.existsSync(filePath)) {
+        shell.showItemInFolder(filePath);
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  });
+
   // ─── Save file to project ─────────────────────────────
   ipcMain.handle('save-to-project', async (_event, { subPath, data }) => {
     const dest = path.join(p.PROJECT_ROOT, subPath);

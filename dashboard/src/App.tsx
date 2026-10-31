@@ -15,8 +15,7 @@ import AlurfilmMappingStep from './components/longform/AlurfilmMappingStep';
 import AlurfilmRenderStep from './components/longform/AlurfilmRenderStep';
 import AlurfilmMetadataStep from './components/longform/AlurfilmMetadataStep';
 import AlurfilmTestingHub from './components/longform/testing/AlurfilmTestingHub';
-import ShortsMergerStep from './components/shorts/ShortsMergerStep';
-import ShortsPromptStep from './components/shorts/ShortsPromptStep';
+import FacelessIdeaAgentStep from './components/faceless/FacelessIdeaAgentStep';
 import HumanologiStepContainer from './components/humanologi/HumanologiStepContainer';
 
 type Status = 'ready' | 'rendering' | 'error';
@@ -45,14 +44,17 @@ const App: React.FC = () => {
   }, []);
 
   const handleResetProject = async () => {
-    setActiveStep(contentMode === 'humanologi' ? 'topic' : 'source');
+    setActiveStep(
+      contentMode === 'humanologi' ? 'topic' : contentMode === 'faceless' ? 'idea' : 'source'
+    );
     setLongformResetKey((prev) => prev + 1);
     try {
       Object.keys(localStorage).forEach((key) => {
         if (
           key.toLowerCase().includes('longform') ||
           key.toLowerCase().includes('alurfilm') ||
-          key.toLowerCase().includes('humanologi')
+          key.toLowerCase().includes('humanologi') ||
+          key.toLowerCase().includes('faceless')
         ) {
           localStorage.removeItem(key);
         }
@@ -77,8 +79,8 @@ const App: React.FC = () => {
           contentMode={contentMode}
           onModeChange={(mode) => {
             setContentMode(mode);
-            if (mode === 'shorts') {
-              setActiveStep('analyze');
+            if (mode === 'faceless') {
+              setActiveStep('idea');
             } else if (mode === 'humanologi') {
               setActiveStep('topic');
             } else {
@@ -90,15 +92,8 @@ const App: React.FC = () => {
         />
 
         <main className="flex-1 p-6 overflow-auto bg-gradient-to-br from-gray-950 via-gray-950 to-gray-900">
-          {contentMode === 'shorts' ? (
-            activeStep === 'render' ? (
-              <ShortsMergerStep key="shorts-merger-step" />
-            ) : (
-              <ShortsPromptStep
-                key="shorts-prompt-step"
-                onNavigateToMerger={() => setActiveStep('render')}
-              />
-            )
+          {contentMode === 'faceless' ? (
+            <FacelessIdeaAgentStep key={`faceless-idea-agent-${longformResetKey}`} />
           ) : contentMode === 'humanologi' ? (
             <HumanologiStepContainer
               key={`humanologi-step-container-${longformResetKey}`}

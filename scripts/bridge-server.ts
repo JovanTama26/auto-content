@@ -30,7 +30,7 @@ async function getOrCreateBrowser(): Promise<{ context: BrowserContext; page: Pa
   }
 
   console.log('🌐 Memulai browser automation dengan user profile...');
-  
+
   const bravePath = '/usr/bin/brave-browser';
   const hasBrave = fs.existsSync(bravePath);
 
@@ -78,8 +78,8 @@ async function uploadChunkToDrive(videoPath: string, filename: string): Promise<
   console.log(`======================================================`);
 
   // Selalu muat fresh chat untuk membersihkan modal backdrop sisa upload sebelumnya
-  console.log('🔄 Membuka fresh chat prompt di Google AI Studio...');
-  await page.goto('https://aistudio.google.com/prompts/new_chat', { waitUntil: 'domcontentloaded' });
+  console.log('🔄 Membuka fresh chat prompt di Google AI Studio (Gemini 3.1 Pro Preview)...');
+  await page.goto('https://aistudio.google.com/prompts/new_chat?model=gemini-flash-latest', { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(3000);
 
   // 1. Klik tombol Attachment (+)
@@ -152,7 +152,7 @@ async function uploadChunkToDrive(videoPath: string, filename: string): Promise<
     console.log(`⏱️ [Detik ${second}] Picker visible: ${pickerVisible}, Has Video Pill: ${hasVideoPill}`);
 
     if (second <= 10 || second % 10 === 0) {
-      await page.screenshot({ path: path.join(debugDir, `bridge_upload_${second}s.png`) }).catch(() => {});
+      await page.screenshot({ path: path.join(debugDir, `bridge_upload_${second}s.png`) }).catch(() => { });
     }
 
     if (hasVideoPill || !pickerVisible) {

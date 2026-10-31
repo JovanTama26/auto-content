@@ -1,4 +1,4 @@
-// extension/lib/elevenlabs-verify.js
+kita // extension/lib/elevenlabs-verify.js
 // Client helper & in-browser automation untuk mengambil link verifikasi ElevenLabs langsung dari Gmail
 // 100% di dalam ekstensi via tab Gmail, tanpa looping rumit & tanpa n8n webhook.
 
@@ -335,65 +335,119 @@ async function fetchVerificationFromGmailTab(options = {}) {
   }
 }
 
+const VPS_MAIL_API_BASE = 'http://43.129.43.29:8888';
+
+/**
+ * Mengambil link verifikasi ElevenLabs langsung dari server VPS penangkap email
+ * Polling API: http://43.129.43.29:8888/api/get-link?email=...
+ * 100% mandiri tanpa membuka tab Gmail & tanpa captcha!
+ */
+async function fetchVerificationFromVps(email, options = {}) {
+  const onProgress = options.onProgress || (() => {});
+  const maxWaitSeconds = options.maxWaitSeconds || 75;
+  const pollIntervalMs = options.pollIntervalMs || 2000;
+  const initialDelayMs = options.initialDelayMs !== undefined ? options.initialDelayMs : 1500;
+
+  if (initialDelayMs > 0) {
+    onProgress(`Menunggu ${Math.round(initialDelayMs / 1000)}s sebelum memeriksa server VPS...`);
+    await sleep(initialDelayMs);
+  }
+
+  const startTime = Date.now();
+  const maxMs = maxWaitSeconds * 1000;
+  const usedCodes = await getUsedCodes();
+  const targetEmail = (email || '').trim().toLowerCase();
+
+  console.log(`[ElevenLabsVerify] 🚀 Memulai polling ke server VPS (${VPS_MAIL_API_BASE}) untuk email: ${targetEmail}`);
+  onProgress(`Menghubungi VPS server untuk memantau email ${targetEmail}...`);
+
+  while (Date.now() - startTime < maxMs) {
+    const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
+    try {
+      const apiUrl = `${VPS_MAIL_API_BASE}/api/get-link?email=${encodeURIComponent(targetEmail)}`;
+      const res = await fetch(apiUrl, { method: 'GET', cache: 'no-store' });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.status === 'found' && data.verify_url) {
+          const verifyUrl = data.verify_url;
+          let code = '';
+          try {
+            const parsed = new URL(verifyUrl);
+            code =
+              parsed.searchParams.get('oobCode') ||
+              parsed.searchParams.get('ticket') ||
+              parsed.searchParams.get('token') ||
+              '';
+          } catch (e) { }
+
+          if (code && usedCodes.includes(code)) {
+            console.warn(`[ElevenLabsVerify] Link lama/terpakai terdeteksi di VPS (${code}), menunggu link baru...`);
+            onProgress(`Link lama terdeteksi, menunggu link verifikasi baru dari VPS (${elapsedSec}s)...`);
+          } else {
+            if (code) await markCodeAsUsed(code);
+            console.log(`[ElevenLabsVerify] [✓] Link verifikasi berhasil didapatkan dari server VPS!`, verifyUrl);
+            onProgress(`Link verifikasi berhasil didapatkan dari server VPS!`);
+            return {
+              success: true,
+              verifyUrl,
+              code,
+              source: 'vps_mail_api',
+            };
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[ElevenLabsVerify] Warning saat polling VPS:', err.message);
+    }
+
+    onProgress(`Menunggu email verifikasi masuk di server VPS (${elapsedSec}/${maxWaitSeconds}s)...`);
+    await sleep(pollIntervalMs);
+  }
+
+  throw new Error(`Waktu tunggu email verifikasi di server VPS habis (${maxWaitSeconds}s).`);
+}
+
 /**
  * Objek utama ElevenLabsVerify yang diekspos ke sidepanel & background
  */
 const ElevenLabsVerify = {
   getUsedCodes,
   markCodeAsUsed,
+  fetchVerificationFromVps,
   fetchVerificationFromGmailTab,
 
   /**
-   * Mengambil URL verifikasi dari tab Gmail
-   * Jika dijalankan dari UI (Sidepanel), mengirimkan request ke background service worker
-   * Jika dijalankan dari Service Worker, langsung menjalankan fetchVerificationFromGmailTab
+   * Mengambil URL verifikasi
+   * Secara default memprioritaskan polling ke Server VPS (port 8888) tanpa perlu buka Gmail
    */
   async pollForVerifyUrl(email, options = {}) {
     const onProgress = options.onProgress || (() => {});
-    const maxWaitSeconds = options.maxWaitSeconds || 90;
-    const pollIntervalMs = options.pollIntervalMs || options.intervalMs || 3000;
-    const initialDelayMs = options.initialDelayMs !== undefined ? options.initialDelayMs : 2500;
+    const targetEmail = (email || '').trim().toLowerCase();
 
-    if (initialDelayMs > 0) {
-      onProgress(`Menunggu ${Math.round(initialDelayMs / 1000)}s sebelum memeriksa inbox Gmail...`);
-      await sleep(initialDelayMs);
+    // Jika bukan secara eksplisit dipaksa useGmail: true, gunakan server VPS (jauh lebih cepat & tanpa tab Gmail)
+    if (options.useGmail !== true) {
+      try {
+        return await fetchVerificationFromVps(targetEmail, options);
+      } catch (vpsErr) {
+        console.warn('[ElevenLabsVerify] Polling VPS gagal atau timeout, fallback ke Gmail jika tersedia:', vpsErr.message);
+        if (options.fallbackGmail === true) {
+          return await fetchVerificationFromGmailTab({
+            email: targetEmail,
+            maxWaitSeconds: options.maxWaitSeconds || 60,
+            pollIntervalMs: options.pollIntervalMs || 3000,
+            onProgress,
+          });
+        }
+        throw vpsErr;
+      }
     }
 
-    const isServiceWorker = typeof window === 'undefined';
-    if (!isServiceWorker && typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
-      return new Promise((resolve, reject) => {
-        const progressListener = (msg) => {
-          if (msg.action === 'GMAIL_VERIFY_PROGRESS' && msg.payload?.message) {
-            onProgress(msg.payload.message);
-          }
-        };
-
-        chrome.runtime.onMessage.addListener(progressListener);
-
-        chrome.runtime.sendMessage(
-          {
-            action: 'FETCH_GMAIL_VERIFICATION_LINK',
-            payload: { email, maxWaitSeconds, pollIntervalMs },
-          },
-          (response) => {
-            chrome.runtime.onMessage.removeListener(progressListener);
-
-            if (chrome.runtime.lastError) {
-              return reject(new Error(chrome.runtime.lastError.message));
-            }
-            if (!response || !response.success) {
-              return reject(new Error(response?.error || 'Gagal mengambil link verifikasi dari Gmail'));
-            }
-            resolve(response);
-          }
-        );
-      });
-    }
-
+    // Jalur Gmail jika opsi useGmail === true
     return await fetchVerificationFromGmailTab({
-      email,
-      maxWaitSeconds,
-      pollIntervalMs,
+      email: targetEmail,
+      maxWaitSeconds: options.maxWaitSeconds || 90,
+      pollIntervalMs: options.pollIntervalMs || 3000,
       onProgress,
     });
   },

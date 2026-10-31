@@ -1,4 +1,6 @@
 // extension/popup/popup.js
+const AI_STUDIO_NEW_CHAT_URL = 'https://aistudio.google.com/prompts/new_chat?model=gemini-flash-latest';
+
 document.addEventListener('DOMContentLoaded', async () => {
   const connStatus = document.getElementById('connStatus');
   const domStatus = document.getElementById('domStatus');
@@ -285,12 +287,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       // 1. Dapatkan tab AI Studio aktif
       const targetTab = await getAIStudioTab();
       if (!targetTab || !targetTab.id) {
-        throw new Error('Tab Google AI Studio tidak ditemukan. Buka https://aistudio.google.com/prompts/new_chat terlebih dahulu.');
+        throw new Error(`Tab Google AI Studio tidak ditemukan. Buka ${AI_STUDIO_NEW_CHAT_URL} terlebih dahulu.`);
       }
 
       // 2. Salin path video lokal ke clipboard untuk kemudahan user
       if (navigator.clipboard && chunk.video_path) {
-        await navigator.clipboard.writeText(chunk.video_path).catch(() => {});
+        await navigator.clipboard.writeText(chunk.video_path).catch(() => { });
       }
 
       bulkStatusText.textContent = `Beralih ke tab Upload & menyuntikkan video Part #${chunk.part_number} via CDP...`;
@@ -366,7 +368,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const targetTab = await getAIStudioTab();
     if (!targetTab || !targetTab.id) {
-      bulkStatusText.innerHTML = `<span style="color: #ef4444;">⚠️ Buka tab Google AI Studio (https://aistudio.google.com/prompts/new_chat) terlebih dahulu.</span>`;
+      bulkStatusText.innerHTML = `<span style="color: #ef4444;">⚠️ Buka tab Google AI Studio (${AI_STUDIO_NEW_CHAT_URL}) terlebih dahulu.</span>`;
       return;
     }
 
@@ -390,7 +392,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       try {
         if (navigator.clipboard && chunk.video_path) {
-          await navigator.clipboard.writeText(chunk.video_path).catch(() => {});
+          await navigator.clipboard.writeText(chunk.video_path).catch(() => { });
         }
 
         const res = await chrome.runtime.sendMessage({
@@ -426,7 +428,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           await window.SupabaseBridge.updatePart(chunk.id, {
             upload_status: 'done',
             uploaded_at: new Date().toISOString(),
-          }).catch(() => {});
+          }).catch(() => { });
           successCount++;
         } else {
           throw new Error(`Upload Part #${chunk.part_number} timeout (>3 menit)`);
@@ -464,7 +466,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   btnOpenAIStudio.addEventListener('click', () => {
-    chrome.tabs.create({ url: 'https://aistudio.google.com/prompts/new_chat' });
+    chrome.tabs.create({ url: AI_STUDIO_NEW_CHAT_URL });
   });
 
   // Initial checks

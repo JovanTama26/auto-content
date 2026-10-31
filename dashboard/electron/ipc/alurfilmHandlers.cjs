@@ -882,12 +882,12 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
         : `TIDAK (Chunk #${chunkPart} / Part Lanjutan)`;
     const isLastPartStr = isLastPart ? 'YA (Chunk Terakhir / Part Penutup Film - Akhiri tanpa menyebut judul film)' : `TIDAK (Part Bukan Penutup)`;
     const styleExampleStr = isIntroPart
-      ? 'Gunakan gaya penceritaan yang super friendly, santai, mengalir hangat, dan akrab khas pencerita alur film populer. Sampaikan narasi teaser intro yang membakar rasa penasaran penonton (hooking) dan mengalir mulus tanpa kaku! DILARANG KERAS menyebutkan nama/judul film (gunakan sebutan "film yang satu ini" atau langsung masuk ke aksi). DILARANG gaya sastra puitis/melodramatis!'
+      ? 'Gaya pencerita alur film: ramah, santai, mengalir hangat, dan akrab. Sampaikan teaser intro yang memancing rasa penasaran penonton secara wajar dan mengalir tanpa kaku. DILARANG KERAS menyebutkan nama/judul film. DILARANG gaya bahasa sastra puitis, dan DILARANG mendramatisir/melebih-lebihkan adegan.'
       : styleExample
         ? String(styleExample)
         : isFirstPart
-          ? 'Gaya pencerita alur cerita film YouTube Indonesia tulen: lugas, santai, komunikatif, dan renyah didengar (seperti Saqahayang / Kamar Film). Buka langsung ke fokus karakter dan krisis awalnya (contoh: "Cerita berfokus pada seorang pria bernama..." / "Di awal cerita, kita langsung diperlihatkan bagaimana..."). Fokus mutlak pada POINTING OUT ALUR CERITA (krisis karakter, sebab-akibat, konflik, dan taruhan nasib). DILARANG KERAS gaya bahasa sastra novel yang puitis/melodramatis ("kendati", "kubangan alkohol", "meremukkan perut", "keheningan alam yang menenangkan"). DILARANG gaya formal kaku koran/skripsi ("Film dibuka dengan..."). DILARANG gaya rekaman CCTV yang hanya mendiktekan gerak fisik mikro karakter. DILARANG menyebutkan nama/judul film!'
-          : 'Gaya pencerita alur cerita film YouTube Indonesia tulen: lugas, santai, komunikatif, dan renyah didengar (seperti Saqahayang / Kamar Film). Langsung sambung ke perkembangan alur cerita dan krisis karakter berikutnya tanpa basa-basi meta klise ("Menyambung ketegangan sebelumnya"). Fokus mutlak pada POINTING OUT ALUR CERITA (perkembangan plot, sebab-akibat, konflik, dan taruhan nasib). DILARANG KERAS gaya bahasa sastra novel yang puitis/melodramatis ("kendati", "kubangan alkohol", "meremukkan perut", "keheningan alam"), DILARANG gaya formal kaku koran/skripsi, DILARANG gaya rekaman CCTV yang hanya mendiktekan gerak fisik karakter, dan DILARANG menyebutkan nama/judul film!';
+          ? 'Gaya pencerita alur cerita film YouTube Indonesia: lugas, santai, tenang, dan mengalir alami (seperti Saqahayang / Kamar Film). Buka langsung ke fokus karakter dan situasi awal tanpa intro formal. Fokus mutlak pada ALUR CERITA (krisis karakter, sebab-akibat, keputusan, dan perkembangan alur). DILARANG mendramatisir adegan, DILARANG menggunakan kata-kata/frasa penguat intensitas (hiperbola/superlatif) untuk visual yang sudah jelas di layar, DILARANG gaya sastra puitis melodramatis, DILARANG gaya CCTV yang mendiktekan gerak fisik mikro karakter, dan DILARANG menyebutkan nama/judul film!'
+          : 'Gaya pencerita alur cerita film YouTube Indonesia: lugas, santai, tenang, dan mengalir alami (seperti Saqahayang / Kamar Film). Langsung sambung ke perkembangan alur cerita berikutnya tanpa basa-basi klise. Fokus mutlak pada ALUR CERITA (perkembangan plot, sebab-akibat, keputusan karakter, dan konsekuensi). DILARANG mendramatisir adegan, DILARANG menggunakan kata-kata/frasa penguat intensitas (hiperbola/superlatif) untuk visual yang sudah jelas di layar, DILARANG gaya sastra puitis melodramatis, DILARANG gaya CCTV yang mendiktekan gerak fisik mikro karakter, dan DILARANG menyebutkan nama/judul film!';
     const movieTitleStr = String(opts.movieTitle || opts.movie_title || opts.title || '').trim() || 'Tidak disebutkan';
     const movieYearStr = String(opts.movieYear || opts.movie_year || opts.year || '').trim();
     const movieYearFormatted = movieYearStr ? `tahun ${movieYearStr}` : '';
@@ -2365,15 +2365,19 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
         };
 
         if (isVisualOnly) {
-          // Rule: Enforce video_cut type ONLY & match total duration to transcript duration exactly (e.g. 10.0s)
+          // Rule: Support video_cut and mirror_cut with alternating horizontal flip & match total duration exactly
           sanitizedVisuals = (sanitizedVisuals || [])
             .filter(v => v && typeof v === 'object')
-            .map(v => ({
-              ...v,
-              type: 'video_cut',
-              duration: Math.min(2.0, Math.max(1.0, Number(v.duration) || 2.0)),
-              source_start_seconds: sanitizeSourceStart(v.source_start_seconds || v.source_timestamp_seconds)
-            }));
+            .map((v, vIdx) => {
+              const isMirror = v.type === 'mirror_cut' || v.mirror_mode === 'horizontal' || vIdx % 2 === 1;
+              return {
+                ...v,
+                type: isMirror ? 'mirror_cut' : 'video_cut',
+                mirror_mode: isMirror ? (v.mirror_mode || 'horizontal') : undefined,
+                duration: Math.min(2.0, Math.max(1.0, Number(v.duration) || 2.0)),
+                source_start_seconds: sanitizeSourceStart(v.source_start_seconds || v.source_timestamp_seconds)
+              };
+            });
 
           if (sanitizedVisuals.length === 0) {
             sanitizedVisuals = [{ type: 'video_cut', duration: 2.0, source_start_seconds: 0 }];
@@ -2381,19 +2385,23 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
 
           let currSum = Number(sanitizedVisuals.reduce((acc, c) => acc + (c.duration || 0), 0).toFixed(2));
           if (currSum < dur) {
-            // Need to add more video_cut clips to match transcript duration (e.g., 10.0s) exactly
+            // Need to add more clips to match transcript duration (e.g., 10.0s) exactly
             const lastSrcStart = sanitizedVisuals[sanitizedVisuals.length - 1].source_start_seconds || 0;
             let needed = Number((dur - currSum).toFixed(2));
-            let stepOffset = 10;
+            let stepOffset = 15;
+            let autoIdx = sanitizedVisuals.length;
             while (needed > 0.05) {
               const clipDur = Number(Math.min(2.0, needed).toFixed(2));
+              const isMirror = autoIdx % 2 === 1;
               sanitizedVisuals.push({
-                type: 'video_cut',
+                type: isMirror ? 'mirror_cut' : 'video_cut',
+                mirror_mode: isMirror ? 'horizontal' : undefined,
                 duration: clipDur,
                 source_start_seconds: sanitizeSourceStart(lastSrcStart + stepOffset),
                 color_grading_shift: { contrast: 1.04, brightness: 0.005, saturation: 1.05 }
               });
-              stepOffset += 10;
+              stepOffset += 15;
+              autoIdx++;
               needed = Number((needed - clipDur).toFixed(2));
             }
           } else if (currSum > dur && dur > 0) {

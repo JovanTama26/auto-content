@@ -46,6 +46,7 @@ export type MappingIssueType =
   | 'INVALID_SOURCE_TIME'
   | 'TRANSCRIPT_SYNC_ERROR'
   | 'FAIR_USE_VARIETY_WARNING'
+  | 'SAMPLING_GAP_WARNING'
   | 'EMPTY_MAPPING';
 
 export interface MappingValidationIssue {
@@ -109,6 +110,16 @@ export function validateAlurfilmMapping(
   let totalMappingDuration = 0;
 
   const effectTypeCounts: Record<string, number> = {};
+  const allClipsFlat: Array<{
+    sentenceIndex: number;
+    clipIndex: number;
+    type: string;
+    sourceStart: number;
+    rawDur: number;
+    isMirrored: boolean;
+    isSlowMo: boolean;
+    slowMoFactor?: number;
+  }> = [];
 
   mappings.forEach((sentence, idx) => {
     const sNum = sentence.sentence_index ?? idx;
@@ -177,26 +188,53 @@ export function validateAlurfilmMapping(
           details: 'Disarankan membagi menjadi 2 klip dengan sudut berbeda agar penonton tetap antusias.',
           fixable: false,
         });
-      } else if (clip.type === 'video_cut' && cDur > 2.5) {
+      } else if ((clip.type === 'video_cut' || clip.type === 'mirror_cut') && cDur > 2.05) {
         issues.push({
           id: `long-raw-cut-dur-${sNum}-${clipIdx}`,
           type: 'INVALID_CLIP_DURATION',
           severity: 'warning',
           sentenceIndex: sNum,
           clipIndex: clipIdx,
-          message: `Kalimat #${sNum} klip #${clipIdx + 1}: Durasi video_cut normal melebihi batas aman Content ID (${cDur.toFixed(1)}s > 2.5s).`,
-          details: 'Gunakan slow_motion atau batasi video_cut maksimal 2.0 detik agar kebal deteksi copyright.',
+          message: `Kalimat #${sNum} klip #${clipIdx + 1}: Durasi potongan raw melebihi batas aman maksimal 2.0 detik (${cDur.toFixed(1)}s > 2.0s).`,
+          details: 'Gunakan slow_motion atau batasi video_cut/mirror_cut maksimal 2.0 detik agar kebal deteksi Content ID.',
           fixable: false,
         });
-      } else if (cDur > 6.5 && clip.type !== 'slow_motion' && clip.type !== 'freeze_frame_with_zoom') {
+      } else if (clip.type === 'slow_motion') {
+        const factor = typeof clip.slow_mo_factor === 'number' && clip.slow_mo_factor > 0 ? clip.slow_mo_factor : 0.35;
+        const rawDur = cDur * factor;
+        if (rawDur > 2.05) {
+          issues.push({
+            id: `long-slowmo-raw-dur-${sNum}-${clipIdx}`,
+            type: 'INVALID_CLIP_DURATION',
+            severity: 'warning',
+            sentenceIndex: sNum,
+            clipIndex: clipIdx,
+            message: `Kalimat #${sNum} klip #${clipIdx + 1}: Konsumsi raw slow motion melebihi batas aman 2.0 detik (${rawDur.toFixed(1)}s raw > 2.0s).`,
+            details: 'Perkecil faktor slow_mo atau perpendek durasi timeline agar raw footage tetap <= 2.0 detik.',
+            fixable: false,
+          });
+        }
+        if (factor > 0.35) {
+          issues.push({
+            id: `slowmo-factor-too-fast-${sNum}-${clipIdx}`,
+            type: 'FAIR_USE_VARIETY_WARNING',
+            severity: 'warning',
+            sentenceIndex: sNum,
+            clipIndex: clipIdx,
+            message: `Kalimat #${sNum} klip #${clipIdx + 1}: Faktor slow-mo (${factor}) kurang lambat untuk membongkar motion vector asli.`,
+            details: 'Disarankan menggunakan faktor 0.18 - 0.28 (ultra slow-motion) agar video kebal dari deteksi YouTube Content ID.',
+            fixable: false,
+          });
+        }
+      } else if (cDur > 4.5 && clip.type !== 'slow_motion' && clip.type !== 'freeze_frame_with_zoom') {
         issues.push({
           id: `long-clip-dur-${sNum}-${clipIdx}`,
           type: 'INVALID_CLIP_DURATION',
           severity: 'warning',
           sentenceIndex: sNum,
           clipIndex: clipIdx,
-          message: `Kalimat #${sNum} klip #${clipIdx + 1}: Durasi klip bergerak sangat panjang (${cDur.toFixed(1)}s > 6.5s).`,
-          details: 'Disarankan menggunakan slow_motion atau memecah klip agar alur visual bergerak lebih dinamis.',
+          message: `Kalimat #${sNum} klip #${clipIdx + 1}: Durasi klip bergerak sangat panjang (${cDur.toFixed(1)}s > 4.5s).`,
+          details: 'Disarankan menggunakan slow_motion atau memecah klip agar alur visual bergerak dinamis & raw footage <= 2.0s.',
           fixable: false,
         });
       } else if (clip.type === 'freeze_frame_with_zoom') {
@@ -207,7 +245,7 @@ export function validateAlurfilmMapping(
           sentenceIndex: sNum,
           clipIndex: clipIdx,
           message: `Kalimat #${sNum} klip #${clipIdx + 1}: Menggunakan freeze_frame_with_zoom (foto diam).`,
-          details: 'Sesuai konfigurasi baru, disarankan mengganti ke pure slow_motion (faktor 0.25-0.35) agar visual tidak kaku/macet.',
+          details: 'Sesuai konfigurasi baru, disarankan mengganti ke pure slow_motion (faktor 0.20-0.28) agar visual tidak kaku/macet.',
           fixable: true,
         });
       }
@@ -226,8 +264,43 @@ export function validateAlurfilmMapping(
             fixable: true,
           });
         }
+      } else {
+        const isMirrored = clip.mirror_mode === 'horizontal' || clip.type === 'mirror_cut';
+        let rawDur = cDur;
+        if (clip.type === 'slow_motion') {
+          const f = typeof clip.slow_mo_factor === 'number' && clip.slow_mo_factor > 0 ? clip.slow_mo_factor : 0.25;
+          rawDur = cDur * f;
+        }
+        allClipsFlat.push({
+          sentenceIndex: sNum,
+          clipIndex: clipIdx,
+          type: clip.type,
+          sourceStart,
+          rawDur,
+          isMirrored,
+          isSlowMo: clip.type === 'slow_motion',
+          slowMoFactor: clip.slow_mo_factor,
+        });
       }
     });
+
+    // Check visual_only mirror cut coverage
+    const isVisualOnly = (sentence as any).type === 'visual_only' || String(sentence.text || '').includes('VISUAL_ONLY');
+    if (isVisualOnly && sentence.visuals && sentence.visuals.length >= 2) {
+      const hasMirror = sentence.visuals.some((v) => v.type === 'mirror_cut' || v.mirror_mode === 'horizontal');
+      if (!hasMirror) {
+        issues.push({
+          id: `visual-only-no-mirror-${sNum}`,
+          type: 'FAIR_USE_VARIETY_WARNING',
+          severity: 'warning',
+          sentenceIndex: sNum,
+          clipIndex: null,
+          message: `Kalimat #${sNum} (visual_only): Seluruh klip tidak menggunakan efek mirror.`,
+          details: 'Disarankan menyelingi minimal 40%-50% klip dengan mirror_cut (horizontal) agar rangkaian potongan aksi tidak membentuk sekuens klip asli YouTube.',
+          fixable: false,
+        });
+      }
+    }
 
     // 3. Compare visual duration sum vs sentence VO duration
     const diff = Math.abs(sumVisualsDuration - voDuration);
@@ -259,6 +332,64 @@ export function validateAlurfilmMapping(
       }
     }
   });
+
+  // 4b. Check sampling gap across consecutive clips (Fix minimum: 5.0 seconds)
+  for (let i = 1; i < allClipsFlat.length; i++) {
+    const prev = allClipsFlat[i - 1];
+    const curr = allClipsFlat[i];
+    const step = curr.sourceStart - prev.sourceStart;
+    const absStep = Math.abs(step);
+
+    // Hard minimum 5.0s gap violation
+    if (absStep < 5.0) {
+      issues.push({
+        id: `hard-min-gap-violation-${curr.sentenceIndex}-${curr.clipIndex}`,
+        type: 'SAMPLING_GAP_WARNING',
+        severity: 'warning',
+        sentenceIndex: curr.sentenceIndex,
+        clipIndex: curr.clipIndex,
+        message: `Kalimat #${curr.sentenceIndex} klip #${curr.clipIndex + 1}: Jarak antar-klip terlalu dekat (${absStep.toFixed(1)}s < 5.0s). Jarak antar-klip mutlak minimal 5.0 detik fix!`,
+        details: 'Jarak 5.0 detik adalah batas paling minimum absolut (lebih jauh seperti 10s-35s jauh lebih bagus). Dilarang selisih < 5.0 detik.',
+        fixable: false,
+      });
+    } else if (step > 0 && step < 10.0 && !curr.isMirrored && !prev.isMirrored) {
+      issues.push({
+        id: `small-sampling-gap-${curr.sentenceIndex}-${curr.clipIndex}`,
+        type: 'SAMPLING_GAP_WARNING',
+        severity: 'warning',
+        sentenceIndex: curr.sentenceIndex,
+        clipIndex: curr.clipIndex,
+        message: `Kalimat #${curr.sentenceIndex} klip #${curr.clipIndex + 1}: Sampling gap agak rapat (${step.toFixed(1)}s < 10.0s) dan maju linier dari klip sebelumnya.`,
+        details: 'Disarankan melompat lebih jauh (+15s s/d +35s), retrograde jump mundur, atau aktifkan mirror_cut agar semakin kebal dari Content ID.',
+        fixable: false,
+      });
+    }
+  }
+
+  // 4c. Check for strictly monotonic linear forward runs (e.g. 1 -> 2 -> 3 -> 4)
+  let linearRun = 1;
+  for (let i = 1; i < allClipsFlat.length; i++) {
+    const prev = allClipsFlat[i - 1];
+    const curr = allClipsFlat[i];
+    if (curr.sourceStart > prev.sourceStart && (curr.sourceStart - prev.sourceStart) < 45) {
+      linearRun++;
+      if (linearRun >= 4) {
+        issues.push({
+          id: `linear-run-${curr.sentenceIndex}-${curr.clipIndex}`,
+          type: 'FAIR_USE_VARIETY_WARNING',
+          severity: 'warning',
+          sentenceIndex: curr.sentenceIndex,
+          clipIndex: curr.clipIndex,
+          message: `Terdeteksi 4+ klip maju linier berurutan (1 ➔ 2 ➔ 3 ➔ 4).`,
+          details: 'Disarankan menyambung klip secara kreatif dan dinamis (misal klip 3 ➔ klip 1 ➔ klip 2) dengan retrograde jump mundur agar urutan sekuensial film hancur dari Content ID.',
+          fixable: false,
+        });
+        linearRun = 1;
+      }
+    } else {
+      linearRun = 1;
+    }
+  }
 
   // 5. Fair-use variety check (if total clips >= 4)
   if (totalVisualClips >= 4) {
@@ -358,8 +489,8 @@ export function autoFixAlurfilmMapping(
         {
           type: 'slow_motion',
           duration: targetVoDur,
-          source_start_seconds: Number((idx * 3.5).toFixed(1)),
-          slow_mo_factor: 0.30,
+          source_start_seconds: Number((idx * 20.0).toFixed(1)),
+          slow_mo_factor: 0.25,
           color_grading_shift: { mode: 'normal', contrast: 1.04, brightness: 0.005, saturation: 1.05, gamma: 1.0 },
         },
       ];
@@ -368,7 +499,7 @@ export function autoFixAlurfilmMapping(
       sentence.visuals.forEach((clip, cIdx) => {
         if (clip.type === 'freeze_frame_with_zoom') {
           clip.type = 'slow_motion';
-          clip.slow_mo_factor = clip.slow_mo_factor || 0.35;
+          clip.slow_mo_factor = clip.slow_mo_factor || 0.25;
         }
         if (!clip.type || !VALID_VISUAL_TYPES.includes(clip.type)) {
           clip.type = cIdx % 2 === 0 ? 'slow_motion' : 'mirror_cut';

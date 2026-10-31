@@ -31,3 +31,14 @@ playwright/reports/
 .env
 .env.*
 !.env.example
+
+# Camoufox Profiles & Debug
+camoufox/profiles/*
+!camoufox/profiles/.gitkeep
+camoufox/debug/logs/*
+!camoufox/debug/logs/.gitkeep
+camoufox/debug/screenshots/*
+!camoufox/debug/screenshots/.gitkeep
+camoufox/debug/dom/*
+!camoufox/debug/dom/.gitkeep
+
