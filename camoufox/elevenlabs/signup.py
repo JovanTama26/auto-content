@@ -2,10 +2,12 @@
 import argparse
 import concurrent.futures
 import json
+import os
 import random
 import re
 import sys
 import time
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -215,20 +217,27 @@ def is_captcha_active(page) -> bool:
 
 def is_verification_screen(page) -> bool:
     """
-    Memeriksa apakah halaman sudah RESMI berubah ke layar 'Check your email'.
+    Memeriksa apakah halaman sudah RESMI berubah ke layar konfirmasi pengiriman link verifikasi.
     """
     try:
         body = (page.inner_text("body") or "").lower()
-        has_check_email = "check your email" in body
         has_sent_link = (
             "sent a verification link" in body
+            or "we've sent a verification link" in body
+            or "we've sent a verification" in body
             or "verification link to" in body
-            or page.locator('button:has-text("Resend")').count() > 0
+            or "we sent a verification" in body
+            or "sent an email" in body
+            or "check your email" in body
+            or "check your inbox" in body
+            or "check your spam or click resend" in body
+            or "click resend" in body
+            or page.locator('button:has-text("Resend"), a:has-text("Resend"), [role="button"]:has-text("Resend")').count() > 0
         )
         pass_inputs = page.locator('input[type="password"]')
         form_gone = pass_inputs.count() == 0 or not pass_inputs.first.is_visible()
 
-        return has_check_email and has_sent_link and form_gone
+        return has_sent_link or (form_gone and ("verify" in page.url.lower() or "action" in page.url.lower()))
     except Exception:
         return False
 
@@ -1234,35 +1243,41 @@ def run_full_flow(
                 except Exception as e:
                     print(f"[!] Warning saat klik submit: {e}")
 
-                try:
-                    password_input.focus()
-                    password_input.press("Enter")
-                except Exception:
-                    pass
-
-                try:
-                    page.evaluate('() => { const f = document.querySelector("form"); if (f) f.requestSubmit(); }')
-                except Exception:
-                    pass
-
                 dbg.snapshot(page, "03_signup_clicked", "Form signup disubmit")
 
-                print("[*] Menunggu konfirmasi email terkirim...")
+                print("[*] Menunggu respon pendaftaran & status captcha...")
                 verification_reached = False
                 captcha_alerted = False
                 wait_start = time.time()
                 max_wait_seconds = 180
-                last_retry = time.time()
 
                 while time.time() - wait_start < max_wait_seconds:
                     page.wait_for_timeout(1000)
 
+                    # 1. Cek apakah layar konfirmasi / Resend sudah terdeteksi di DOM
                     if is_verification_screen(page):
                         verification_reached = True
-                        print("[✓] Layar 'Check your email' terdeteksi secara valid!")
-                        dbg.snapshot(page, "04_verification_screen", "Layar Check your email terdeteksi")
+                        print("[✓] Layar konfirmasi pengiriman link verifikasi terdeteksi!")
+                        dbg.snapshot(page, "04_verification_screen", "Layar konfirmasi verifikasi terdeteksi")
                         break
 
+                    # 2. Cek apakah link verifikasi SUDAH tiba di server VPS (Fast-Track)
+                    if email.lower().endswith(f"@{DOMAIN}"):
+                        try:
+                            vps_check_url = f"http://43.129.43.29:8888/api/get-link?email={email}"
+                            chk_req = urllib.request.Request(vps_check_url, headers={"User-Agent": "Camoufox/1.0"})
+                            with urllib.request.urlopen(chk_req, timeout=2) as chk_resp:
+                                if chk_resp.status == 200:
+                                    chk_data = json.loads(chk_resp.read().decode("utf-8"))
+                                    if chk_data.get("status") == "found" and chk_data.get("verify_url"):
+                                        verification_reached = True
+                                        verify_url = chk_data["verify_url"]
+                                        print(f"[✓] Email verifikasi telah diterima di server VPS! Melanjutkan...")
+                                        break
+                        except Exception:
+                            pass
+
+                    # 3. Deteksi Captcha
                     if is_captcha_active(page):
                         if not captcha_alerted:
                             print("\n" + "!" * 65)
@@ -1274,30 +1289,36 @@ def run_full_flow(
                             captcha_alerted = True
                     else:
                         if captcha_alerted:
-                            print("[✓] Captcha ElevenLabs selesai diinput! Memeriksa respon form...")
+                            print("[✓] Captcha ElevenLabs selesai diinput! Memeriksa respon pengiriman link...")
                             captcha_alerted = False
 
-                    if not captcha_alerted and time.time() - last_retry > 5:
-                        if password_input.is_visible():
-                            print("[*] Belum ada respon form, mencoba trigger submit ulang via Enter & requestSubmit...")
-                            try:
-                                password_input.focus()
-                                password_input.press("Enter")
-                                page.evaluate('() => { const f = document.querySelector("form"); if (f) f.requestSubmit(); }')
-                            except Exception:
-                                pass
-                        last_retry = time.time()
-
+                    # 4. Deteksi Error
                     error_alerts = page.locator('[role="alert"], .text-red-500, .text-danger, .error-message')
                     if error_alerts.count() > 0:
                         for idx in range(error_alerts.count()):
                             err = error_alerts.nth(idx)
                             if err.is_visible():
                                 err_text = err.inner_text().strip()
-                                if err_text:
+                                if err_text and not is_verification_screen(page):
                                     print(f"[!] Respon: {err_text}")
                                     dbg.log(f"Respon error dari ElevenLabs: {err_text}", level="WARN")
                                     if "already exists" in err_text.lower() or "already registered" in err_text.lower():
+                                        # Cek sekali lagi ke server VPS barangkali baru saja terkirim
+                                        if email.lower().endswith(f"@{DOMAIN}"):
+                                            try:
+                                                chk_req = urllib.request.Request(f"http://43.129.43.29:8888/api/get-link?email={email}", headers={"User-Agent": "Camoufox/1.0"})
+                                                with urllib.request.urlopen(chk_req, timeout=3) as chk_resp:
+                                                    if chk_resp.status == 200:
+                                                        chk_data = json.loads(chk_resp.read().decode("utf-8"))
+                                                        if chk_data.get("status") == "found" and chk_data.get("verify_url"):
+                                                            verification_reached = True
+                                                            verify_url = chk_data["verify_url"]
+                                                            print(f"[✓] Akun sudah disubmit & link verifikasi ditemukan di VPS!")
+                                                            break
+                                            except Exception:
+                                                pass
+                                        if verification_reached:
+                                            break
                                         print("[!] Email sudah terdaftar sebelumnya.")
                                         save_account_record(email, password, status="already_registered")
                                         return False
@@ -1440,13 +1461,13 @@ def run_full_flow(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Automasi Lengkap Signup ElevenLabs dengan EmailOnDeck & Konfigurasi TTS via Camoufox"
+        description="Automasi Penuh Signup ElevenLabs via Camoufox (@riztama.my.id + VPS Mail API)"
     )
     parser.add_argument(
         "--email",
         type=str,
         default=None,
-        help="Target email. Jika kosong, otomatis mengambil email baru dari EmailOnDeck"
+        help="Target email spesifik (default: otomatis generate nama acak @riztama.my.id)"
     )
     parser.add_argument(
         "--password",
@@ -1455,9 +1476,14 @@ def main():
         help=f"Password (default: {DEFAULT_PASSWORD})"
     )
     parser.add_argument(
+        "--emailondeck",
+        action="store_true",
+        help="Gunakan EmailOnDeck alih-alih domain otomatis @riztama.my.id"
+    )
+    parser.add_argument(
         "--gmail",
         action="store_true",
-        help="Gunakan Gmail (@riztama.my.id) alih-alih EmailOnDeck"
+        help="Gunakan tab Gmail browser profil alih-alih server VPS"
     )
     parser.add_argument(
         "--manual-verify", "-m",
@@ -1474,7 +1500,7 @@ def main():
         "--profile",
         type=str,
         default=DEFAULT_PROFILE,
-        help=f"Profil Google/Gmail yang digunakan jika mode Gmail (default: {DEFAULT_PROFILE})"
+        help=f"Profil Google/Gmail yang digunakan jika fallback ke Gmail (default: {DEFAULT_PROFILE})"
     )
     parser.add_argument(
         "--login",
@@ -1484,7 +1510,7 @@ def main():
     parser.add_argument(
         "--headless",
         action="store_true",
-        help="Jalankan di background tanpa GUI (catatan: jika muncul captcha disarankan tanpa headless agar bisa diselesaikan)"
+        help="Jalankan di background tanpa GUI (catatan: disarankan GUI agar captcha bisa diselesaikan)"
     )
     parser.add_argument(
         "--generate-only",
@@ -1514,7 +1540,7 @@ def main():
     target_email = args.email
     target_password = args.password
     manual_verify_mode = args.manual_verify
-    use_eod = not args.gmail
+    use_eod = bool(args.emailondeck)
 
     if args.verify_url:
         target_email = args.email or "verified_account"
@@ -1537,18 +1563,24 @@ def main():
         print(f"Password       : {target_password}")
         return
     else:
-        # Jika tidak ada email dan tidak ada flag --gmail, secara default gunakan EmailOnDeck
-        if not target_email and not args.gmail:
-            use_eod = True
-            print("\n" + "=" * 65)
-            print("  ELEVENLABS SIGNUP - MODE EMAILONDECK")
-            print("=" * 65)
-            print("[*] Email akan diambil secara otomatis dari EmailOnDeck.")
-            print("[*] Captcha (jika muncul) dapat Anda selesaikan langsung di browser.")
-            print("=" * 65)
-        elif not target_email and args.gmail:
-            target_email = generate_random_email()
-            use_eod = False
+        # DEFAULT (Tanpa argumen): Otomatis generate email @riztama.my.id & ambil link via VPS API
+        if not target_email:
+            if use_eod:
+                print("\n" + "=" * 65)
+                print("  ELEVENLABS SIGNUP - MODE EMAILONDECK")
+                print("=" * 65)
+                print("[*] Email akan diambil secara otomatis dari EmailOnDeck.")
+                print("=" * 65)
+            else:
+                target_email = generate_random_email()
+                print("\n" + "=" * 65)
+                print("  ELEVENLABS SIGNUP - MODE SERBA OTOMATIS (@RIZTAMA.MY.ID)")
+                print("=" * 65)
+                print(f"[*] Target Email     : {target_email}")
+                print(f"[*] Password Default : {target_password}")
+                print(f"[*] Pengambilan Link : API Server VPS (http://43.129.43.29:8888/api/get-link)")
+                print(f"[*] TTS Model & Voice: Eleven v3 + Dany Saputra (Default Stability)")
+                print("=" * 65)
 
         if target_email and not target_email.lower().endswith(f"@{DOMAIN}"):
             manual_verify_mode = True

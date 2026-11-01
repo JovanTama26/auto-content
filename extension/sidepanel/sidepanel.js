@@ -2190,7 +2190,37 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (signupBtnText) signupBtnText.textContent = '1/5 Menyimpan ke DB...';
     setSignupStatus(`1/5 Menyimpan kredensial ${email} ke Supabase Cloud...`, 'warn');
 
+    let signupStepListener = null;
+
     try {
+      // Pasang listener real-time untuk Captcha & Progress dari tab ElevenLabs
+      signupStepListener = (msg) => {
+        if (msg.action === 'ELEVENLABS_FLOW_STEP') {
+          const { step, message } = msg.payload || {};
+          if (step === 'captcha_detected') {
+            setSignupStatus(`⚠️ CAPTCHA TERDETEKSI DI ELEVENLABS! Silakan selesaikan tantangan captcha di tab ElevenLabs...`, 'warn');
+            if (signupBtnText) signupBtnText.textContent = '⚠️ Selesaikan captcha di tab...';
+          } else if (step === 'captcha_solved') {
+            setSignupStatus(`✅ Captcha diselesaikan! Memantau konfirmasi pengiriman email verifikasi...`, 'warn');
+            if (signupBtnText) signupBtnText.textContent = '2/5 Memantau email terkirim...';
+          } else if (message) {
+            setSignupStatus(`[${(step || 'FLOW').toUpperCase()}] ${message}`, 'warn');
+          }
+        }
+        if (msg.action === 'ELEVENLABS_CAPTCHA_ALERT') {
+          if (msg.payload?.active) {
+            setSignupStatus(`⚠️ CAPTCHA TERDETEKSI DI ELEVENLABS! Silakan selesaikan tantangan captcha di tab browser ElevenLabs...`, 'warn');
+            if (signupBtnText) signupBtnText.textContent = '⚠️ Selesaikan captcha di tab...';
+          } else {
+            setSignupStatus(`✅ Captcha selesai diselesaikan! Memeriksa pengiriman link verifikasi...`, 'warn');
+          }
+        }
+      };
+
+      if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
+        chrome.runtime.onMessage.addListener(signupStepListener);
+      }
+
       // 1. Simpan ke Supabase (pending_verification)
       try {
         await window.SupabaseBridge.saveElevenLabsAccount({
@@ -2209,46 +2239,120 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (signupBtnText) signupBtnText.textContent = '2/5 Mendaftar di form...';
       setSignupStatus(`2/5 Mengisi form pendaftaran untuk ${email}...`, 'warn');
 
-      const signupRes = await chrome.runtime.sendMessage({
+      let verifyRes = null;
+      let signupTabId = null;
+
+      // Pantau VPS secara paralel (Fast-Track: jika link verifikasi sudah masuk ke server VPS,
+      // langsung ambil tanpa perlu menunggu atau tertahan di layar signup!)
+      let fastTrackFound = false;
+      const vpsFastTrackPromise = (async () => {
+        await sleep(2500); // beri jeda awal agar form sempat disubmit
+        const fastTrackStart = Date.now();
+        while (!fastTrackFound && Date.now() - fastTrackStart < 120000) {
+          try {
+            if (window.ElevenLabsVerify) {
+              const res = await window.ElevenLabsVerify.pollForVerifyUrl(email, {
+                initialDelayMs: 0,
+                maxWaitSeconds: 3,
+                pollIntervalMs: 1500,
+              }).catch(() => null);
+
+              if (res && res.verifyUrl) {
+                console.log('[Sidepanel] [⚡ Fast-Track VPS] Link verifikasi ditemukan di VPS server!', res.verifyUrl);
+                fastTrackFound = true;
+                return res;
+              }
+            }
+          } catch (e) { }
+          await sleep(2000);
+        }
+        return null;
+      })();
+
+      // Jalankan pendaftaran di tab ElevenLabs
+      const signupPromise = chrome.runtime.sendMessage({
         action: 'OPEN_AND_SIGNUP_ELEVENLABS',
         payload: { email, password },
       });
 
-      if (!signupRes || !signupRes.success) {
-        if (signupRes?.alreadyExists) {
-          setSignupStatus(`ℹ️ Akun ${email} sudah terdaftar. Melakukan login otomatis...`, 'warn');
-          await chrome.runtime.sendMessage({
-            action: 'NAVIGATE_ELEVENLABS_TAB',
-            payload: { tabId: signupRes.tabId, url: 'https://elevenlabs.io/app/sign-in' },
-          });
-          await sleep(2500);
-          await chrome.runtime.sendMessage({
-            action: 'EXECUTE_ELEVENLABS_SIGNIN',
-            payload: { email, password, tabId: signupRes.tabId },
-          });
-          await sleep(2500);
-        } else {
-          throw new Error(signupRes?.error || 'Gagal mengeksekusi pendaftaran akun di tab ElevenLabs.');
+      // Tunggu antara respon tab ElevenLabs ATAU Fast-track link verifikasi tiba di VPS!
+      const raceWinner = await Promise.race([
+        signupPromise.then((res) => ({ type: 'signup', data: res })),
+        vpsFastTrackPromise.then((res) => (res ? { type: 'vps', data: res } : new Promise(() => {}))),
+      ]);
+
+      if (raceWinner.type === 'vps') {
+        console.log('[Sidepanel] [✓] Link verifikasi berhasil didapatkan via fast-track VPS!');
+        verifyRes = raceWinner.data;
+        const allTabs = await chrome.tabs.query({ url: '*://*.elevenlabs.io/*' });
+        if (allTabs && allTabs.length > 0) {
+          signupTabId = allTabs[0].id;
+        }
+      } else {
+        fastTrackFound = true; // hentikan watcher fast track jika signupPromise sudah selesai
+        const signupRes = raceWinner.data;
+        signupTabId = signupRes?.tabId;
+
+        if (!signupRes || !signupRes.success) {
+          // Jika error duplicate / alreadyExists, cek apakah link verifikasi sebenarnya sudah ada di VPS
+          let existingVerify = null;
+          try {
+            existingVerify = await window.ElevenLabsVerify.pollForVerifyUrl(email, {
+              initialDelayMs: 500,
+              maxWaitSeconds: 6,
+              pollIntervalMs: 1500,
+              onProgress: (m) => setSignupStatus(`Memeriksa link verifikasi VPS (${m})...`, 'warn'),
+            });
+          } catch (e) { }
+
+          if (existingVerify && existingVerify.verifyUrl) {
+            console.log('[Sidepanel] [✓] Akun sudah disubmit & link verifikasi ditemukan di VPS!', existingVerify.verifyUrl);
+            verifyRes = existingVerify;
+          } else if (signupRes?.alreadyExists) {
+            setSignupStatus(`ℹ️ Akun ${email} sudah terdaftar & terverifikasi. Melakukan login otomatis...`, 'warn');
+            await chrome.runtime.sendMessage({
+              action: 'NAVIGATE_ELEVENLABS_TAB',
+              payload: { tabId: signupRes.tabId, url: 'https://elevenlabs.io/app/sign-in' },
+            });
+            await sleep(2500);
+            await chrome.runtime.sendMessage({
+              action: 'EXECUTE_ELEVENLABS_SIGNIN',
+              payload: { email, password, tabId: signupRes.tabId },
+            });
+            await sleep(2500);
+          } else {
+            throw new Error(signupRes?.error || 'Gagal mengeksekusi pendaftaran akun di tab ElevenLabs.');
+          }
         }
       }
 
-      // 3. Ambil link verifikasi langsung dari server VPS (tanpa Gmail!)
-      if (signupBtnText) signupBtnText.textContent = '3/5 Mengambil link verifikasi (VPS)...';
-      setSignupStatus(`3/5 Form terkirim! Mengambil link verifikasi otomatis dari VPS server...`, 'warn');
-
-      if (!window.ElevenLabsVerify) {
-        throw new Error('Modul ElevenLabsVerify belum terpasang.');
+      // Pastikan signupTabId terisi
+      if (!signupTabId) {
+        const tabs = await chrome.tabs.query({ url: '*://*.elevenlabs.io/*' });
+        if (tabs && tabs.length > 0) {
+          signupTabId = tabs[0].id;
+        }
       }
 
-      const verifyRes = await window.ElevenLabsVerify.pollForVerifyUrl(email, {
-        initialDelayMs: 1500,
-        maxWaitSeconds: 90,
-        pollIntervalMs: 2000,
-        onProgress: (msg) => setSignupStatus(`3/5 ${msg}`, 'warn'),
-      });
-
+      // 3. Ambil link verifikasi langsung dari server VPS (jika belum didapatkan via fast-track)
       if (!verifyRes || !verifyRes.verifyUrl) {
-        throw new Error('Link verifikasi tidak ditemukan di server VPS.');
+        if (signupBtnText) signupBtnText.textContent = '3/5 Mengambil link verifikasi (VPS)...';
+        setSignupStatus(`3/5 Layar konfirmasi terdeteksi! Mengambil link verifikasi otomatis dari VPS server...`, 'warn');
+
+        if (!window.ElevenLabsVerify) {
+          throw new Error('Modul ElevenLabsVerify belum terpasang.');
+        }
+
+        verifyRes = await window.ElevenLabsVerify.pollForVerifyUrl(email, {
+          initialDelayMs: 1000,
+          maxWaitSeconds: 90,
+          pollIntervalMs: 2000,
+          onProgress: (msg) => setSignupStatus(`3/5 ${msg}`, 'warn'),
+        });
+
+        if (!verifyRes || !verifyRes.verifyUrl) {
+          throw new Error('Link verifikasi tidak ditemukan di server VPS.');
+        }
       }
 
       // Simpan link verifikasi ke Supabase
@@ -2264,7 +2368,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         action: 'VERIFY_ELEVENLABS_ACCOUNT',
         payload: {
           verifyUrl: verifyRes.verifyUrl,
-          tabId: signupRes?.tabId,
+          tabId: signupTabId,
           email,
           password,
         },
@@ -2404,7 +2508,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           if (!ttsConfigAttempted) {
             ttsConfigAttempted = true;
             if (signupBtnText) signupBtnText.textContent = '5/5 Setup voice setting...';
-            setSignupStatus(`5/5 Mengonfigurasi Voice Setting (Dany Saputra, Eleven v3, Robust)...`, 'warn');
+            setSignupStatus(`5/5 Mengonfigurasi Voice Setting (Dany Saputra, Eleven v3, Stability Default)...`, 'warn');
             await sleep(1000);
 
             try {
@@ -2414,7 +2518,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                   tabId: currentTabId,
                   voiceName: 'Dany Saputra',
                   modelName: 'Eleven v3',
-                  stability: 'robust',
+                  stability: 'default',
                 },
               });
             } catch (cfgErr) {
@@ -2453,7 +2557,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
 
       setSignupStatus(
-        `🎉 SELESAI! Akun ${email} aktif, onboarding dilewati, dan Voice Setting (Dany Saputra + Eleven v3 + Robust) telah siap! Silakan salin naskah narasi di bawah.`,
+        `🎉 SELESAI! Akun ${email} aktif, onboarding dilewati, dan Voice Setting (Dany Saputra + Eleven v3 + Stability Default) telah siap! Silakan salin naskah narasi di bawah.`,
         'success'
       );
 
@@ -2465,6 +2569,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       console.error('[ElevenLabs Flow Error]', err);
       setSignupStatus(`❌ Gagal: ${err.message}`, 'error');
     } finally {
+      if (signupStepListener && typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
+        chrome.runtime.onMessage.removeListener(signupStepListener);
+      }
       isSigningUpElevenLabs = false;
       if (btnAutoSignupElevenLabs) btnAutoSignupElevenLabs.disabled = false;
       if (signupSpinner) signupSpinner.classList.add('hidden');
@@ -2636,7 +2743,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
           if (!ttsConfigAttempted) {
             ttsConfigAttempted = true;
-            setSignupStatus(`3/3 Menyiapkan Voice Setting (Dany Saputra, Eleven v3, Robust)...`, 'warn');
+            setSignupStatus(`3/3 Menyiapkan Voice Setting (Dany Saputra, Eleven v3, Stability Default)...`, 'warn');
             await sleep(1000);
             try {
               await chrome.runtime.sendMessage({
@@ -2645,7 +2752,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                   tabId: currentTabId,
                   voiceName: 'Dany Saputra',
                   modelName: 'Eleven v3',
-                  stability: 'robust',
+                  stability: 'default',
                 },
               });
             } catch (cfgErr) {

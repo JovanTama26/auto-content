@@ -183,6 +183,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
   }
 
+  // 1b. Modul Notifikasi Captcha ElevenLabs (Fokuskan tab & window agar pengguna dapat menyelesaikannya langsung)
+  if (message.action === 'ELEVENLABS_CAPTCHA_ALERT') {
+    (async () => {
+      try {
+        if (sender.tab?.id && message.payload?.active) {
+          await chrome.tabs.update(sender.tab.id, { active: true });
+          if (sender.tab.windowId) {
+            await chrome.windows.update(sender.tab.windowId, { focused: true });
+          }
+        }
+      } catch (e) { }
+    })();
+  }
+
   // 2. Modul ElevenLabs Signup Automation
   if (message.action === 'OPEN_AND_SIGNUP_ELEVENLABS') {
     (async () => {

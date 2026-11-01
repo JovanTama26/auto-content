@@ -5,10 +5,10 @@
 
 const NINEROUTER_BASE_URL = process.env.AI_BASE_URL || 'https://9router.riztama.my.id/v1';
 const NINEROUTER_API_KEY = process.env.AI_API_KEY || 'sk-6b3ac6ef8e3b70c9-eyxuxt-7adfd291';
-const DEFAULT_MODEL = 'cx/gpt-5.5';
+const DEFAULT_MODEL = process.env.AI_MODEL || 'ag/gemini-3.8-flash-high';
 
 function resolveModelName(model) {
-  if (!model) return 'ag/gemini-3-flash-agent';
+  if (!model) return DEFAULT_MODEL;
   return model;
 }
 

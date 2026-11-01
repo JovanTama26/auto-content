@@ -444,6 +444,8 @@ export interface ElectronAPI {
     error?: string;
   }>;
   resetFacelessState?: () => Promise<{ success: boolean; error?: string }>;
+  lockFacelessProject?: () => Promise<{ success: boolean; data?: FacelessProjectState; error?: string }>;
+  unlockFacelessProject?: () => Promise<{ success: boolean; data?: FacelessProjectState; error?: string }>;
 
   // Humanologi Helpers (Prompt, Narration JSON, and Audio)
   getHumanologiPrompt?: () => Promise<{ success: boolean; prompt?: string; error?: string }>;
@@ -577,11 +579,54 @@ export interface FacelessChatMessage {
   at?: string;
 }
 
+export type FacelessStage =
+  | 'idea_discussion'
+  | 'duration_discussion'
+  | 'outline_discussion'
+  | 'narration_discussion';
+
+export interface FacelessDuration {
+  label: string;
+  seconds: number;
+  format: 'short' | 'long' | null;
+}
+
+export interface FacelessNarrationOutline {
+  hook?: string;
+  plan?: string;
+  failure?: string;
+  improvisation?: string;
+  stakes?: string;
+  twist?: string;
+  cliffhanger?: string;
+  notes?: string;
+}
+
+export interface FacelessMemory {
+  summary: string;
+  key_points: string[];
+  user_preferences: string[];
+  draft_script?: string;
+  narration_outline: FacelessNarrationOutline;
+}
+
+export interface FacelessNarration {
+  status: 'discussing' | 'ready' | null;
+  draft_script?: string;
+  outline?: FacelessNarrationOutline;
+  updated_at?: string;
+}
+
 export interface FacelessProjectState {
   version: number;
-  stage: 'idea_discussion' | 'idea_ready';
+  stage: FacelessStage;
+  is_locked?: boolean;
+  locked_at?: string | null;
   idea_source: 'user' | 'agent' | null;
   idea: FacelessIdea | null;
+  duration: FacelessDuration | null;
+  narration: FacelessNarration | null;
+  memory?: FacelessMemory;
   chat_history: FacelessChatMessage[];
   created_at: string;
   updated_at: string;
@@ -589,8 +634,15 @@ export interface FacelessProjectState {
 
 export interface FacelessAgentChatResult {
   reply: string;
+  stage: FacelessStage;
+  is_locked?: boolean;
   idea_ready: boolean;
   idea: FacelessIdea | null;
+  duration_ready: boolean;
+  duration: FacelessDuration | null;
+  draft_script?: string;
+  memory?: FacelessMemory;
+  narration?: FacelessNarration | null;
   suggested_actions: string[];
   state: FacelessProjectState;
 }

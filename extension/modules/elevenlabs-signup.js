@@ -267,7 +267,108 @@
     },
 
     /**
+     * Memeriksa apakah modal/tantangan hCaptcha, Turnstile, atau reCAPTCHA sedang aktif di layar.
+     * PERSIS SEPERTI is_captcha_active DI CAMOUFOX (camoufox/elevenlabs/signup.py:186-213)
+     */
+    isCaptchaActive() {
+      try {
+        const challengeFrames = Array.from(document.querySelectorAll(
+          'iframe[src*="hcaptcha.com"][src*="frame=challenge"], ' +
+          'iframe[title*="hCaptcha challenge" i], ' +
+          'iframe[title*="challenge" i], ' +
+          'iframe[src*="challenges.cloudflare.com"], ' +
+          'iframe[src*="google.com/recaptcha"], ' +
+          'iframe[src*="recaptcha"]'
+        ));
+        for (const frame of challengeFrames) {
+          if (isElementVisible(frame)) {
+            return true;
+          }
+        }
+
+        const hcaptchaBoxes = Array.from(document.querySelectorAll('div[class*="h-captcha"], div[class*="hcaptcha"], div[id*="hcaptcha"]'));
+        for (const box of hcaptchaBoxes) {
+          if (isElementVisible(box)) {
+            const iframe = box.querySelector('iframe');
+            if (iframe && isElementVisible(iframe)) {
+              const resp = document.querySelector('textarea[name="h-captcha-response"], input[name="h-captcha-response"]');
+              if (!resp || !resp.value || resp.value.length < 20) {
+                return true;
+              }
+            }
+          }
+        }
+
+        const content = (document.body?.innerText || '').toLowerCase();
+        if (
+          content.includes('please drag one of the shapes') ||
+          content.includes('please click each image') ||
+          (content.includes('hcaptcha') && content.includes('challenge')) ||
+          content.includes('verify you are human') ||
+          content.includes('verifying you are human') ||
+          content.includes('confirm you are human')
+        ) {
+          return true;
+        }
+      } catch (e) { }
+      return false;
+    },
+
+    /**
+     * Memeriksa apakah halaman sudah RESMI berubah ke layar konfirmasi link verifikasi.
+     * Mendeteksi "We've sent a verification link to...", tombol "Resend", atau teks konfirmasi email.
+     */
+    isVerificationScreen() {
+      try {
+        const body = (document.body?.innerText || '').toLowerCase();
+
+        // 1. Cek apakah ada teks indikasi pengiriman link verifikasi (persis tampilan ElevenLabs)
+        const hasSentLink =
+          body.includes('sent a verification link') ||
+          body.includes("we've sent a verification link") ||
+          body.includes("we've sent a verification") ||
+          body.includes('verification link to') ||
+          body.includes('we sent a verification') ||
+          body.includes('sent an email') ||
+          body.includes('check your email') ||
+          body.includes('check your inbox') ||
+          body.includes('check your spam or click resend') ||
+          body.includes('click resend') ||
+          (body.includes('verification link') && body.includes('spam'));
+
+        // 2. Cek apakah tombol Resend muncul (indikasi 100% email sudah terkirim)
+        const allInteractive = Array.from(document.querySelectorAll('button, a, [role="button"], div, span'));
+        const hasResendBtn = allInteractive.some(b => {
+          if (!isElementVisible(b)) return false;
+          const t = (b.innerText || b.textContent || '').trim().toLowerCase();
+          return t === 'resend';
+        });
+
+        // 3. Cek apakah input password sudah hilang dari layar
+        const passInputs = Array.from(document.querySelectorAll('input[type="password"]')).filter(isElementVisible);
+        const formGone = passInputs.length === 0;
+
+        // 4. Cek URL
+        const isVerifyUrl = window.location.href.includes('verify') || window.location.href.includes('confirm');
+
+        // Jika tombol Resend terlihat, atau teks link terkirim terdeteksi -> SUKSES
+        if (hasResendBtn || hasSentLink) {
+          return true;
+        }
+
+        if (formGone && (body.includes('verification') || body.includes('verify'))) {
+          return true;
+        }
+
+        return isVerifyUrl;
+      } catch (e) {
+        return false;
+      }
+    },
+
+    /**
      * Jalankan proses otomatisasi signup awal
+     * Mencegah race condition: submit hanya 1x, pantau hCaptcha, lalu pantau pengiriman link verifikasi.
      */
     async executeSignup({ email, password }) {
       if (!email || !password) {
@@ -332,65 +433,115 @@
         submitBtn.disabled = false;
       }
 
-      console.log('[ElevenLabsSignup] Mengklik tombol Sign up spesifik:', submitBtn);
+      // 5b. KLIK SUBMIT HANYA 1 KALI (Mencegah double submit & race condition pemicu captcha ganda!)
+      console.log('[ElevenLabsSignup] Mengklik tombol Sign up (hanya 1x tunggal):', submitBtn);
       triggerNativeClick(submitBtn);
-      try { submitBtn.click(); } catch (e) { }
 
-      try {
-        passwordInput.focus();
-        passwordInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
-      } catch (e) { }
+      // 6. Pantau alur: cek apakah ada hCaptcha? Jika ada -> tunggu diselesaikan -> cek email terkirim -> selesai & lanjut API
+      console.log('[ElevenLabsSignup] [*] Memantau respon pendaftaran, status hCaptcha, dan konfirmasi email...');
+      this.reportStep('signup', 'Memantau respon pendaftaran & status captcha...');
 
-      try {
-        const formEl = document.querySelector('form');
-        if (formEl && typeof formEl.requestSubmit === 'function') formEl.requestSubmit();
-      } catch (e) { }
+      let verificationReached = false;
+      let captchaAlerted = false;
+      const waitStart = Date.now();
+      const maxWaitMs = 180000; // 180 detik
 
-      // 6. Pantau indikasi pengiriman / verifikasi
-      let statusResult = {
-        success: true,
-        email,
-        message: 'Tombol Sign up berhasil diklik. Permintaan verifikasi terkirim.',
-        details: 'Menunggu konfirmasi verifikasi email dari ElevenLabs.',
-      };
+      while (Date.now() - waitStart < maxWaitMs) {
+        await sleep(800);
 
-      const monitorStart = Date.now();
-      while (Date.now() - monitorStart < 12000) {
-        await sleep(600);
+        // A. Cek apakah layar verifikasi email sudah tercapai (Prioritas Utama)
+        if (this.isVerificationScreen()) {
+          verificationReached = true;
+          console.log('[ElevenLabsSignup] [✓✓✓] Layar konfirmasi "We\'ve sent a verification link" / Resend terdeteksi secara valid!');
+          this.reportStep('signup', '✅ Link verifikasi berhasil dikirim oleh ElevenLabs!');
+          break;
+        }
 
-        const errorNodes = document.querySelectorAll('[role="alert"], .tw-text-red-500, .text-danger, .error-message');
-        for (const err of errorNodes) {
-          const errTxt = err.innerText?.trim();
-          if (errTxt && errTxt.length > 3 && !errTxt.toLowerCase().includes('password')) {
-            if (
-              errTxt.toLowerCase().includes('already exists') ||
-              errTxt.toLowerCase().includes('already registered') ||
-              errTxt.toLowerCase().includes('user already exists')
-            ) {
-              console.log('[ElevenLabsSignup] ℹ️ Akun ini sudah terdaftar sebelumnya di ElevenLabs.');
-              return { success: false, alreadyExists: true, error: errTxt };
+        // B. Cek apakah ada tantangan captcha (hCaptcha / Turnstile)
+        if (this.isCaptchaActive()) {
+          if (!captchaAlerted) {
+            console.warn('\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
+            console.warn('  [!] CAPTCHA TERDETEKSI DI ELEVENLABS!');
+            console.warn('  [!] Silakan selesaikan tantangan captcha di jendela browser.');
+            console.warn('  [!] Ekstensi sedang MENUNGGU Anda menyelesaikan captcha...');
+            console.warn('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n');
+            this.reportStep(
+              'captcha_detected',
+              '⚠️ CAPTCHA TERDETEKSI DI ELEVENLABS! Silakan selesaikan tantangan captcha di tab browser...'
+            );
+            if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+              chrome.runtime.sendMessage({
+                action: 'ELEVENLABS_CAPTCHA_ALERT',
+                payload: { email, active: true },
+              }).catch(() => { });
             }
-            throw new Error(`ElevenLabs Error: ${errTxt}`);
+            captchaAlerted = true;
+          }
+        } else {
+          if (captchaAlerted) {
+            console.log('[ElevenLabsSignup] [✓] Captcha ElevenLabs selesai diinput! Menunggu respon server...');
+            this.reportStep(
+              'captcha_solved',
+              '✅ Captcha selesai! Memeriksa pengiriman link verifikasi...'
+            );
+            if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+              chrome.runtime.sendMessage({
+                action: 'ELEVENLABS_CAPTCHA_ALERT',
+                payload: { email, active: false },
+              }).catch(() => { });
+            }
+            captchaAlerted = false;
           }
         }
 
-        const bodyText = document.body.innerText || '';
-        if (
-          bodyText.toLowerCase().includes('verify your email') ||
-          bodyText.toLowerCase().includes('check your inbox') ||
-          bodyText.toLowerCase().includes('sent an email') ||
-          bodyText.toLowerCase().includes('we sent a verification') ||
-          window.location.href.includes('verify') ||
-          window.location.href.includes('confirm')
-        ) {
-          console.log('[ElevenLabsSignup] ✅ Halaman konfirmasi verifikasi email terdeteksi!');
-          statusResult.message = `Berhasil mendaftar! Link verifikasi telah dikirim ke ${email}.`;
-          statusResult.verifiedScreen = true;
-          break;
+        // C. Cek pesan error dari form HANYA jika bukan layar verifikasi yang valid
+        if (!this.isVerificationScreen()) {
+          const errorNodes = document.querySelectorAll('[role="alert"], .tw-text-red-500, .text-danger, .error-message');
+          for (const err of errorNodes) {
+            if (!isElementVisible(err)) continue;
+            const errTxt = err.innerText?.trim();
+            if (errTxt && errTxt.length > 3 && !errTxt.toLowerCase().includes('password')) {
+              // Jika bersamaan dengan ada indikasi link verifikasi terkirim, abaikan pesan error duplikasi
+              if (this.isVerificationScreen()) {
+                verificationReached = true;
+                break;
+              }
+              console.warn('[ElevenLabsSignup] [!] Respon error:', errTxt);
+              if (
+                errTxt.toLowerCase().includes('already exists') ||
+                errTxt.toLowerCase().includes('already registered') ||
+                errTxt.toLowerCase().includes('user already exists')
+              ) {
+                const currentBody = (document.body?.innerText || '').toLowerCase();
+                if (
+                  currentBody.includes('sent a verification link') ||
+                  currentBody.includes('resend') ||
+                  this.isVerificationScreen()
+                ) {
+                  console.log('[ElevenLabsSignup] [✓] Akun terdeteksi duplikasi namun link verifikasi terkonfirmasi terkirim!');
+                  verificationReached = true;
+                  break;
+                }
+                console.log('[ElevenLabsSignup] [!] Email sudah terdaftar sebelumnya.');
+                return { success: false, alreadyExists: true, error: errTxt };
+              }
+              throw new Error(`ElevenLabs Error: ${errTxt}`);
+            }
+          }
+          if (verificationReached) break;
         }
       }
 
-      return statusResult;
+      if (!verificationReached) {
+        throw new Error('Waktu tunggu verifikasi signup habis (timeout 180 detik). Link verifikasi belum terkonfirmasi.');
+      }
+
+      return {
+        success: true,
+        email,
+        verifiedScreen: true,
+        message: `Berhasil mendaftar! Link verifikasi telah dikirim ke ${email}.`,
+      };
     },
 
     /**
@@ -1233,8 +1384,8 @@
         this.dismissAllModals();
       }
 
-      console.log('[ElevenLabsTTS] 🎛️ Mengonfigurasi model & voice di Text-to-Speech (Eleven v3, Dany Saputra, Stability Robust)...');
-      this.reportStep('tts_config', 'Mengonfigurasi Model Eleven v3 & Voice Dany Saputra...');
+      console.log('[ElevenLabsTTS] 🎛️ Mengonfigurasi model & voice di Text-to-Speech (Eleven v3, Dany Saputra, Stability Default)...');
+      this.reportStep('tts_config', 'Mengonfigurasi Model Eleven v3 & Voice Dany Saputra (Stability Default)...');
 
       let cfgSuccess = false;
       for (let attempt = 1; attempt <= 3; attempt++) {
@@ -1243,7 +1394,7 @@
           const cfgRes = await this.configureTTS({
             voiceName: 'Dany Saputra',
             modelName: 'Eleven v3',
-            stability: 'robust',
+            stability: 'default',
           });
           if (cfgRes && cfgRes.success) {
             cfgSuccess = true;
@@ -1560,7 +1711,7 @@
 
     /**
      * Cari tombol Voice selector di halaman TTS
-     * PERSIS SEPERTI getVoiceSelector DI CAMOUFOX (camoufox/elevenlabs/configure_tts.py)
+     * PERSIS SEPERTI getVoiceSelector DI CAMOUFOX (camoufox/elevenlabs/configure_tts.py:207-233)
      */
     getVoiceSelector() {
       let voiceSelector = document.querySelector('[data-testid="tts-voice-selector"]');
@@ -1570,8 +1721,13 @@
         if (labelEl) {
           let parent = labelEl.parentElement;
           for (let i = 0; i < 4 && parent; i++) {
-            const btn = parent.querySelector('button, [role="button"], [tabindex="0"]');
-            if (btn && btn !== labelEl) {
+            const btns = Array.from(parent.querySelectorAll('button, [role="button"], [tabindex="0"]'));
+            const btn = btns.find(b => {
+              if (b === labelEl) return false;
+              const bTxt = (b.innerText || b.textContent || '').trim().toLowerCase();
+              return !bTxt.includes('recommend') && !bTxt.includes('preset') && !bTxt.includes('filter');
+            });
+            if (btn) {
               voiceSelector = btn;
               break;
             }
@@ -1589,9 +1745,13 @@
               txt.includes('saputra') ||
               txt.includes('roger') ||
               txt.includes('rachel') ||
+              txt.includes('charlie') ||
+              txt.includes('george') ||
+              txt.includes('brian') ||
               txt.includes('dominant')) &&
             !txt.includes('design') &&
-            !txt.includes('settings')
+            !txt.includes('settings') &&
+            !txt.includes('recommend')
           );
         });
       }
@@ -1622,7 +1782,7 @@
       const currentText = (voiceSelector.innerText || voiceSelector.textContent || voiceSelector.getAttribute('aria-label') || '').trim().toLowerCase();
       console.log(`[ElevenLabsTTS] [*] Voice saat ini terdeteksi: '${currentText}'`);
 
-      if (currentText.includes(targetVoice.toLowerCase())) {
+      if (currentText.includes(targetVoice.toLowerCase()) || (currentText.includes('dany') && currentText.includes('saputra'))) {
         console.log(`[ElevenLabsTTS] [✓] Voice sudah aktif di '${targetVoice}'.`);
         return true;
       }
@@ -1632,40 +1792,45 @@
       triggerNativeClick(voiceSelector);
       await sleep(1500);
 
-      // Helper untuk mencari input pencarian voice di dalam dialog/popover (HINDARI navbar "Search everything")
+      // Helper untuk mencari input pencarian voice (HINDARI navbar "Search everything", persis Camoufox)
       const findVoiceSearchInput = () => {
-        const dialog = document.querySelector('[role="dialog"], [data-state="open"], div[aria-modal="true"]');
-        const root = dialog || document;
-        const inputs = Array.from(root.querySelectorAll('input')).filter(isElementVisible);
+        const inputs = Array.from(document.querySelectorAll('input')).filter(isElementVisible);
         return inputs.find(inp => {
           const ph = (inp.getAttribute('placeholder') || '').toLowerCase();
-          return (ph.includes('typing to search') || ph.includes('search') || ph.includes('find')) &&
-                 !ph.includes('everything');
+          const aria = (inp.getAttribute('aria-label') || '').toLowerCase();
+          return (
+            (ph.includes('typing to search') || ph.includes('search') || aria.includes('search') || ph.includes('find')) &&
+            !ph.includes('everything') &&
+            !aria.includes('everything')
+          );
         });
       };
 
-      // 3. Ketik nama voice di kolom pencarian
+      // 3. Ketik nama voice di kolom pencarian (persis Camoufox:631-646)
       let searchInput = findVoiceSearchInput();
       if (searchInput) {
         console.log(`[ElevenLabsTTS] [*] Mengetik '${targetVoice}' pada kolom pencarian voice...`);
         setReactInputValue(searchInput, targetVoice);
         searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+        searchInput.dispatchEvent(new Event('change', { bubbles: true }));
+        searchInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+        searchInput.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
       } else {
         console.warn('[ElevenLabsTTS] [!] Kolom pencarian voice tidak ditemukan di popover.');
       }
       await sleep(1500);
 
-      // 4. Helper untuk mencari kartu, hover, dan klik tombol + Use
+      // 4. Helper untuk mencari kartu, hover, dan klik tombol + Use (persis Camoufox:656-737)
       const selectVoiceCard = async () => {
-        const dialog = document.querySelector('[role="dialog"], [data-state="open"], div[aria-modal="true"]');
-        const root = dialog || document;
-        const allItems = Array.from(root.querySelectorAll(
+        const allItems = Array.from(document.querySelectorAll(
           'li, [role="listitem"], [role="option"], [data-radix-collection-item], div[role="button"], button'
         )).filter(isElementVisible);
 
         const matching = allItems.filter(el => {
           const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
-          return txt.includes(targetVoice.toLowerCase()) && !txt.includes('typing to search') && !txt.includes('everything');
+          return (txt.includes(targetVoice.toLowerCase()) || (txt.includes('dany') && txt.includes('saputra'))) &&
+                 !txt.includes('typing to search') &&
+                 !txt.includes('everything');
         });
 
         if (matching.length === 0) return false;
@@ -1705,7 +1870,7 @@
         };
 
         const allButtons = Array.from(cardContainer.querySelectorAll('button')).concat(
-          Array.from(root.querySelectorAll('button'))
+          Array.from(document.querySelectorAll('[role="dialog"] button, [data-state="open"] button, button')).filter(isElementVisible)
         );
 
         let useBtn = allButtons.find(b => {
@@ -1752,18 +1917,18 @@
 
       let voiceSelected = await selectVoiceCard();
 
-      // Jika tidak ditemukan di tab aktif (My Voices), beralih ke tab Explore (persis Camoufox)
+      // Jika tidak ditemukan di tab aktif (My Voices), coba beralih ke tab Explore (persis Camoufox:741-773)
       if (!voiceSelected) {
         console.log('[ElevenLabsTTS] [*] Voice belum ditemukan di tab default, mencoba beralih ke tab Explore...');
-        const dialog = document.querySelector('[role="dialog"], [data-state="open"], div[aria-modal="true"]');
-        const root = dialog || document;
-
-        const exploreTab = Array.from(root.querySelectorAll('button, [role="tab"]')).find(t => {
+        const exploreTab = Array.from(document.querySelectorAll('button, [role="tab"], div[role="tab"], a')).find(t => {
           const txt = (t.innerText || t.textContent || '').trim().toLowerCase();
-          return (txt === 'explore' || txt.includes('explore new voices')) && isElementVisible(t);
+          return (txt === 'explore' || txt.includes('explore new voices') || txt.includes('explore voices') || txt.includes('explore')) &&
+                 !txt.includes('setting') &&
+                 isElementVisible(t);
         });
 
         if (exploreTab) {
+          console.log('[ElevenLabsTTS] [✓] Mengklik tab Explore...');
           triggerNativeClick(exploreTab);
           try { exploreTab.click(); } catch (e) { }
           await sleep(1500);
@@ -1773,27 +1938,45 @@
             console.log(`[ElevenLabsTTS] [*] Mengetik '${targetVoice}' di tab Explore...`);
             setReactInputValue(searchInput, targetVoice);
             searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+            searchInput.dispatchEvent(new Event('change', { bubbles: true }));
+            searchInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+            searchInput.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
             await sleep(1500);
           }
 
-          voiceSelected = await selectVoiceCard();
+          // Polling mencari kartu di Explore tab karena memuat via API (10x 500ms)
+          for (let poll = 0; poll < 10; poll++) {
+            await sleep(500);
+            voiceSelected = await selectVoiceCard();
+            if (voiceSelected) break;
+          }
         }
       }
 
       await sleep(1200);
 
-      // 5. Konfirmasi dialog jika ada ("Add to Voice Lab" / "Use voice" / "Done")
+      // 5. Konfirmasi dialog jika ada ("Add to Voice Lab" / "Use voice" / "Done") (persis Camoufox:775-785)
       const confirmBtn = Array.from(document.querySelectorAll('button')).find(b => {
         const t = (b.innerText || b.textContent || '').toLowerCase();
-        return (t.includes('add voice') || t.includes('use voice') || t.includes('finish') || t.includes('done')) && isElementVisible(b);
+        return (
+          t.includes('add voice') ||
+          t.includes('use voice') ||
+          t.includes('add to voice lab') ||
+          t.includes('add to voicelab') ||
+          t.includes('finish') ||
+          t.includes('done') ||
+          t === 'add' ||
+          t === 'use'
+        ) && isElementVisible(b);
       });
       if (confirmBtn) {
+        console.log('[ElevenLabsTTS] Mengklik konfirmasi dialog voice:', confirmBtn.innerText);
         triggerNativeClick(confirmBtn);
         try { confirmBtn.click(); } catch (e) { }
       }
       await sleep(800);
 
-      // 6. Tutup panel jika masih terbuka (Back atau Escape)
+      // 6. Tutup panel jika masih terbuka (Back atau Escape) (persis Camoufox:788-797)
       const backBtn = document.querySelector('button[aria-label="Back"], button[aria-label*="back" i]');
       if (backBtn && isElementVisible(backBtn)) {
         triggerNativeClick(backBtn);
@@ -1805,27 +1988,33 @@
 
       this.dismissAllModals();
 
-      // 7. Verifikasi akhir (persis Camoufox loop 6x)
+      // 7. Verifikasi akhir (persis Camoufox loop 6x:801-819)
       let verifyStatus = '';
       for (let attempt = 0; attempt < 6; attempt++) {
         await sleep(500);
         const sel = this.getVoiceSelector();
         verifyStatus = (sel?.innerText || sel?.textContent || '').trim().toLowerCase();
-        if (verifyStatus.includes(targetVoice.toLowerCase())) {
+        if (verifyStatus.includes(targetVoice.toLowerCase()) || (verifyStatus.includes('dany') && verifyStatus.includes('saputra'))) {
           console.log(`[ElevenLabsTTS] [✓✓✓] Voice berhasil diubah ke '${targetVoice}'!`);
           return true;
         }
       }
 
       console.warn(`[ElevenLabsTTS] [!] Peringatan: Voice akhir masih terbaca '${verifyStatus}'.`);
-      return verifyStatus.includes(targetVoice.toLowerCase());
+      return verifyStatus.includes(targetVoice.toLowerCase()) || (verifyStatus.includes('dany') && verifyStatus.includes('saputra'));
     },
 
     /**
-     * Mengatur Stability Slider ke Robust (1.0 / 100%)
+     * Stability di ElevenLabs dibiarkan default (balanced di tengah)
+     * PERSIS SEPERTI DI CAMOUFOX (camoufox/elevenlabs/configure_tts.py:835 & 843)
      */
-    async setStability(target = 'robust') {
-      // Cari slider Stability secara presisi (hindari salah memilih timeline player audio)
+    async setStability(target = 'default') {
+      if (!target || target === 'default' || target === 'balanced' || target === 'middle') {
+        console.log('[ElevenLabsTTS] [*] Stability dibiarkan default (balanced di tengah) sesuai konfigurasi Camoufox.');
+        return true;
+      }
+
+      // Jika secara eksplisit meminta 'robust'
       let slider = null;
       for (let w = 0; w < 10; w++) {
         slider = document.querySelector(
@@ -1851,7 +2040,6 @@
         await sleep(600);
       }
 
-      // Klik label "Robust" secara langsung jika elemen teks dapat memicu slider snap
       const allSpans = Array.from(document.querySelectorAll('span, div, p, label'));
       const robustLabel = allSpans.find(el => (el.innerText || '').trim().toLowerCase() === 'robust');
       if (robustLabel) {
@@ -1872,42 +2060,23 @@
           sliderThumb.focus();
           sliderThumb.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', keyCode: 35, bubbles: true }));
           sliderThumb.dispatchEvent(new KeyboardEvent('keyup', { key: 'End', keyCode: 35, bubbles: true }));
-          for (let i = 0; i < 5; i++) {
-            sliderThumb.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', keyCode: 39, bubbles: true }));
-            sliderThumb.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowRight', keyCode: 39, bubbles: true }));
-          }
-
-          const track = slider.closest('[data-orientation="horizontal"]') || sliderThumb.parentElement || slider;
-          if (track) {
-            const rect = track.getBoundingClientRect();
-            const clientX = rect.right - 2;
-            const clientY = rect.top + rect.height / 2;
-            const opts = { bubbles: true, cancelable: true, clientX, clientY };
-            track.dispatchEvent(new PointerEvent('pointerdown', opts));
-            track.dispatchEvent(new MouseEvent('mousedown', opts));
-            track.dispatchEvent(new PointerEvent('pointerup', opts));
-            track.dispatchEvent(new MouseEvent('mouseup', opts));
-            track.dispatchEvent(new MouseEvent('click', opts));
-          }
         }
-        console.log('[ElevenLabsTTS] ✅ Stability berhasil diatur ke Robust.');
+        console.log('[ElevenLabsTTS] ✅ Stability diatur ke Robust.');
         return true;
       }
 
-      console.warn('[ElevenLabsTTS] Slider stability tidak ditemukan.');
       return false;
     },
 
     /**
-     * Konfigurasi lengkap TTS secara berurutan sesuai alur pengguna:
-     * 1. Pindah model v3 dulu
-     * 2. Tangani modal v3 jika muncul (kalau tidak muncul skip saja)
-     * 3. Pilih voice (Dany Saputra)
-     * 4. Adjust stability (Robust 1.0)
+     * Konfigurasi lengkap TTS secara berurutan sesuai alur Camoufox:
+     * 1. Model AI -> Eleven v3 (cek modal post-v3 jika muncul)
+     * 2. Voice -> Dany Saputra
+     * 3. Stability -> Default (Balanced di tengah - persis Camoufox configure_tts.py:835-843)
      */
-    async configureTTS({ voiceName = 'Dany Saputra', modelName = 'Eleven v3', stability = 'robust' } = {}) {
-      console.log(`[ElevenLabsTTS] 🎛️ Memulai konfigurasi TTS berurutan: Model (${modelName}) -> Cek Modal -> Voice (${voiceName}) -> Stability (${stability})...`);
-      this.reportStep('tts_config', `Memulai konfigurasi TTS: Model ${modelName} -> Voice ${voiceName} -> Stability ${stability}...`);
+    async configureTTS({ voiceName = 'Dany Saputra', modelName = 'Eleven v3', stability = 'default' } = {}) {
+      console.log(`[ElevenLabsTTS] 🎛️ Memulai konfigurasi TTS berurutan (Camoufox): Model (${modelName}) -> Cek Modal -> Voice (${voiceName}) -> Stability Default (di tengah)...`);
+      this.reportStep('tts_config', `Memulai konfigurasi TTS: Model ${modelName} -> Voice ${voiceName} -> Stability Default...`);
 
       // Beri jeda awal & bersihkan modal sisa secara aman
       await sleep(1000);
@@ -1924,39 +2093,40 @@
 
       // LANGKAH 1: Pindah model v3 dulu
       console.log(`[ElevenLabsTTS] 📌 Langkah 1: Memindahkan Model ke '${modelName}'...`);
-      this.reportStep('tts_config', `1/3 Memindahkan model ke ${modelName}...`);
+      this.reportStep('tts_config', `1/2 Memindahkan model ke ${modelName}...`);
       await this.setModel(modelName);
       await sleep(800);
 
-      // LANGKAH 2: Abis itu biasanya muncul modal sih kalau nggak muncul yudh skip aja
+      // LANGKAH 2: Tangani modal v3 jika muncul
       console.log('[ElevenLabsTTS] 📌 Langkah 2: Memeriksa apakah ada modal pasca pindah model...');
       this.reportStep('tts_config', 'Memeriksa modal info/update Eleven v3...');
       await this.handlePostModelV3Modal();
       this.dismissAllModals();
       await sleep(800);
 
-      // LANGKAH 3: Abis itu pilih voice
+      // LANGKAH 3: Pilih voice (Dany Saputra)
       console.log(`[ElevenLabsTTS] 📌 Langkah 3: Memilih voice '${voiceName}'...`);
-      this.reportStep('tts_config', `2/3 Memilih Voice '${voiceName}'...`);
-      await this.setVoice(voiceName);
+      this.reportStep('tts_config', `2/2 Memilih Voice '${voiceName}'...`);
+      const voiceOk = await this.setVoice(voiceName);
       await sleep(800);
       this.dismissAllModals();
 
-      // LANGKAH 4: Terus adjust stability nya
-      console.log(`[ElevenLabsTTS] 📌 Langkah 4: Mengatur stability ke '${stability}' (Robust 1.0)...`);
-      this.reportStep('tts_config', `3/3 Mengatur Stability ke '${stability}' (Robust 1.0)...`);
-      await this.setStability(stability);
-      await sleep(500);
+      // LANGKAH 4: Stability dibiarkan default (balanced di tengah) persis seperti di Camoufox!
+      console.log('[ElevenLabsTTS] [*] Stability: Default (Balanced - Di Tengah, sesuai spesifikasi Camoufox)');
+      if (stability && stability !== 'default') {
+        await this.setStability(stability);
+        await sleep(500);
+      }
 
       console.log('[ElevenLabsTTS] 🎉 Konfigurasi TTS selesai dengan sukses!');
-      this.reportStep('tts_config', '✅ Konfigurasi TTS selesai: Model v3 -> Voice Dany Saputra -> Stability Robust.');
+      this.reportStep('tts_config', `✅ Konfigurasi TTS selesai: Model ${modelName} -> Voice ${voiceName} -> Stability Default.`);
 
       return {
         success: true,
         voiceName,
         modelName,
-        stability,
-        message: 'Konfigurasi TTS berurutan berhasil: Model v3 -> Voice Dany Saputra -> Stability Robust!',
+        stability: 'default',
+        message: `Konfigurasi TTS berurutan berhasil: Model ${modelName} -> Voice ${voiceName} -> Stability Default!`,
       };
     },
 

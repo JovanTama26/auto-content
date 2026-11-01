@@ -241,6 +241,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getFacelessState: () => ipcRenderer.invoke('get-faceless-state'),
   saveFacelessState: (data) => ipcRenderer.invoke('save-faceless-state', { data }),
   resetFacelessState: () => ipcRenderer.invoke('reset-faceless-state'),
+  lockFacelessProject: () => ipcRenderer.invoke('lock-faceless-project'),
+  unlockFacelessProject: () => ipcRenderer.invoke('unlock-faceless-project'),
 
   // Humanologi Helpers (Prompt, Narration JSON, Audio, and Transcript Mapping)
   getHumanologiPrompt: () => ipcRenderer.invoke('get-humanologi-prompt'),

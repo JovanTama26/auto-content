@@ -1,4 +1,4 @@
-kita // extension/lib/elevenlabs-verify.js
+// extension/lib/elevenlabs-verify.js
 // Client helper & in-browser automation untuk mengambil link verifikasi ElevenLabs langsung dari Gmail
 // 100% di dalam ekstensi via tab Gmail, tanpa looping rumit & tanpa n8n webhook.
 
