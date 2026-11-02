@@ -1,5 +1,5 @@
 // extension/popup/popup.js
-const AI_STUDIO_NEW_CHAT_URL = 'https://aistudio.google.com/prompts/new_chat?model=gemini-flash-latest';
+const AI_STUDIO_NEW_CHAT_URL = 'https://aistudio.google.com/prompts/new_chat?model=gemini-3.1-pro-preview';
 
 document.addEventListener('DOMContentLoaded', async () => {
   const connStatus = document.getElementById('connStatus');

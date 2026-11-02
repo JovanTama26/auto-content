@@ -135,6 +135,7 @@ function register(ipcMain, { paths: p, media, ffmpeg, getMainWindow }) {
     introDuration: 6.0,
     introImpactTimestamp: 0.48,
     introAudioPath: 'assets/The Final Horizon.mp3',
+    zoomRate: 1.0,
   };
 
   async function renderIntroVideoHelper(introOpts, cwd) {
@@ -675,8 +676,17 @@ import { renderIntroVideo } from '${enginePath}';
         .map((f) => {
           const fp = path.join(outputDir, f);
           const stat = fs.statSync(fp);
-          const partMatch = f.match(/part_(\d+)/i) || f.match(/P(\d+)/i);
-          const part = partMatch ? parseInt(partMatch[1], 10) : (f.toLowerCase().includes('intro') ? 0 : null);
+          const nameWithoutExt = path.parse(f).name;
+          const lowerName = nameWithoutExt.toLowerCase();
+          let part = null;
+          if (lowerName.includes('intro')) {
+            part = 0;
+          } else if (lowerName.includes('full') || lowerName.includes('master') || lowerName.includes('recap') || lowerName.includes('final')) {
+            part = null;
+          } else {
+            const partMatch = nameWithoutExt.match(/(?:^|[_\-\s])part[_\-\s]?(\d+)/i) || nameWithoutExt.match(/(?:^|[_\-\s])p(\d+)(?:[_\-\s]|$)/i);
+            part = partMatch ? parseInt(partMatch[1], 10) : null;
+          }
           return {
             name: f,
             part,

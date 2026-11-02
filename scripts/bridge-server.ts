@@ -79,7 +79,7 @@ async function uploadChunkToDrive(videoPath: string, filename: string): Promise<
 
   // Selalu muat fresh chat untuk membersihkan modal backdrop sisa upload sebelumnya
   console.log('🔄 Membuka fresh chat prompt di Google AI Studio (Gemini 3.1 Pro Preview)...');
-  await page.goto('https://aistudio.google.com/prompts/new_chat?model=gemini-flash-latest', { waitUntil: 'domcontentloaded' });
+  await page.goto('https://aistudio.google.com/prompts/new_chat?model=gemini-3.1-pro-preview', { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(3000);
 
   // 1. Klik tombol Attachment (+)

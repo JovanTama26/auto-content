@@ -2226,6 +2226,25 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
 
     const voSentencesJson = JSON.stringify(voSentences, null, 2);
 
+    // Fetch Step 5 Clip Catalog for Verified Grounding
+    let availableClipsText = '[Pilih klip video sumber sesuai timecode babak adegan di atas]';
+    const possibleCatalogPaths = [
+      path.join(p.ALURFILM_DIR, `${contentId}_clip_catalog_part_${partStr}.json`),
+      path.join(p.ALURFILM_DIR, `${contentId}_clip_catalog_part_${chunkPart}.json`),
+    ];
+    const foundCatalogPath = possibleCatalogPaths.find(fp => fs.existsSync(fp));
+    if (foundCatalogPath) {
+      try {
+        const catData = JSON.parse(fs.readFileSync(foundCatalogPath, 'utf-8'));
+        const clips = Array.isArray(catData.clips) ? catData.clips : [];
+        if (clips.length > 0) {
+          availableClipsText = clips.map(c => 
+            `* [Klip #${c.index}] (${c.start}s - ${c.end}s, dur: ${c.duration}s): ${c.description}`
+          ).join('\n');
+        }
+      } catch { }
+    }
+
     const fullPrompt = promptTemplate
       .replace(/{{chunk_part}}/g, String(chunkPart))
       .replace(/{{total_chunks}}/g, String(totalChunks))
@@ -2233,6 +2252,7 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
       .replace(/{{source_video_name}}/g, chunkVideoName)
       .replace(/{{scene_id}}/g, `part_${partStr}`)
       .replace(/{{scene_breakdown}}/g, sceneBreakdownText)
+      .replace(/{{available_clips}}/g, availableClipsText)
       .replace(/{{audio_vo_file_name}}/g, audioVoFileName)
       .replace(/{{total_audio_duration_sec}}/g, String(totalAudioDurSecNum))
       .replace(/{{total_audio_duration_formatted}}/g, totalAudioDurFormatted)
@@ -2458,9 +2478,16 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
         };
       });
 
-      // Align BGM timeline ending with the final mapping end time
-      if (Array.isArray(target.bgm_timeline) && target.bgm_timeline.length > 0 && target.mappings.length > 0) {
-        const finalSentEnd = target.mappings[target.mappings.length - 1].end || 0;
+      // Guarantee continuous BGM timeline covering 0.0 to final sentence end
+      const finalSentEnd = target.mappings.length > 0 ? (target.mappings[target.mappings.length - 1].end || 60.0) : 60.0;
+      if (!Array.isArray(target.bgm_timeline) || target.bgm_timeline.length === 0) {
+        target.bgm_timeline = [{
+          start: 0.0,
+          end: Number(finalSentEnd.toFixed(2)),
+          category: '05_santai_misteri',
+          file: "'Solace' [Calm Piano & Strings CC-BY] - Scott Buckley.mp3"
+        }];
+      } else {
         const lastBgm = target.bgm_timeline[target.bgm_timeline.length - 1];
         if (lastBgm && lastBgm.end < finalSentEnd) {
           lastBgm.end = Number(finalSentEnd.toFixed(2));

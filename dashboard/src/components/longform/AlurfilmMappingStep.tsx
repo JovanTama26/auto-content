@@ -156,7 +156,8 @@ const AlurfilmMappingStep: React.FC = () => {
         .replace(/\{\{audio_end_timestamp\}\}/g, audioEndTimestamp)
         .replace(/\{\{chunk_video_duration_sec\}\}/g, String(chunkInfo?.durationSec || 1200))
         .replace(/\{\{chunk_video_duration_formatted\}\}/g, '20:00')
-        .replace(/\{\{scene_breakdown\}\}/g, '[Acuan adegan dari Step 2 Script Generator]');
+        .replace(/\{\{scene_breakdown\}\}/g, '[Acuan adegan dari Step 2 Script Generator]')
+        .replace(/\{\{available_clips\}\}/g, '[Pilih klip video sumber sesuai timecode babak adegan di atas]');
     }
 
     return formattedPrompt;

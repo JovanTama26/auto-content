@@ -4,7 +4,7 @@
 
 // Definisi URL Google AI Studio untuk masing-masing modul
 const AI_STUDIO_SCRIPT_MODEL = 'gemini-3.1-pro-preview';
-const AI_STUDIO_MAPPING_MODEL = 'gemini-flash-latest';
+const AI_STUDIO_MAPPING_MODEL = AI_STUDIO_SCRIPT_MODEL; // Model mapping sama dengan script generator ('gemini-3.1-pro-preview')
 
 const AI_STUDIO_SCRIPT_NEW_CHAT_URL = `https://aistudio.google.com/prompts/new_chat?model=${AI_STUDIO_SCRIPT_MODEL}`;
 const AI_STUDIO_MAPPING_NEW_CHAT_URL = `https://aistudio.google.com/prompts/new_chat?model=${AI_STUDIO_MAPPING_MODEL}`;
@@ -1357,7 +1357,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const isTargetUrlMapping = tab.url && tab.url.includes('/prompts/new_chat') && tab.url.includes(AI_STUDIO_MAPPING_MODEL);
       if (turnsRes?.hasTurns || (!isTargetUrlMapping && !prepRes?.hasMedia)) {
         if (mappingStepLog) {
-          mappingStepLog.textContent = `[Part #${targetChunk.part_number}] Membuka halaman New Chat (Gemini Flash) di Google AI Studio...`;
+          mappingStepLog.textContent = `[Part #${targetChunk.part_number}] Membuka halaman New Chat (Gemini 3.1 Pro Preview) di Google AI Studio...`;
         }
         await chrome.tabs.update(tab.id, { url: AI_STUDIO_MAPPING_NEW_CHAT_URL });
         await new Promise((r) => setTimeout(r, 4500));

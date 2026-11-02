@@ -563,8 +563,8 @@ program
 
           const fxFilters: string[] = [];
 
-          // 1. Mirror cut & Alternating Auto-Mirror (Throws off spatial Content ID detection)
-          const autoMirror = (jsonSettings as any).autoMirror !== false;
+          // 1. Mirror cut (Only when explicitly specified, avoiding dizzying constant flipping)
+          const autoMirror = (jsonSettings as any).autoMirror === true;
           const isMirrored = clip.mirrorMode === 'horizontal' || (autoMirror && !clip.mirrorMode && clip.id % 2 === 0);
           if (isMirrored) {
             fxFilters.push('hflip');
@@ -602,8 +602,8 @@ program
 
           const fxChain = fxFilters.length > 0 ? ',' + fxFilters.join(',') : '';
 
-          // 15% Safe Zoom to break bounding boxes & camera framing signatures
-          const zoomRate = (jsonSettings as any).zoomRate ?? 1.15;
+          // Zoom Rate (default 1.0 = no zoom / 100% original framing)
+          const zoomRate = (jsonSettings as any).zoomRate ?? 1.0;
           const scaledWidth = Math.round(width * zoomRate);
           const scaledHeight = Math.round(height * zoomRate);
 

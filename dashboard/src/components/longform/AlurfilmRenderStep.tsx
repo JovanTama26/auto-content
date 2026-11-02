@@ -167,11 +167,23 @@ const AlurfilmRenderStep: React.FC = () => {
         if (renders) {
           for (const r of renders) {
             const partNum = (r as any).part !== undefined && (r as any).part !== null ? (r as any).part : (() => {
-              const match = r.name?.match(/part_(\d+)/i) || r.name?.match(/P(\d+)/i);
-              return match ? parseInt(match[1], 10) : (r.name?.toLowerCase().includes('intro') ? 0 : null);
+              const nameWithoutExt = (r.name || '').replace(/\.[^/.]+$/, '');
+              const lowerName = nameWithoutExt.toLowerCase();
+              if (lowerName.includes('intro')) return 0;
+              if (lowerName.includes('full') || lowerName.includes('master') || lowerName.includes('recap') || lowerName.includes('final')) return null;
+              const match = nameWithoutExt.match(/(?:^|[_\-\s])part[_\-\s]?(\d+)/i) || nameWithoutExt.match(/(?:^|[_\-\s])p(\d+)(?:[_\-\s]|$)/i);
+              return match ? parseInt(match[1], 10) : null;
             })();
-            if (partNum !== null && partNum !== undefined) {
-              rMap[partNum] = (r as any).fullPath || (r as any).outputPath || (r as any).filePath;
+            if (partNum !== null && partNum !== undefined && partNum > 0) {
+              if (!rMap[partNum]) {
+                rMap[partNum] = (r as any).fullPath || (r as any).outputPath || (r as any).filePath;
+              }
+            } else if (partNum === 0) {
+              setIntroResult((prev) => prev || {
+                filePath: (r as any).fullPath || (r as any).outputPath || (r as any).filePath,
+                mediaUrl: (r as any).mediaUrl || (r as any).url,
+                fileName: r.name,
+              });
             }
           }
         }
