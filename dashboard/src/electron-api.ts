@@ -446,6 +446,71 @@ export interface ElectronAPI {
   resetFacelessState?: () => Promise<{ success: boolean; error?: string }>;
   lockFacelessProject?: () => Promise<{ success: boolean; data?: FacelessProjectState; error?: string }>;
   unlockFacelessProject?: () => Promise<{ success: boolean; data?: FacelessProjectState; error?: string }>;
+  listFacelessAudios?: () => Promise<{
+    success: boolean;
+    audios: FacelessAudioItem[];
+    inputDir?: string;
+    audioDir?: string;
+    error?: string;
+  }>;
+  uploadFacelessAudio?: (opts: {
+    filePath: string;
+    part?: number | null;
+  }) => Promise<{ success: boolean; audio?: FacelessAudioItem; error?: string }>;
+  deleteFacelessAudio?: (audioId: string) => Promise<{ success: boolean; error?: string }>;
+  getFacelessAudioDir?: () => Promise<{ success: boolean; dir?: string; audioDir?: string; error?: string }>;
+  saveFacelessTranscript?: (opts: {
+    rawText: string;
+    formattedText?: string;
+    segments?: FacelessTranscriptSegment[];
+    part?: number | null;
+  }) => Promise<{
+    success: boolean;
+    data?: FacelessTranscriptData;
+    error?: string;
+  }>;
+  getFacelessTranscript?: (opts?: {
+    part?: number | null;
+  }) => Promise<{
+    success: boolean;
+    data?: FacelessTranscriptData | null;
+    error?: string;
+  }>;
+  generateFacelessVisualPrompts?: (opts?: {
+    lines?: FacelessTranscriptSegment[];
+    model?: string;
+    instructions?: string;
+    batchSize?: number;
+  }) => Promise<{
+    success: boolean;
+    data?: FacelessVisualPromptsData;
+    error?: string;
+  }>;
+  getFacelessVisualPrompts?: () => Promise<{
+    success: boolean;
+    data?: FacelessVisualPromptsData | null;
+    error?: string;
+  }>;
+  saveFacelessVisualPrompts?: (
+    prompts: FacelessVisualPromptItem[]
+  ) => Promise<{
+    success: boolean;
+    data?: FacelessVisualPromptsData;
+    error?: string;
+  }>;
+  regenerateSingleFacelessVisualPrompt?: (opts: {
+    item: FacelessVisualPromptItem;
+    customInstruction?: string;
+    model?: string;
+  }) => Promise<{
+    success: boolean;
+    item?: FacelessVisualPromptItem;
+    error?: string;
+  }>;
+  onFacelessVisualStreamProgress?: (
+    callback: (data: FacelessVisualStreamProgress) => void
+  ) => () => void;
+  cancelFacelessVisualStream?: () => Promise<{ success: boolean; message?: string }>;
 
   // Humanologi Helpers (Prompt, Narration JSON, and Audio)
   getHumanologiPrompt?: () => Promise<{ success: boolean; prompt?: string; error?: string }>;
@@ -607,14 +672,87 @@ export interface FacelessMemory {
   key_points: string[];
   user_preferences: string[];
   draft_script?: string;
+  clean_script?: string;
   narration_outline: FacelessNarrationOutline;
 }
 
 export interface FacelessNarration {
   status: 'discussing' | 'ready' | null;
   draft_script?: string;
+  clean_script?: string;
   outline?: FacelessNarrationOutline;
   updated_at?: string;
+}
+
+export interface FacelessAudioItem {
+  id: string;
+  part?: number | null;
+  name: string;
+  originalName: string;
+  filePath: string;
+  size: number;
+  duration: number;
+  uploadedAt: string;
+  url?: string;
+}
+
+export interface FacelessAudioState {
+  status: 'idle' | 'uploaded' | 'ready';
+  total_duration: number;
+  items_count: number;
+  primary_file: string | null;
+  updated_at: string;
+}
+
+export interface FacelessTranscriptSegment {
+  timecode: string;
+  seconds: number;
+  text: string;
+}
+
+export interface FacelessTranscriptData {
+  rawText: string;
+  formattedText: string;
+  segments: FacelessTranscriptSegment[];
+  segments_count?: number;
+  part?: number | null;
+  filePath?: string;
+  jsonPath?: string;
+  updatedAt: string;
+}
+
+export interface FacelessVisualPromptItem {
+  id: string;
+  index: number;
+  timecode: string;
+  seconds: number;
+  narration: string;
+  templateType: 'A' | 'B';
+  shotType: string;
+  sceneDescription: string;
+  finalPrompt: string;
+}
+
+export interface FacelessVisualPromptsData {
+  prompts: FacelessVisualPromptItem[];
+  jsonPath?: string;
+  txtPath?: string;
+  updatedAt?: string;
+}
+
+export interface FacelessVisualStreamProgress {
+  type: 'start' | 'batch-start' | 'batch-complete' | 'batch-error' | 'cancelled' | 'complete';
+  totalLines?: number;
+  totalBatches?: number;
+  batchIndex?: number;
+  batchSize?: number;
+  startLineNum?: number;
+  endLineNum?: number;
+  newPrompts?: FacelessVisualPromptItem[];
+  totalPromptsCount?: number;
+  percent?: number;
+  message?: string;
+  error?: string;
 }
 
 export interface FacelessProjectState {
@@ -626,6 +764,9 @@ export interface FacelessProjectState {
   idea: FacelessIdea | null;
   duration: FacelessDuration | null;
   narration: FacelessNarration | null;
+  audio?: FacelessAudioState | null;
+  transcript?: FacelessTranscriptData | null;
+  visual_prompts?: FacelessVisualPromptItem[] | null;
   memory?: FacelessMemory;
   chat_history: FacelessChatMessage[];
   created_at: string;
@@ -641,6 +782,7 @@ export interface FacelessAgentChatResult {
   duration_ready: boolean;
   duration: FacelessDuration | null;
   draft_script?: string;
+  clean_script?: string;
   memory?: FacelessMemory;
   narration?: FacelessNarration | null;
   suggested_actions: string[];

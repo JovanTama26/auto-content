@@ -16,6 +16,8 @@ import AlurfilmRenderStep from './components/longform/AlurfilmRenderStep';
 import AlurfilmMetadataStep from './components/longform/AlurfilmMetadataStep';
 import AlurfilmTestingHub from './components/longform/testing/AlurfilmTestingHub';
 import FacelessIdeaAgentStep from './components/faceless/FacelessIdeaAgentStep';
+import FacelessAudioStep from './components/faceless/FacelessAudioStep';
+import FacelessVisualStep from './components/faceless/FacelessVisualStep';
 import HumanologiStepContainer from './components/humanologi/HumanologiStepContainer';
 
 type Status = 'ready' | 'rendering' | 'error';
@@ -93,7 +95,23 @@ const App: React.FC = () => {
 
         <main className="flex-1 p-6 overflow-auto bg-gradient-to-br from-gray-950 via-gray-950 to-gray-900">
           {contentMode === 'faceless' ? (
-            <FacelessIdeaAgentStep key={`faceless-idea-agent-${longformResetKey}`} />
+            activeStep === 'audio' ? (
+              <FacelessAudioStep
+                key={`faceless-audio-${longformResetKey}`}
+                onBackToIdea={() => setActiveStep('idea')}
+                onGoToNext={() => setActiveStep('visual')}
+              />
+            ) : activeStep === 'visual' ? (
+              <FacelessVisualStep
+                key={`faceless-visual-${longformResetKey}`}
+                onBackToAudio={() => setActiveStep('audio')}
+              />
+            ) : (
+              <FacelessIdeaAgentStep
+                key={`faceless-idea-agent-${longformResetKey}`}
+                onGoToAudio={() => setActiveStep('audio')}
+              />
+            )
           ) : contentMode === 'humanologi' ? (
             <HumanologiStepContainer
               key={`humanologi-step-container-${longformResetKey}`}

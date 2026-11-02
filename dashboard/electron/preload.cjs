@@ -243,6 +243,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
   resetFacelessState: () => ipcRenderer.invoke('reset-faceless-state'),
   lockFacelessProject: () => ipcRenderer.invoke('lock-faceless-project'),
   unlockFacelessProject: () => ipcRenderer.invoke('unlock-faceless-project'),
+  listFacelessAudios: () => ipcRenderer.invoke('list-faceless-audios'),
+  uploadFacelessAudio: (opts) => ipcRenderer.invoke('upload-faceless-audio', opts),
+  deleteFacelessAudio: (audioId) => ipcRenderer.invoke('delete-faceless-audio', { audioId }),
+  getFacelessAudioDir: () => ipcRenderer.invoke('get-faceless-audio-dir'),
+  saveFacelessTranscript: (opts) => ipcRenderer.invoke('save-faceless-transcript', opts),
+  getFacelessTranscript: (opts) => ipcRenderer.invoke('get-faceless-transcript', opts),
+  generateFacelessVisualPrompts: (opts) => ipcRenderer.invoke('generate-faceless-visual-prompts', opts),
+  getFacelessVisualPrompts: () => ipcRenderer.invoke('get-faceless-visual-prompts'),
+  saveFacelessVisualPrompts: (prompts) => ipcRenderer.invoke('save-faceless-visual-prompts', prompts),
+  regenerateSingleFacelessVisualPrompt: (opts) => ipcRenderer.invoke('regenerate-single-faceless-visual-prompt', opts),
+  onFacelessVisualStreamProgress: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('faceless-visual-stream-progress', handler);
+    return () => ipcRenderer.removeListener('faceless-visual-stream-progress', handler);
+  },
+  cancelFacelessVisualStream: () => ipcRenderer.invoke('cancel-faceless-visual-stream'),
 
   // Humanologi Helpers (Prompt, Narration JSON, Audio, and Transcript Mapping)
   getHumanologiPrompt: () => ipcRenderer.invoke('get-humanologi-prompt'),

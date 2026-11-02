@@ -12,6 +12,8 @@ const ALURFILM_AUDIO_DIR = path.join(PROJECT_ROOT, 'input', 'alurfilm', 'audio')
 const ALURFILM_TRANSCRIPTS_DIR = path.join(PROJECT_ROOT, 'input', 'alurfilm', 'transcripts');
 const ALURFILM_MAPPINGS_DIR = path.join(PROJECT_ROOT, 'input', 'alurfilm', 'mappings');
 const FACELESS_INPUT_DIR = path.join(PROJECT_ROOT, 'input', 'faceless');
+const FACELESS_AUDIO_DIR = path.join(PROJECT_ROOT, 'input', 'faceless', 'audio');
+const FACELESS_TRANSCRIPTS_DIR = path.join(PROJECT_ROOT, 'input', 'faceless', 'transcripts');
 const HUMANOLOGI_INPUT_DIR = path.join(PROJECT_ROOT, 'input', 'humanologi');
 const HUMANOLOGI_AUDIO_DIR = path.join(PROJECT_ROOT, 'input', 'humanologi', 'audio');
 const HUMANOLOGI_TRANSCRIPTS_DIR = path.join(PROJECT_ROOT, 'input', 'humanologi', 'transcripts');
@@ -33,6 +35,8 @@ const tsxBinPath = path.join(PROJECT_ROOT, 'node_modules', '.bin', 'tsx');
   ALURFILM_TRANSCRIPTS_DIR,
   ALURFILM_MAPPINGS_DIR,
   FACELESS_INPUT_DIR,
+  FACELESS_AUDIO_DIR,
+  FACELESS_TRANSCRIPTS_DIR,
   HUMANOLOGI_INPUT_DIR,
   HUMANOLOGI_AUDIO_DIR,
   HUMANOLOGI_TRANSCRIPTS_DIR,
@@ -119,6 +123,8 @@ module.exports = {
   ALURFILM_TRANSCRIPTS_DIR,
   ALURFILM_MAPPINGS_DIR,
   FACELESS_INPUT_DIR,
+  FACELESS_AUDIO_DIR,
+  FACELESS_TRANSCRIPTS_DIR,
   HUMANOLOGI_INPUT_DIR,
   HUMANOLOGI_AUDIO_DIR,
   HUMANOLOGI_TRANSCRIPTS_DIR,

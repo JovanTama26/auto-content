@@ -1,5 +1,6 @@
 // dashboard/src/components/faceless/FacelessIdeaAgentStep.tsx
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { cleanVoiceoverScript } from '../../utils/cleanScript';
 import type {
   FacelessChatMessage,
   FacelessProjectState,
@@ -23,7 +24,7 @@ const STAGE_LABELS: Record<FacelessStage, string> = {
 
 const DEFAULT_ACTIONS_BY_STAGE: Record<FacelessStage, string[]> = {
   idea_discussion: ['Aku punya ide sendiri', 'Kasih aku ide (AI)'],
-  duration_discussion: ['Video pendek (±60 detik)', 'Video panjang (5 part short)'],
+  duration_discussion: ['Video pendek (±60 detik)', 'Video panjang (Long Form 3-10 menit)'],
   outline_discussion: ['Setuju alur ini, buatkan naskahnya!', 'Ubah bagian alur ini', 'Pertebal unsur ketegangan'],
   narration_discussion: [
     '🔒 Naskah Sudah Mantap, Kunci Proyek (Setuju)',
@@ -34,14 +35,19 @@ const DEFAULT_ACTIONS_BY_STAGE: Record<FacelessStage, string[]> = {
 
 const FACELESS_MODEL = 'ag/gemini-3.8-flash-high';
 
-export const FacelessIdeaAgentStep: React.FC = () => {
+export interface FacelessIdeaAgentStepProps {
+  onGoToAudio?: () => void;
+}
+
+export const FacelessIdeaAgentStep: React.FC<FacelessIdeaAgentStepProps> = ({ onGoToAudio }) => {
   const [messages, setMessages] = useState<FacelessChatMessage[]>([INITIAL_GREETING]);
   const [state, setState] = useState<FacelessProjectState | null>(null);
   const [input, setInput] = useState<string>('');
   const [isSending, setIsSending] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [suggestedActions, setSuggestedActions] = useState<string[]>(INITIAL_ACTIONS);
-  const [copiedScript, setCopiedScript] = useState<boolean>(false);
+  const [scriptViewMode, setScriptViewMode] = useState<'clean' | 'raw'>('clean');
+  const [copiedType, setCopiedType] = useState<'clean' | 'raw' | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const isLocked = Boolean(state?.is_locked);
@@ -173,20 +179,40 @@ export const FacelessIdeaAgentStep: React.FC = () => {
     setErrorMessage(null);
   };
 
-  const handleCopyScript = (scriptText: string) => {
-    if (!scriptText) return;
-    navigator.clipboard.writeText(scriptText);
-    setCopiedScript(true);
-    setTimeout(() => setCopiedScript(false), 2000);
-  };
-
   const idea = state?.idea;
   const hasIdea = !!idea;
   const duration = state?.duration;
   const currentStage: FacelessStage = state?.stage || 'idea_discussion';
   const memory = state?.memory;
   const narrationOutline = memory?.narration_outline;
-  const draftScript = state?.narration?.draft_script || memory?.draft_script;
+  const draftScript = state?.narration?.draft_script || memory?.draft_script || '';
+
+  const cleanScript = useMemo(() => {
+    return cleanVoiceoverScript(draftScript);
+  }, [draftScript]);
+
+  const cleanWordCount = useMemo(() => {
+    return cleanScript.split(/\s+/).filter(Boolean).length;
+  }, [cleanScript]);
+
+  const rawWordCount = useMemo(() => {
+    return draftScript.split(/\s+/).filter(Boolean).length;
+  }, [draftScript]);
+
+  const handleCopyClean = () => {
+    if (!cleanScript) return;
+    navigator.clipboard.writeText(cleanScript);
+    setCopiedType('clean');
+    setTimeout(() => setCopiedType(null), 2500);
+  };
+
+  const handleCopyRaw = () => {
+    if (!draftScript) return;
+    navigator.clipboard.writeText(draftScript);
+    setCopiedType('raw');
+    setTimeout(() => setCopiedType(null), 2500);
+  };
+
   const hasNarrationOutline =
     !!narrationOutline &&
     Object.values(narrationOutline).some((v) => typeof v === 'string' && v.trim().length > 0);
@@ -247,6 +273,15 @@ export const FacelessIdeaAgentStep: React.FC = () => {
                 <span>🔒</span> Kunci Naskah (Setuju)
               </button>
             ) : null}
+            {onGoToAudio && draftScript && (
+              <button
+                onClick={onGoToAudio}
+                className="px-3.5 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-gray-950 text-xs font-black rounded-xl transition-all shrink-0 flex items-center gap-1.5 shadow-md shadow-amber-600/30"
+                title="Lanjut ke Step 2 untuk upload voice over audio"
+              >
+                <span>🎙️ Lanjut ke Step 2 (Upload Audio) ➔</span>
+              </button>
+            )}
             <button
               onClick={handleReset}
               disabled={isSending}
@@ -367,35 +402,80 @@ export const FacelessIdeaAgentStep: React.FC = () => {
             </div>
           )}
 
-          {/* DRAF KASAR NASKAH NARASI (VOICEOVER SCRIPT) */}
-          {draftScript && (
+          {/* DRAF NASKAH NARASI (VOICEOVER SCRIPT) */}
+          {Boolean(draftScript) && (
             <div className="bg-gray-950/90 border border-amber-500/40 rounded-2xl p-4 shadow-xl space-y-3">
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <div className="flex items-center gap-2">
-                  <span className="text-lg">🎙️</span>
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2.5">
+                  <span className="text-xl">🎙️</span>
                   <div>
-                    <h3 className="text-sm font-bold text-amber-300">
-                      Draf Naskah Narasi (Rough Voiceover Script)
+                    <h3 className="text-sm font-bold text-amber-300 flex items-center gap-2">
+                      <span>Draf Naskah Narasi Faceless</span>
+                      <span className="px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-700/60 text-[10px] font-mono">
+                        {scriptViewMode === 'clean'
+                          ? `${cleanWordCount} kata narasi (bersih)`
+                          : `${rawWordCount} kata draf`}
+                      </span>
                     </h3>
                     <p className="text-[10px] text-gray-400">
-                      Naskah narasi siap pakai yang dirumuskan agent berdasarkan DNA Retention.
+                      Naskah siap voiceover (ElevenLabs / TTS) yang dirumuskan agent berdasarkan DNA Retention.
                     </p>
                   </div>
                 </div>
+
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="px-2.5 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-700/60 text-[10px] font-mono">
-                    {draftScript.split(/\s+/).filter(Boolean).length} kata
-                  </span>
+                  {/* View Mode Toggle: Naskah Bersih vs Format Lengkap */}
+                  <div className="flex items-center bg-gray-900 border border-gray-800 rounded-xl p-0.5 text-[11px] font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => setScriptViewMode('clean')}
+                      className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 ${
+                        scriptViewMode === 'clean'
+                          ? 'bg-amber-500 text-gray-950 font-bold shadow-sm'
+                          : 'text-gray-400 hover:text-gray-200'
+                      }`}
+                      title="Lihat teks naskah bersih murni (tanpa label Part dan tanpa arahan visual)"
+                    >
+                      <span>✨ Naskah Bersih</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setScriptViewMode('raw')}
+                      className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 ${
+                        scriptViewMode === 'raw'
+                          ? 'bg-gray-800 text-amber-300 font-bold border border-gray-700'
+                          : 'text-gray-400 hover:text-gray-200'
+                      }`}
+                      title="Lihat format lengkap asli beserta Part dan catatan visual director"
+                    >
+                      <span>📑 Format Lengkap (Raw)</span>
+                    </button>
+                  </div>
+
+                  {/* Primary: Salin Naskah Bersih */}
                   <button
-                    onClick={() => handleCopyScript(draftScript)}
-                    className="px-3 py-1 rounded-xl bg-amber-500 hover:bg-amber-400 text-gray-950 text-xs font-bold transition-all shadow-md flex items-center gap-1.5"
+                    onClick={handleCopyClean}
+                    className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-gray-950 text-xs font-black transition-all shadow-md shadow-amber-600/20 flex items-center gap-1.5"
+                    title="Salin naskah bersih tanpa Part & tanpa arahan visual, siap paste ke ElevenLabs / TTS"
                   >
-                    <span>{copiedScript ? '✓ Tersalin!' : '📋 Salin Naskah'}</span>
+                    <span>
+                      {copiedType === 'clean' ? '✓ Tersalin Bersih!' : '📋 Salin Naskah Bersih'}
+                    </span>
                   </button>
+
+                  {/* Secondary: Salin Format Lengkap */}
+                  <button
+                    onClick={handleCopyRaw}
+                    className="px-2.5 py-1.5 rounded-xl bg-gray-900 hover:bg-gray-800 text-gray-300 hover:text-white border border-gray-700 text-xs font-semibold transition-all flex items-center gap-1"
+                    title="Salin naskah asli lengkap dengan part dan arahan visual"
+                  >
+                    <span>{copiedType === 'raw' ? '✓ Tersalin Raw!' : '📑 Salin Raw'}</span>
+                  </button>
+
                   {isLocked ? (
                     <div className="flex items-center gap-1.5">
                       <span className="px-2.5 py-1 rounded-xl bg-emerald-950 text-emerald-300 border border-emerald-500/50 text-[11px] font-mono font-bold flex items-center gap-1">
-                        <span>🔒</span> Naskah Terkunci
+                        <span>🔒</span> Terkunci
                       </span>
                       <button
                         onClick={handleUnlock}
@@ -407,16 +487,39 @@ export const FacelessIdeaAgentStep: React.FC = () => {
                   ) : (
                     <button
                       onClick={handleLock}
-                      className="px-3 py-1 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-gray-950 text-xs font-black transition-all shadow-md flex items-center gap-1.5"
+                      className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-gray-950 text-xs font-black transition-all shadow-md flex items-center gap-1.5"
                     >
-                      <span>🔒</span> Kunci Naskah (Setuju)
+                      <span>🔒</span> Kunci Naskah
                     </button>
                   )}
                 </div>
               </div>
 
+              {/* Status info bar */}
+              <div className="flex items-center justify-between text-[11px] px-3 py-1.5 rounded-xl bg-gray-900/60 border border-gray-800 text-gray-400">
+                {scriptViewMode === 'clean' ? (
+                  <span className="flex items-center gap-1.5 text-amber-300/90 font-medium">
+                    <span>✨</span>
+                    <span>
+                      <strong>Naskah Bersih Siap VO:</strong> Label part, tag [Visual], SFX, dan instruksi director otomatis dibersihkan agar langsung siap di-paste ke ElevenLabs / TTS.
+                    </span>
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1.5 text-gray-300">
+                    <span>📑</span>
+                    <span>
+                      <strong>Format Lengkap (Draf):</strong> Menampilkan naskah asli dengan pembagian part dan catatan visual director untuk panduan footage.
+                    </span>
+                  </span>
+                )}
+                <span className="text-[10px] font-mono text-gray-500 shrink-0 ml-2">
+                  {scriptViewMode === 'clean' ? `${cleanWordCount} kata` : `${rawWordCount} kata`}
+                </span>
+              </div>
+
+              {/* Script Text Box */}
               <div className="bg-gray-900/80 border border-gray-800 rounded-xl p-4 text-xs font-mono text-gray-200 leading-relaxed whitespace-pre-wrap max-h-80 overflow-y-auto selection:bg-amber-500 selection:text-black">
-                {draftScript}
+                {scriptViewMode === 'clean' ? (cleanScript || 'Belum ada naskah narasi.') : draftScript}
               </div>
             </div>
           )}
