@@ -1,6 +1,10 @@
 // dashboard/electron/ipc/facelessHandlers.cjs
 const path = require('path');
 const fs = require('fs');
+const { spawn } = require('child_process');
+
+let activeFlowProcess = null;
+let activeFlowSender = null;
 
 const DEFAULT_FACELESS_MODEL = process.env.AI_MODEL || 'ag/gemini-3.8-flash-high';
 const FALLBACK_MODELS = [
@@ -1580,6 +1584,47 @@ function register(ipcMain, { paths: p, aiClient, loadPrompt, ffmpeg, media }) {
     try {
       const jsonPath = path.join(p.FACELESS_INPUT_DIR, 'visual_prompts.json');
       const txtPath = path.join(p.FACELESS_INPUT_DIR, 'visual_prompts.txt');
+      const imagesDir = path.join(p.FACELESS_INPUT_DIR, 'images');
+
+      const enrichItems = (rawItems) => {
+        return rawItems.map((item) => {
+          const idx = item.index;
+          const pad3 = String(idx).padStart(3, '0');
+          const possibleFiles = [
+            item.image_path,
+            path.join(imagesDir, `scene_${pad3}.jpg`),
+            path.join(imagesDir, `scene_${pad3}.png`),
+            path.join(imagesDir, `scene_${idx}.jpg`),
+          ].filter(Boolean);
+
+          let foundPath = null;
+          for (const pf of possibleFiles) {
+            if (fs.existsSync(pf)) {
+              try {
+                if (fs.statSync(pf).size > 1000) {
+                  foundPath = pf;
+                  break;
+                }
+              } catch {}
+            }
+          }
+
+          if (foundPath) {
+            const stat = fs.statSync(foundPath);
+            return {
+              ...item,
+              image_path: foundPath,
+              media_url: media ? `${media.mediaUrl(foundPath)}?t=${stat.mtimeMs}` : undefined,
+              has_image: true,
+              image_size: stat.size,
+            };
+          }
+          return {
+            ...item,
+            has_image: false,
+          };
+        });
+      };
 
       if (fs.existsSync(jsonPath)) {
         try {
@@ -1588,7 +1633,7 @@ function register(ipcMain, { paths: p, aiClient, loadPrompt, ffmpeg, media }) {
             return {
               success: true,
               data: {
-                prompts,
+                prompts: enrichItems(prompts),
                 jsonPath,
                 txtPath,
                 updatedAt: fs.statSync(jsonPath).mtime.toISOString(),
@@ -1603,7 +1648,7 @@ function register(ipcMain, { paths: p, aiClient, loadPrompt, ffmpeg, media }) {
         return {
           success: true,
           data: {
-            prompts: state.visual_prompts,
+            prompts: enrichItems(state.visual_prompts),
             jsonPath,
             txtPath,
             updatedAt: state.updated_at || new Date().toISOString(),
@@ -1734,6 +1779,304 @@ function register(ipcMain, { paths: p, aiClient, loadPrompt, ffmpeg, media }) {
       }
     }
   );
+
+  /**
+   * List available Camoufox browser profiles for Google Flow
+   */
+  ipcMain.handle('list-faceless-flow-profiles', async () => {
+    try {
+      const profilesDir = path.join(p.PROJECT_ROOT, 'camoufox', 'profiles');
+      if (!fs.existsSync(profilesDir)) {
+        return { success: true, profiles: ['jovangithub@gmail.com'] };
+      }
+      const entries = fs.readdirSync(profilesDir, { withFileTypes: true });
+      const profiles = entries
+        .filter((d) => d.isDirectory() && !d.name.startsWith('.'))
+        .map((d) => d.name)
+        .sort();
+
+      return {
+        success: true,
+        profiles: profiles.length > 0 ? profiles : ['jovangithub@gmail.com'],
+      };
+    } catch (err) {
+      return { success: false, profiles: ['jovangithub@gmail.com'], error: err.message };
+    }
+  });
+
+  /**
+   * Start Google Flow Image Generation via Camoufox
+   */
+  ipcMain.handle(
+    'start-faceless-flow-generation',
+    async (event, { email, projectUrl, range, sceneId, prompt, headless = true, overwrite = false, concurrency = 5 } = {}) => {
+      try {
+        if (activeFlowProcess) {
+          return {
+            success: false,
+            error: 'Proses automasi Google Flow sedang berlangsung. Hentikan terlebih dahulu jika ingin memulai ulang.',
+          };
+        }
+
+        const scriptPath = path.join(p.PROJECT_ROOT, 'camoufox', 'flow_generator.py');
+        if (!fs.existsSync(scriptPath)) {
+          return {
+            success: false,
+            error: `Script automasi Google Flow tidak ditemukan di: ${scriptPath}`,
+          };
+        }
+
+        const imagesDir = path.join(p.FACELESS_INPUT_DIR, 'images');
+        if (!fs.existsSync(imagesDir)) {
+          fs.mkdirSync(imagesDir, { recursive: true });
+        }
+
+        const targetEmail = (email || 'jovangithub@gmail.com').trim();
+        const pythonBin = process.platform === 'win32' ? 'python' : '/usr/bin/python3';
+
+        const args = [
+          scriptPath,
+          '--email',
+          targetEmail,
+          '--input-json',
+          path.join(p.FACELESS_INPUT_DIR, 'visual_prompts.json'),
+          '--output-dir',
+          imagesDir,
+        ];
+
+        if (!headless) {
+          args.push('--headed');
+        }
+        if (overwrite) {
+          args.push('--overwrite');
+        }
+        if (typeof concurrency === 'number' && concurrency > 0) {
+          args.push('--concurrency', String(concurrency));
+        }
+        if (projectUrl && projectUrl.trim()) {
+          args.push('--project-url', projectUrl.trim());
+        }
+        if (typeof sceneId === 'number' && !isNaN(sceneId)) {
+          args.push('--scene-id', String(sceneId));
+        } else if (range && range.trim()) {
+          args.push('--range', range.trim());
+        }
+        if (prompt && prompt.trim()) {
+          args.push('--prompt', prompt.trim());
+        }
+
+        activeFlowSender = event?.sender || null;
+
+        const child = spawn(pythonBin, args, {
+          cwd: p.PROJECT_ROOT,
+          env: {
+            ...process.env,
+            PYTHONUNBUFFERED: '1',
+            PYTHONIOENCODING: 'utf-8',
+          },
+        });
+
+        activeFlowProcess = child;
+
+        const sendProgress = (data) => {
+          try {
+            if (activeFlowSender && !activeFlowSender.isDestroyed()) {
+              activeFlowSender.send('faceless-flow-progress', data);
+            }
+          } catch (e) {
+            console.warn('[FlowGen] Error sending progress:', e.message);
+          }
+        };
+
+        sendProgress({
+          type: 'log',
+          message: `🚀 Memulai Camoufox Google Flow (${headless ? 'Headless' : 'Window Browser Terbuka'}) dengan akun: ${targetEmail}...`,
+        });
+
+        let lineBuffer = '';
+
+        const handleChunk = (chunk) => {
+          lineBuffer += chunk.toString('utf-8');
+          const lines = lineBuffer.split(/\r?\n/);
+          lineBuffer = lines.pop() || '';
+
+          for (const rawLine of lines) {
+            const line = rawLine.trim();
+            if (!line) continue;
+            console.log('[FlowGen Stdout]:', line);
+
+            if (line.startsWith('[ITEM_START]')) {
+              const sid = parseInt(line.replace('[ITEM_START]', '').trim(), 10);
+              sendProgress({
+                type: 'item-start',
+                sceneId: sid,
+                message: `Memproses adegan #${sid}...`,
+              });
+            } else if (line.startsWith('[ITEM_GENERATING]')) {
+              const sid = parseInt(line.replace('[ITEM_GENERATING]', '').trim(), 10);
+              sendProgress({
+                type: 'item-generating',
+                sceneId: sid,
+                message: `Menunggu hasil generate Google Flow untuk adegan #${sid}...`,
+              });
+            } else if (line.startsWith('[ITEM_SUCCESS]')) {
+              // [ITEM_SUCCESS] scene_id | new_img_url | dest_path
+              const parts = line.replace('[ITEM_SUCCESS]', '').split('|').map((s) => s.trim());
+              const sid = parseInt(parts[0], 10);
+              const imgUrl = parts[1] || '';
+              const destPath = parts[2] || '';
+              const stat = fs.existsSync(destPath) ? fs.statSync(destPath) : null;
+              const mediaUrl =
+                destPath && media
+                  ? `${media.mediaUrl(destPath)}?t=${stat ? stat.mtimeMs : Date.now()}`
+                  : '';
+
+              sendProgress({
+                type: 'item-success',
+                sceneId: sid,
+                imageUrl: imgUrl,
+                imagePath: destPath,
+                mediaUrl,
+                message: `✓ Adegan #${sid} berhasil digenerate & diunduh!`,
+              });
+            } else if (line.startsWith('[ITEM_ERROR]')) {
+              const parts = line.replace('[ITEM_ERROR]', '').split('|').map((s) => s.trim());
+              const sid = parseInt(parts[0], 10);
+              const errMsg = parts[1] || 'Gagal membuat gambar.';
+              sendProgress({
+                type: 'item-error',
+                sceneId: sid,
+                error: errMsg,
+                message: `⚠️ Adegan #${sid} error: ${errMsg}`,
+              });
+            } else if (line.startsWith('[ITEM_SKIP]')) {
+              const parts = line.replace('[ITEM_SKIP]', '').split('|').map((s) => s.trim());
+              const sid = parseInt(parts[0], 10);
+              const reason = parts[1] || 'Gambar sudah ada di disk';
+              const pad3 = String(sid).padStart(3, '0');
+              const cachedPath = path.join(imagesDir, `scene_${pad3}.jpg`);
+              const stat = fs.existsSync(cachedPath) ? fs.statSync(cachedPath) : null;
+              const mediaUrl =
+                stat && media ? `${media.mediaUrl(cachedPath)}?t=${stat.mtimeMs}` : '';
+
+              sendProgress({
+                type: 'item-skip',
+                sceneId: sid,
+                imagePath: cachedPath,
+                mediaUrl,
+                message: `Adegan #${sid} dilewati (${reason})`,
+              });
+            } else if (line.startsWith('[PROGRESS]')) {
+              // [PROGRESS] 1/175 (1%)
+              const match = line.match(/\[PROGRESS\]\s*(\d+)\/(\d+)\s*\(([\d]+)%\)/);
+              if (match) {
+                const current = parseInt(match[1], 10);
+                const total = parseInt(match[2], 10);
+                const percent = parseInt(match[3], 10);
+                sendProgress({
+                  type: 'progress',
+                  current,
+                  total,
+                  percent,
+                  message: `Kemajuan: ${current}/${total} adegan (${percent}%)`,
+                });
+              }
+            } else if (line.startsWith('[BATCH_COMPLETE]') || line.startsWith('[✓]')) {
+              const cleaned = line.replace(/\[BATCH_COMPLETE\]|\[✓\]/g, '').trim();
+              sendProgress({
+                type: 'batch-complete',
+                message: cleaned || '🎉 Seluruh adegan Google Flow selesai diproses!',
+              });
+            } else {
+              sendProgress({
+                type: 'log',
+                message: line,
+              });
+            }
+          }
+        };
+
+        child.stdout.on('data', handleChunk);
+        child.stderr.on('data', (data) => {
+          const text = data.toString('utf-8').trim();
+          if (text) {
+            console.warn('[FlowGen Stderr]:', text);
+            sendProgress({ type: 'log', message: text });
+          }
+        });
+
+        child.on('error', (err) => {
+          console.error('[FlowGen Process Error]:', err);
+          sendProgress({
+            type: 'error',
+            error: err.message,
+            message: `Gagal menjalankan automasi: ${err.message}`,
+          });
+          activeFlowProcess = null;
+        });
+
+        child.on('close', (code, signal) => {
+          console.log(`[FlowGen Process Exited] code=${code}, signal=${signal}`);
+          if (signal === 'SIGTERM' || signal === 'SIGINT') {
+            sendProgress({
+              type: 'stopped',
+              message: 'Proses generate Google Flow dihentikan oleh pengguna.',
+            });
+          } else if (code === 0) {
+            sendProgress({
+              type: 'batch-complete',
+              message: '🎉 Automasi generate gambar Google Flow selesai sempurna!',
+            });
+          } else {
+            sendProgress({
+              type: 'error',
+              error: `Proses keluar dengan status kode ${code}`,
+              message: `Automasi selesai dengan kode status ${code}.`,
+            });
+          }
+          activeFlowProcess = null;
+        });
+
+        return {
+          success: true,
+          message: 'Automasi generate gambar Google Flow telah dimulai!',
+        };
+      } catch (err) {
+        activeFlowProcess = null;
+        return { success: false, error: err.message };
+      }
+    }
+  );
+
+  /**
+   * Stop active Google Flow generation
+   */
+  ipcMain.handle('stop-faceless-flow-generation', async () => {
+    try {
+      if (activeFlowProcess) {
+        activeFlowProcess.kill('SIGINT');
+        setTimeout(() => {
+          if (activeFlowProcess) {
+            try {
+              activeFlowProcess.kill('SIGKILL');
+            } catch {}
+            activeFlowProcess = null;
+          }
+        }, 2500);
+        return { success: true, message: 'Permintaan penghentian automasi dikirim.' };
+      }
+      return { success: true, message: 'Tidak ada proses automasi yang sedang berjalan.' };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  /**
+   * Get active status of Google Flow generation
+   */
+  ipcMain.handle('get-faceless-flow-status', async () => {
+    return { isRunning: Boolean(activeFlowProcess) };
+  });
 }
 
 module.exports = {

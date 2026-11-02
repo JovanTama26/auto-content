@@ -511,6 +511,11 @@ export interface ElectronAPI {
     callback: (data: FacelessVisualStreamProgress) => void
   ) => () => void;
   cancelFacelessVisualStream?: () => Promise<{ success: boolean; message?: string }>;
+  listCamoufoxProfiles?: () => Promise<{ success: boolean; profiles: string[]; error?: string }>;
+  startFacelessFlowGeneration?: (opts?: FacelessFlowGenerateOptions) => Promise<{ success: boolean; message?: string; error?: string }>;
+  stopFacelessFlowGeneration?: () => Promise<{ success: boolean; message?: string; error?: string }>;
+  getFacelessFlowStatus?: () => Promise<{ isRunning: boolean }>;
+  onFacelessFlowProgress?: (callback: (data: FacelessFlowProgress) => void) => () => void;
 
   // Humanologi Helpers (Prompt, Narration JSON, and Audio)
   getHumanologiPrompt?: () => Promise<{ success: boolean; prompt?: string; error?: string }>;
@@ -731,6 +736,11 @@ export interface FacelessVisualPromptItem {
   shotType: string;
   sceneDescription: string;
   finalPrompt: string;
+  image_path?: string;
+  image_url?: string;
+  media_url?: string;
+  has_image?: boolean;
+  image_size?: number;
 }
 
 export interface FacelessVisualPromptsData {
@@ -738,6 +748,41 @@ export interface FacelessVisualPromptsData {
   jsonPath?: string;
   txtPath?: string;
   updatedAt?: string;
+}
+
+export interface FacelessFlowGenerateOptions {
+  email?: string;
+  projectUrl?: string;
+  range?: string;
+  sceneId?: number;
+  prompt?: string;
+  headless?: boolean;
+  overwrite?: boolean;
+  outputDir?: string;
+  concurrency?: number;
+}
+
+export interface FacelessFlowProgress {
+  type:
+    | 'log'
+    | 'item-start'
+    | 'item-generating'
+    | 'item-success'
+    | 'item-error'
+    | 'item-skip'
+    | 'progress'
+    | 'batch-complete'
+    | 'stopped'
+    | 'error';
+  message: string;
+  sceneId?: number;
+  imageUrl?: string;
+  mediaUrl?: string;
+  imagePath?: string;
+  percent?: number;
+  current?: number;
+  total?: number;
+  error?: string;
 }
 
 export interface FacelessVisualStreamProgress {

@@ -6,6 +6,8 @@ import type {
   FacelessTranscriptData,
   FacelessAudioItem,
   FacelessVisualStreamProgress,
+  FacelessFlowGenerateOptions,
+  FacelessFlowProgress,
 } from '../../electron-api';
 
 const api = window.electronAPI;
@@ -58,12 +60,45 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [templateFilter, setTemplateFilter] = useState<'ALL' | 'A' | 'B'>('ALL');
   const [shotFilter, setShotFilter] = useState<string>('ALL');
+  const [imageFilter, setImageFilter] = useState<'ALL' | 'HAS_IMAGE' | 'NO_IMAGE'>('ALL');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [copiedAll, setCopiedAll] = useState<boolean>(false);
   const [isGuideExpanded, setIsGuideExpanded] = useState<boolean>(false);
   const [singleRegenModalItem, setSingleRegenModalItem] = useState<FacelessVisualPromptItem | null>(null);
   const [singleRegenFeedback, setSingleRegenFeedback] = useState<string>('');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
+
+  // Google Flow (Camoufox) Automation states
+  const [flowProfiles, setFlowProfiles] = useState<string[]>(['jovangithub@gmail.com', 'panjij0987@gmail.com']);
+  const [selectedFlowEmail, setSelectedFlowEmail] = useState<string>('jovangithub@gmail.com');
+  const [isFlowRunning, setIsFlowRunning] = useState<boolean>(false);
+  const [flowHeadless, setFlowHeadless] = useState<boolean>(true);
+  const [flowConcurrency, setFlowConcurrency] = useState<number>(5);
+  const [flowOverwrite, setFlowOverwrite] = useState<boolean>(false);
+  const [flowScope, setFlowScope] = useState<'missing' | 'all' | 'range'>('missing');
+  const [flowRangeInput, setFlowRangeInput] = useState<string>('');
+  const [flowProjectUrl, setFlowProjectUrl] = useState<string>('');
+  const [singleFlowGeneratingId, setSingleFlowGeneratingId] = useState<number | null>(null);
+  const [isFlowTerminalExpanded, setIsFlowTerminalExpanded] = useState<boolean>(false);
+  const [flowProgress, setFlowProgress] = useState<{
+    active: boolean;
+    currentScene?: number;
+    current?: number;
+    total?: number;
+    percent: number;
+    message: string;
+    lastImageUrl?: string;
+    lastMediaUrl?: string;
+    logs: string[];
+  }>({
+    active: false,
+    percent: 0,
+    message: '',
+    logs: [],
+  });
+
+  // Modal Image Preview (Lightbox)
+  const [previewModalItem, setPreviewModalItem] = useState<FacelessVisualPromptItem | null>(null);
 
   const audioPlayerRef = useRef<HTMLAudioElement>(null);
 
@@ -98,6 +133,25 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
           setAudioList(aRes.audios);
         }
       }
+
+      // 4. Load saved Camoufox browser profiles
+      if (api?.listCamoufoxProfiles) {
+        const pRes = await api.listCamoufoxProfiles();
+        if (pRes?.success && Array.isArray(pRes.profiles) && pRes.profiles.length > 0) {
+          setFlowProfiles(pRes.profiles);
+          if (!pRes.profiles.includes(selectedFlowEmail)) {
+            setSelectedFlowEmail(pRes.profiles[0]);
+          }
+        }
+      }
+
+      // 5. Check if Google Flow automation is currently running
+      if (api?.getFacelessFlowStatus) {
+        const sRes = await api.getFacelessFlowStatus();
+        if (sRes?.isRunning) {
+          setIsFlowRunning(true);
+        }
+      }
     } catch (err: any) {
       showToast(err.message || 'Gagal memuat data visual prompt.', 'error');
     } finally {
@@ -109,7 +163,7 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
     loadData();
   }, []);
 
-  // Listen to real-time batch streaming progress from 9router AI
+  // Listen to real-time batch streaming progress from 9router AI (Prompt Generation)
   useEffect(() => {
     if (!api?.onFacelessVisualStreamProgress) return;
     const cleanup = api.onFacelessVisualStreamProgress((data: FacelessVisualStreamProgress) => {
@@ -177,19 +231,90 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
     return () => cleanup();
   }, [batchSize, prompts.length]);
 
+  // Listen to real-time Google Flow Camoufox progress
+  useEffect(() => {
+    if (!api?.onFacelessFlowProgress) return;
+    const cleanup = api.onFacelessFlowProgress((data: FacelessFlowProgress) => {
+      setFlowProgress((prev) => {
+        const line = data.message || '';
+        const newLogs = line ? [...prev.logs, line].slice(-80) : prev.logs;
+        return {
+          active: true,
+          currentScene: data.sceneId !== undefined ? data.sceneId : prev.currentScene,
+          current: data.current !== undefined ? data.current : prev.current,
+          total: data.total !== undefined ? data.total : prev.total,
+          percent: data.percent !== undefined ? data.percent : prev.percent,
+          message: data.message || prev.message,
+          lastImageUrl: data.imageUrl || prev.lastImageUrl,
+          lastMediaUrl: data.mediaUrl || prev.lastMediaUrl,
+          logs: newLogs,
+        };
+      });
+
+      if (data.type === 'item-success') {
+        if (data.sceneId !== undefined) {
+          setPrompts((prev) =>
+            prev.map((p) => {
+              if (p.index === data.sceneId) {
+                return {
+                  ...p,
+                  has_image: true,
+                  image_path: data.imagePath,
+                  image_url: data.imageUrl,
+                  media_url: data.mediaUrl,
+                };
+              }
+              return p;
+            })
+          );
+        }
+        if (singleFlowGeneratingId === data.sceneId) {
+          setSingleFlowGeneratingId(null);
+        }
+        showToast(`✓ Gambar adegan #${data.sceneId} berhasil diunduh!`, 'success');
+      } else if (data.type === 'item-skip') {
+        if (data.sceneId !== undefined && data.mediaUrl) {
+          setPrompts((prev) =>
+            prev.map((p) => {
+              if (p.index === data.sceneId && !p.media_url) {
+                return {
+                  ...p,
+                  has_image: true,
+                  image_path: data.imagePath,
+                  media_url: data.mediaUrl,
+                };
+              }
+              return p;
+            })
+          );
+        }
+      } else if (data.type === 'batch-complete' || data.type === 'stopped') {
+        setIsFlowRunning(false);
+        setSingleFlowGeneratingId(null);
+        showToast(data.message, data.type === 'batch-complete' ? 'success' : 'info');
+      } else if (data.type === 'error') {
+        setIsFlowRunning(false);
+        setSingleFlowGeneratingId(null);
+        showToast(data.error || data.message || 'Terjadi kesalahan pada Google Flow.', 'error');
+      }
+    });
+
+    return () => cleanup();
+  }, [singleFlowGeneratingId]);
+
   const mainAudio = useMemo(() => {
     return audioList.find((a) => a.part === null || a.name.startsWith('voiceover')) || audioList[0] || null;
   }, [audioList]);
 
-  // Cancel ongoing streaming
+  // Cancel ongoing 9router AI prompt streaming
   const handleCancelStream = async () => {
     try {
       if (api?.cancelFacelessVisualStream) {
         await api.cancelFacelessVisualStream();
-        showToast('Mengirim permintaan pembatalan streaming...', 'info');
+        showToast('Mengirim permintaan pembatalan streaming prompt...', 'info');
       }
     } catch (err: any) {
-      showToast(err.message || 'Gagal membatalkan streaming.', 'error');
+      showToast(err.message || 'Gagal membatalkan streaming prompt.', 'error');
     }
   };
 
@@ -297,6 +422,101 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
     }
   };
 
+  // Start Google Flow Generation
+  const handleStartFlow = async (scopeOverride?: 'missing' | 'all' | 'range', specificSceneId?: number) => {
+    if (prompts.length === 0) {
+      showToast('Belum ada prompt visual. Silakan generate prompt terlebih dahulu.', 'error');
+      return;
+    }
+
+    const scopeToUse = scopeOverride || flowScope;
+    let rangeArg: string | undefined = undefined;
+
+    if (typeof specificSceneId === 'number') {
+      rangeArg = String(specificSceneId);
+      setSingleFlowGeneratingId(specificSceneId);
+    } else if (scopeToUse === 'missing') {
+      const missingIndexes = prompts
+        .filter((p) => !p.has_image && !p.media_url)
+        .map((p) => p.index);
+
+      if (missingIndexes.length === 0) {
+        showToast(
+          'Semua adegan sudah memiliki file gambar di folder! Pilih mode Seluruh Adegan (Overwrite) jika ingin generate ulang.',
+          'info'
+        );
+        return;
+      }
+      rangeArg = missingIndexes.join(',');
+    } else if (scopeToUse === 'range') {
+      if (!flowRangeInput.trim()) {
+        showToast('Masukkan rentang adegan yang ingin diproses (contoh: 1-5 atau 1,2,3).', 'error');
+        return;
+      }
+      rangeArg = flowRangeInput.trim();
+    } else {
+      // All scenes
+      rangeArg = undefined;
+    }
+
+    setIsFlowRunning(true);
+    setFlowProgress((prev) => ({
+      ...prev,
+      active: true,
+      percent: 0,
+      message: `Memulai Google Flow Camoufox (${selectedFlowEmail})...`,
+    }));
+
+    try {
+      if (!api?.startFacelessFlowGeneration) {
+        showToast('Fitur automasi Google Flow tidak tersedia.', 'error');
+        setIsFlowRunning(false);
+        setSingleFlowGeneratingId(null);
+        return;
+      }
+
+      const res = await api.startFacelessFlowGeneration({
+        email: selectedFlowEmail,
+        headless: flowHeadless,
+        concurrency: typeof specificSceneId === 'number' ? 1 : flowConcurrency,
+        overwrite: scopeToUse === 'all' ? flowOverwrite : false,
+        range: rangeArg,
+        sceneId: typeof specificSceneId === 'number' ? specificSceneId : undefined,
+        projectUrl: flowProjectUrl.trim() || undefined,
+      });
+
+      if (res?.success) {
+        showToast(`🚀 Automasi Google Flow dimulai (${selectedFlowEmail})!`, 'success');
+      } else {
+        showToast(res?.error || 'Gagal memulai automasi Google Flow.', 'error');
+        setIsFlowRunning(false);
+        setSingleFlowGeneratingId(null);
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Terjadi kesalahan saat memanggil automasi Flow.', 'error');
+      setIsFlowRunning(false);
+      setSingleFlowGeneratingId(null);
+    }
+  };
+
+  // Stop Google Flow Generation
+  const handleStopFlow = async () => {
+    try {
+      if (api?.stopFacelessFlowGeneration) {
+        const res = await api.stopFacelessFlowGeneration();
+        showToast(res?.message || 'Permintaan penghentian automasi dikirim.', 'info');
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Gagal menghentikan automasi.', 'error');
+    }
+  };
+
+  const handleOpenImagesFolder = () => {
+    if (api?.openInFolder) {
+      api.openInFolder('input/faceless/images');
+    }
+  };
+
   const handleCopyPrompt = (id: string, text: string) => {
     navigator.clipboard.writeText(text);
     setCopiedId(id);
@@ -332,11 +552,19 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
     }
   };
 
+  // Counts
+  const countA = useMemo(() => prompts.filter((p) => p.templateType === 'A').length, [prompts]);
+  const countB = useMemo(() => prompts.filter((p) => p.templateType === 'B').length, [prompts]);
+  const countWithImages = useMemo(() => prompts.filter((p) => p.has_image || p.media_url).length, [prompts]);
+  const countWithoutImages = useMemo(() => prompts.length - countWithImages, [prompts.length, countWithImages]);
+
   // Filtered prompts
   const filteredPrompts = useMemo(() => {
     return prompts.filter((p) => {
       if (templateFilter !== 'ALL' && p.templateType !== templateFilter) return false;
       if (shotFilter !== 'ALL' && p.shotType !== shotFilter) return false;
+      if (imageFilter === 'HAS_IMAGE' && !p.has_image && !p.media_url) return false;
+      if (imageFilter === 'NO_IMAGE' && (p.has_image || p.media_url)) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const matchesNarration = p.narration.toLowerCase().includes(q);
@@ -346,10 +574,7 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
       }
       return true;
     });
-  }, [prompts, templateFilter, shotFilter, searchQuery]);
-
-  const countA = useMemo(() => prompts.filter((p) => p.templateType === 'A').length, [prompts]);
-  const countB = useMemo(() => prompts.filter((p) => p.templateType === 'B').length, [prompts]);
+  }, [prompts, templateFilter, shotFilter, imageFilter, searchQuery]);
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 pb-24">
@@ -376,7 +601,7 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
           <div className="space-y-2">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="px-3 py-1 rounded-full bg-amber-950/80 text-amber-300 border border-amber-700/50 text-[11px] font-mono font-bold tracking-wider uppercase">
-                🎨 Step 3: Visual Prompt Studio
+                🎨 Step 3: Visual Prompt Studio & Image Generator
               </span>
               <span className="px-2.5 py-0.5 rounded-full bg-yellow-950/80 text-yellow-300 text-[10px] font-mono border border-yellow-700/60 font-bold flex items-center gap-1">
                 <span>🧢</span> Si Kupluk Kuning DNA
@@ -385,34 +610,43 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 <span>9router AI Connected</span>
               </span>
+              <span className="px-2.5 py-0.5 rounded-full bg-indigo-950/80 text-indigo-300 text-[10px] font-mono border border-indigo-600/60 font-bold flex items-center gap-1.5 shadow-sm">
+                <span>🌊</span> Google Flow Integrated
+              </span>
               {prompts.length > 0 && (
                 <span className="px-2.5 py-0.5 rounded-full bg-sky-950/80 text-sky-300 text-[10px] font-mono border border-sky-700/60 font-bold">
-                  ✓ {prompts.length} Prompt Siap
+                  ✓ {countWithImages}/{prompts.length} Gambar Siap
                 </span>
               )}
             </div>
 
             <h1 className="text-2xl font-black text-white tracking-tight flex items-center gap-2">
-              <span>🖼️</span> Visual Prompt Studio (Per Line Transkrip)
+              <span>🖼️</span> Visual Prompt Studio & Google Flow Image Generator
             </h1>
             <p className="text-xs text-gray-400 leading-relaxed max-w-3xl">
-              Membuat prompt gambar AI otomatis untuk setiap baris transkrip voiceover menggunakan aturan baku{' '}
-              <strong className="text-amber-300 font-mono">Template A (Si Kupluk Kuning)</strong> dan{' '}
-              <strong className="text-sky-300 font-mono">Template B (Objek/Lokasi/Zombie)</strong> untuk Nano Banana / Midjourney / Flux.
+              Membuat prompt gambar AI otomatis untuk setiap baris transkrip voiceover, lalu mengeksekusi pembuatan gambar
+              resolusi tinggi secara otomatis via <strong className="text-indigo-300 font-mono">Google Flow (flow.google.com)</strong> menggunakan profil browser Camoufox.
             </p>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
             <button
+              onClick={handleOpenImagesFolder}
+              className="px-3.5 py-2 bg-indigo-950/70 hover:bg-indigo-900/80 text-indigo-300 hover:text-indigo-200 text-xs font-bold rounded-xl border border-indigo-700/60 transition-all flex items-center gap-1.5 shadow-md cursor-pointer"
+              title="Buka folder input/faceless/images di file manager"
+            >
+              <span>🖼️</span> Buka Folder Gambar ({countWithImages})
+            </button>
+            <button
               onClick={handleOpenFolder}
-              className="px-3.5 py-2 bg-gray-800/90 hover:bg-gray-700 text-amber-300 hover:text-amber-200 text-xs font-bold rounded-xl border border-gray-700 hover:border-amber-500/50 transition-all flex items-center gap-1.5 shadow-md"
+              className="px-3.5 py-2 bg-gray-800/90 hover:bg-gray-700 text-amber-300 hover:text-amber-200 text-xs font-bold rounded-xl border border-gray-700 hover:border-amber-500/50 transition-all flex items-center gap-1.5 shadow-md cursor-pointer"
             >
               <span>📁</span> Buka Folder Faceless
             </button>
             {onBackToAudio && (
               <button
                 onClick={onBackToAudio}
-                className="px-3.5 py-2 bg-gray-800/80 hover:bg-gray-700 text-gray-300 hover:text-white text-xs font-semibold rounded-xl border border-gray-700 transition-all flex items-center gap-1.5"
+                className="px-3.5 py-2 bg-gray-800/80 hover:bg-gray-700 text-gray-300 hover:text-white text-xs font-semibold rounded-xl border border-gray-700 transition-all flex items-center gap-1.5 cursor-pointer"
               >
                 <span>←</span> Step 2 (Audio & Transkrip)
               </button>
@@ -446,7 +680,7 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
 
           <button
             onClick={() => setIsGuideExpanded(!isGuideExpanded)}
-            className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white text-xs font-semibold rounded-xl border border-gray-700 transition-all flex items-center gap-1"
+            className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white text-xs font-semibold rounded-xl border border-gray-700 transition-all flex items-center gap-1 cursor-pointer"
           >
             <span>{isGuideExpanded ? '▲ Sembunyikan Pedoman' : '▼ Lihat Pedoman Karakter & DNA Visual'}</span>
           </button>
@@ -462,7 +696,6 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
                   alt="Si Kupluk Kuning"
                   className="w-16 h-20 object-contain rounded-lg border border-amber-500/30 bg-gray-900"
                   onError={(e) => {
-                    // Fallback placeholder if asset not ready
                     (e.target as HTMLElement).style.display = 'none';
                   }}
                 />
@@ -510,7 +743,365 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
         )}
       </div>
 
-      {/* Streaming Live Progress Banner */}
+      {/* GOOGLE FLOW AUTOMATION HUB CARD */}
+      <div className="bg-gradient-to-br from-indigo-950/40 via-gray-900 to-purple-950/30 border-2 border-indigo-500/40 rounded-3xl p-6 shadow-2xl backdrop-blur-md relative overflow-hidden space-y-5">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="px-3 py-1 rounded-full bg-indigo-950 text-indigo-300 border border-indigo-500/50 text-[11px] font-mono font-bold tracking-wider flex items-center gap-1.5">
+                <span>🌊</span> Google Flow Automation
+              </span>
+              <span className="px-2.5 py-0.5 rounded-full bg-purple-950 text-purple-300 border border-purple-700/50 text-[10px] font-mono font-bold">
+                Model: Nano Banana 2.1 (16:9)
+              </span>
+              {isFlowRunning ? (
+                <span className="px-2.5 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-500 text-[10px] font-mono font-bold flex items-center gap-1.5 animate-pulse">
+                  <span className="w-2 h-2 rounded-full bg-amber-400" />
+                  <span>Sedang Generate di Flow...</span>
+                </span>
+              ) : (
+                <span className="px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-600/50 text-[10px] font-mono font-bold">
+                  ✓ Siap Digunakan
+                </span>
+              )}
+            </div>
+
+            <h2 className="text-lg font-black text-white flex items-center gap-2">
+              <span>⚡</span> Google Flow Image Generator Studio (Camoufox)
+            </h2>
+            <p className="text-xs text-gray-400 leading-relaxed max-w-2xl">
+              Secara otomatis membuka Google Flow, mengetikkan prompt setiap adegan secara berurutan, mengunduh file gambar asli
+              ke folder <code className="text-indigo-300 font-mono">input/faceless/images</code>, dan langsung menampilkan preview di bawah.
+            </p>
+          </div>
+
+          {/* Quick Stats Badges */}
+          <div className="flex items-center gap-2 bg-gray-950/70 border border-indigo-900/60 rounded-2xl p-2.5">
+            <div className="text-center px-3 border-r border-gray-800">
+              <div className="text-xs text-gray-400 font-mono">Total Scene</div>
+              <div className="text-base font-black text-white">{prompts.length}</div>
+            </div>
+            <div className="text-center px-3 border-r border-gray-800">
+              <div className="text-xs text-emerald-400 font-mono">✓ Ada Gambar</div>
+              <div className="text-base font-black text-emerald-300">{countWithImages}</div>
+            </div>
+            <div className="text-center px-3">
+              <div className="text-xs text-amber-400 font-mono">⏳ Belum Ada</div>
+              <div className="text-base font-black text-amber-300">{countWithoutImages}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Configuration Controls Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 bg-gray-950/70 border border-gray-800/80 rounded-2xl p-4">
+          {/* 1. Profile Email Selector */}
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-bold text-gray-300 flex items-center justify-between">
+              <span>👤 Akun Google:</span>
+              <span className="text-[10px] text-indigo-400 font-mono">
+                {flowProfiles.length} profil
+              </span>
+            </label>
+            <select
+              value={selectedFlowEmail}
+              onChange={(e) => setSelectedFlowEmail(e.target.value)}
+              disabled={isFlowRunning}
+              className="w-full bg-gray-900 border border-gray-800 rounded-xl px-3 py-2 text-xs text-indigo-200 font-mono font-medium focus:outline-none focus:border-indigo-500 cursor-pointer shadow-inner disabled:opacity-50"
+            >
+              {flowProfiles.map((email) => (
+                <option key={email} value={email}>
+                  {email}
+                </option>
+              ))}
+            </select>
+            <p className="text-[10px] text-gray-500 italic">
+              * Profile login tersimpan di Camoufox.
+            </p>
+          </div>
+
+          {/* 2. Browser Mode Toggle */}
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-bold text-gray-300">
+              🖥️ Tampilan Browser:
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setFlowHeadless(true)}
+                disabled={isFlowRunning}
+                className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all text-center cursor-pointer ${
+                  flowHeadless
+                    ? 'bg-indigo-600 text-white border-indigo-400 shadow-md shadow-indigo-600/30'
+                    : 'bg-gray-900 text-gray-400 border-gray-800 hover:text-gray-200'
+                }`}
+              >
+                Headless ⭐
+              </button>
+              <button
+                type="button"
+                onClick={() => setFlowHeadless(false)}
+                disabled={isFlowRunning}
+                className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all text-center cursor-pointer ${
+                  !flowHeadless
+                    ? 'bg-indigo-600 text-white border-indigo-400 shadow-md shadow-indigo-600/30'
+                    : 'bg-gray-900 text-gray-400 border-gray-800 hover:text-gray-200'
+                }`}
+              >
+                Buka Jendela
+              </button>
+            </div>
+            <p className="text-[10px] text-gray-500 italic">
+              * Headless berjalan di background.
+            </p>
+          </div>
+
+          {/* 3. Concurrency / Multi-Tab Worker Selector */}
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-bold text-gray-300 flex items-center justify-between">
+              <span>⚡ Kecepatan (Multi-Tab):</span>
+              <span className="text-[10px] text-amber-400 font-mono font-bold">
+                {flowConcurrency} Tab Paralel
+              </span>
+            </label>
+            <div className="grid grid-cols-3 gap-1.5">
+              <button
+                type="button"
+                onClick={() => setFlowConcurrency(1)}
+                disabled={isFlowRunning}
+                className={`px-2 py-2 rounded-xl text-[11px] font-bold border transition-all text-center cursor-pointer ${
+                  flowConcurrency === 1
+                    ? 'bg-indigo-600 text-white border-indigo-400 shadow-md shadow-indigo-600/30 font-bold'
+                    : 'bg-gray-900 text-gray-400 border-gray-800 hover:text-gray-200'
+                }`}
+                title="1 Tab/Proses berurutan (Standar)"
+              >
+                1 Tab
+              </button>
+              <button
+                type="button"
+                onClick={() => setFlowConcurrency(3)}
+                disabled={isFlowRunning}
+                className={`px-2 py-2 rounded-xl text-[11px] font-bold border transition-all text-center cursor-pointer ${
+                  flowConcurrency === 3
+                    ? 'bg-indigo-600 text-white border-indigo-400 shadow-md shadow-indigo-600/30 font-bold'
+                    : 'bg-gray-900 text-gray-400 border-gray-800 hover:text-gray-200'
+                }`}
+                title="3 Tab/Proses paralel serentak"
+              >
+                3 Tab ⚡
+              </button>
+              <button
+                type="button"
+                onClick={() => setFlowConcurrency(5)}
+                disabled={isFlowRunning}
+                className={`px-2 py-2 rounded-xl text-[11px] font-bold border transition-all text-center cursor-pointer ${
+                  flowConcurrency === 5
+                    ? 'bg-gradient-to-r from-amber-500 to-indigo-600 text-white border-amber-400 font-black shadow-md shadow-amber-500/30'
+                    : 'bg-gray-900 text-gray-400 border-gray-800 hover:text-gray-200'
+                }`}
+                title="5 Tab/Proses paralel serentak sekaligus (Super Cepat!)"
+              >
+                5 Tab 🚀
+              </button>
+            </div>
+            <p className="text-[10px] text-gray-500 italic">
+              * {flowConcurrency} adegan diproses serentak bersamaan.
+            </p>
+          </div>
+
+          {/* 4. Scope / Range Selector */}
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-bold text-gray-300">
+              🎯 Cakupan Adegan:
+            </label>
+            <div className="grid grid-cols-3 gap-1.5">
+              <button
+                type="button"
+                onClick={() => setFlowScope('missing')}
+                disabled={isFlowRunning}
+                className={`px-2 py-1.5 rounded-xl text-[11px] font-bold border transition-all text-center cursor-pointer ${
+                  flowScope === 'missing'
+                    ? 'bg-amber-500 text-gray-950 border-amber-400 font-extrabold shadow-sm'
+                    : 'bg-gray-900 text-gray-400 border-gray-800 hover:text-gray-200'
+                }`}
+                title="Hanya proses adegan yang belum memiliki gambar"
+              >
+                Belum Ada ({countWithoutImages})
+              </button>
+              <button
+                type="button"
+                onClick={() => setFlowScope('all')}
+                disabled={isFlowRunning}
+                className={`px-2 py-1.5 rounded-xl text-[11px] font-bold border transition-all text-center cursor-pointer ${
+                  flowScope === 'all'
+                    ? 'bg-amber-500 text-gray-950 border-amber-400 font-extrabold shadow-sm'
+                    : 'bg-gray-900 text-gray-400 border-gray-800 hover:text-gray-200'
+                }`}
+                title="Generate seluruh adegan naskah"
+              >
+                Semua ({prompts.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setFlowScope('range')}
+                disabled={isFlowRunning}
+                className={`px-2 py-1.5 rounded-xl text-[11px] font-bold border transition-all text-center cursor-pointer ${
+                  flowScope === 'range'
+                    ? 'bg-amber-500 text-gray-950 border-amber-400 font-extrabold shadow-sm'
+                    : 'bg-gray-900 text-gray-400 border-gray-800 hover:text-gray-200'
+                }`}
+                title="Tentukan nomor adegan tertentu"
+              >
+                Range Scene
+              </button>
+            </div>
+
+            {flowScope === 'range' && (
+              <input
+                type="text"
+                value={flowRangeInput}
+                onChange={(e) => setFlowRangeInput(e.target.value)}
+                placeholder="Contoh: 1-5 atau 1,3,7..."
+                disabled={isFlowRunning}
+                className="w-full bg-gray-900 border border-gray-800 rounded-xl px-2.5 py-1 text-xs text-amber-200 font-mono placeholder:text-gray-600 focus:outline-none focus:border-amber-500"
+              />
+            )}
+
+            {flowScope === 'all' && (
+              <label className="flex items-center gap-1.5 text-[10px] text-gray-400 cursor-pointer pt-1">
+                <input
+                  type="checkbox"
+                  checked={flowOverwrite}
+                  onChange={(e) => setFlowOverwrite(e.target.checked)}
+                  disabled={isFlowRunning}
+                  className="rounded border-gray-700 text-indigo-600 focus:ring-0"
+                />
+                <span>Generate ulang gambar yang sudah ada (Overwrite)</span>
+              </label>
+            )}
+          </div>
+        </div>
+
+        {/* Action Trigger Buttons */}
+        <div className="flex items-center justify-between gap-4 flex-wrap pt-1">
+          <div className="flex items-center gap-2">
+            {!isFlowRunning ? (
+              <button
+                onClick={() => handleStartFlow()}
+                disabled={prompts.length === 0}
+                className="px-6 py-3 rounded-2xl bg-gradient-to-r from-indigo-500 via-purple-600 to-amber-500 hover:from-indigo-400 hover:to-amber-400 text-white font-black text-sm shadow-xl shadow-indigo-700/30 transition-all flex items-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
+              >
+                <span>⚡</span>
+                <span>
+                  {flowScope === 'missing'
+                    ? `Mulai Generate ${countWithoutImages} Gambar (${flowConcurrency} Tab Bersamaan 🚀)`
+                    : flowScope === 'range'
+                    ? `Mulai Generate Range: ${flowRangeInput || '?'} (${flowConcurrency} Tab 🚀)`
+                    : `Mulai Generate Seluruh ${prompts.length} Gambar (${flowConcurrency} Tab 🚀)`}
+                </span>
+              </button>
+            ) : (
+              <button
+                onClick={handleStopFlow}
+                className="px-6 py-3 rounded-2xl bg-red-600 hover:bg-red-500 text-white font-black text-sm shadow-xl shadow-red-900/40 transition-all flex items-center gap-2 cursor-pointer animate-pulse"
+              >
+                <span>⏹️</span>
+                <span>Hentikan Automasi Google Flow</span>
+              </button>
+            )}
+
+            <button
+              onClick={handleOpenImagesFolder}
+              className="px-4 py-3 rounded-2xl bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white font-bold text-xs border border-gray-700 transition-all flex items-center gap-1.5 cursor-pointer"
+            >
+              <span>📁</span>
+              <span>Buka Folder images/</span>
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsFlowTerminalExpanded(!isFlowTerminalExpanded)}
+              className="px-3.5 py-2 bg-gray-950/80 hover:bg-gray-900 text-indigo-300 text-xs font-mono rounded-xl border border-indigo-900/50 transition-all flex items-center gap-1.5 cursor-pointer"
+            >
+              <span>💻</span>
+              <span>{isFlowTerminalExpanded ? '▲ Sembunyikan Log' : '▼ Tampilkan Log Terminal'}</span>
+              {flowProgress.logs.length > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-indigo-950 text-[10px] text-indigo-400">
+                  {flowProgress.logs.length}
+                </span>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Live Progress Bar & Status (Visible when running or logs exist) */}
+        {(isFlowRunning || flowProgress.active) && (
+          <div className="bg-gray-950/90 border border-indigo-500/30 rounded-2xl p-4 space-y-3 animate-in fade-in">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                {isFlowRunning && (
+                  <span className="relative flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-indigo-500"></span>
+                  </span>
+                )}
+                <span className="text-xs font-bold text-white">
+                  {flowProgress.message || 'Automasi Google Flow sedang berjalan...'}
+                </span>
+              </div>
+
+              <div className="text-xs font-mono font-bold text-indigo-300">
+                {flowProgress.current !== undefined && flowProgress.total !== undefined
+                  ? `${flowProgress.current} / ${flowProgress.total} adegan (${flowProgress.percent}%)`
+                  : `${flowProgress.percent}% Selesai`}
+              </div>
+            </div>
+
+            {/* Progress bar */}
+            <div className="w-full h-2.5 bg-gray-900 rounded-full overflow-hidden border border-gray-800 p-0.5">
+              <div
+                className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-amber-400 rounded-full transition-all duration-300"
+                style={{ width: `${Math.min(100, Math.max(3, flowProgress.percent || (isFlowRunning ? 10 : 0)))}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Expandable Terminal Log Viewer */}
+        {isFlowTerminalExpanded && (
+          <div className="bg-gray-950 border border-gray-800 rounded-2xl p-3 font-mono text-[11px] text-gray-300 max-h-52 overflow-y-auto space-y-1 shadow-inner select-text">
+            <div className="text-[10px] text-gray-500 pb-1 border-b border-gray-800 flex items-center justify-between">
+              <span>TERMINAL LOGS (Camoufox & Google Flow)</span>
+              <span>{flowProgress.logs.length} baris</span>
+            </div>
+            {flowProgress.logs.length === 0 ? (
+              <div className="text-gray-600 italic">Belum ada log aktif...</div>
+            ) : (
+              flowProgress.logs.map((log, idx) => (
+                <div key={idx} className="leading-relaxed break-all">
+                  <span className="text-gray-600 mr-2">[{idx + 1}]</span>
+                  <span
+                    className={
+                      log.includes('[ITEM_SUCCESS]') || log.includes('✓')
+                        ? 'text-emerald-400 font-bold'
+                        : log.includes('error') || log.includes('gagal') || log.includes('[ITEM_ERROR]')
+                        ? 'text-red-400 font-bold'
+                        : log.includes('[ITEM_GENERATING]')
+                        ? 'text-amber-300'
+                        : 'text-gray-300'
+                    }
+                  >
+                    {log}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Streaming Live Progress Banner (9router AI Prompts) */}
       {(isGenerating || streamProgress?.active) && (
         <div className="bg-gradient-to-r from-gray-900 via-amber-950/40 to-gray-900 border-2 border-amber-500/60 rounded-3xl p-5 shadow-2xl backdrop-blur-md relative overflow-hidden animate-in fade-in zoom-in-95">
           <div className="flex items-center justify-between gap-4 flex-wrap pb-3 border-b border-amber-500/20">
@@ -537,7 +1128,8 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
             <div className="flex items-center gap-3">
               <div className="text-right">
                 <div className="text-xs font-mono font-bold text-amber-300">
-                  Batch {streamProgress?.batchIndex || 1} dari {streamProgress?.totalBatches || Math.ceil((transcript?.segments?.length || 1) / batchSize)}
+                  Batch {streamProgress?.batchIndex || 1} dari{' '}
+                  {streamProgress?.totalBatches || Math.ceil((transcript?.segments?.length || 1) / batchSize)}
                 </div>
                 <div className="text-[11px] text-gray-400 font-mono">
                   {prompts.length} / {transcript?.segments?.length || 0} Prompt Masuk
@@ -547,7 +1139,7 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
               <button
                 onClick={handleCancelStream}
                 className="px-3.5 py-2 bg-red-600/90 hover:bg-red-500 text-white font-bold text-xs rounded-xl border border-red-400/50 transition-all flex items-center gap-1.5 shadow-lg shadow-red-900/40 hover:scale-105 active:scale-95 cursor-pointer"
-                title="Hentikan proses streaming sekarang (prompt yang sudah masuk tersimpan aman)"
+                title="Hentikan proses streaming prompt"
               >
                 <span>⏹️</span>
                 <span>Hentikan Streaming</span>
@@ -583,17 +1175,21 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
           </div>
 
           <div className="space-y-2 max-w-xl mx-auto">
-            <h2 className="text-xl font-black text-white">
-              Visual Prompts Belum Dibuat
-            </h2>
+            <h2 className="text-xl font-black text-white">Visual Prompts Belum Dibuat</h2>
             <p className="text-xs text-gray-400 leading-relaxed">
               {transcript?.segments?.length ? (
                 <>
-                  Ditemukan <strong className="text-amber-300 font-mono">{transcript.segments.length} baris transkrip timecode</strong> dari Step 2. AI akan menganalisis setiap baris naskah, menentukan apakah Si Kupluk Kuning hadir (Template A) atau adegan lokasi/objek (Template B), serta menentukan shot sinematik terbaik.
+                  Ditemukan{' '}
+                  <strong className="text-amber-300 font-mono">
+                    {transcript.segments.length} baris transkrip timecode
+                  </strong>{' '}
+                  dari Step 2. AI akan menganalisis setiap baris naskah, menentukan apakah Si Kupluk Kuning hadir
+                  (Template A) atau adegan lokasi/objek (Template B), serta menentukan shot sinematik terbaik.
                 </>
               ) : (
                 <>
-                  Belum ada transkrip timecode dari Step 2. Kamu bisa kembali ke Step 2 untuk paste/upload transkrip terlebih dahulu.
+                  Belum ada transkrip timecode dari Step 2. Kamu bisa kembali ke Step 2 untuk paste/upload transkrip
+                  terlebih dahulu.
                 </>
               )}
             </p>
@@ -643,9 +1239,7 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
               <span className="flex items-center gap-1.5">
                 <span>⚡ Mode Batch Streaming:</span>
               </span>
-              <span className="text-[10px] text-amber-400 font-mono font-bold">
-                Streaming Real-Time per Batch
-              </span>
+              <span className="text-[10px] text-amber-400 font-mono font-bold">Streaming Real-Time per Batch</span>
             </label>
             <div className="grid grid-cols-3 gap-2">
               {[
@@ -657,7 +1251,7 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
                   key={b.size}
                   type="button"
                   onClick={() => setBatchSize(b.size)}
-                  className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all text-center ${
+                  className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all text-center cursor-pointer ${
                     batchSize === b.size
                       ? 'bg-amber-500 text-gray-950 border-amber-400 shadow-md shadow-amber-500/20'
                       : 'bg-gray-950 text-gray-400 border-gray-800 hover:text-gray-200 hover:border-gray-700'
@@ -668,7 +1262,8 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
               ))}
             </div>
             <p className="text-[10px] text-gray-500 italic">
-              * AI akan memproses naskah per {batchSize} baris. Kartu visual prompt akan langsung streaming muncul di layar setiap {batchSize} baris selesai tanpa harus menunggu semuanya!
+              * AI akan memproses naskah per {batchSize} baris. Kartu visual prompt akan langsung streaming muncul di
+              layar setiap {batchSize} baris selesai tanpa harus menunggu semuanya!
             </p>
           </div>
 
@@ -678,7 +1273,11 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
               disabled={isGenerating || !transcript?.segments?.length}
               className="px-6 py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 disabled:opacity-50 text-gray-950 font-black text-sm shadow-xl shadow-amber-600/30 transition-all inline-flex items-center gap-2 cursor-pointer"
             >
-              <span>{isGenerating ? '⏳ 9router Sedang Streaming Visual DNA...' : `⚡ Generate Streaming (Batch per ${batchSize} Baris)`}</span>
+              <span>
+                {isGenerating
+                  ? '⏳ 9router Sedang Streaming Visual DNA...'
+                  : `⚡ Generate Streaming (Batch per ${batchSize} Baris)`}
+              </span>
             </button>
             {isGenerating && (
               <button
@@ -703,66 +1302,74 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="🔍 Cari baris narasi atau scene..."
-                className="bg-gray-950 border border-gray-800 rounded-xl px-3 py-1.5 text-xs text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-amber-500/80 w-60"
+                className="bg-gray-950 border border-gray-800 rounded-xl px-3 py-1.5 text-xs text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-amber-500/80 w-52"
               />
 
-              {/* 9router Model Selector */}
-              <select
-                value={selectedModel}
-                onChange={(e) => setSelectedModel(e.target.value)}
-                className="bg-gray-950 border border-gray-800 rounded-xl px-2.5 py-1.5 text-xs text-amber-300 font-mono focus:outline-none focus:border-amber-500/80 cursor-pointer"
-                title="Model 9router yang digunakan untuk generate & revisi prompt"
-              >
-                {NINEROUTER_MODELS.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-
-              {/* Batch Size Selector */}
-              <select
-                value={batchSize}
-                onChange={(e) => setBatchSize(Number(e.target.value))}
-                className="bg-gray-950 border border-gray-800 rounded-xl px-2.5 py-1.5 text-xs text-amber-300 font-mono focus:outline-none focus:border-amber-500/80 cursor-pointer"
-                title="Ukuran batch baris per panggilan AI streaming"
-              >
-                <option value={3}>Batch: 3 baris</option>
-                <option value={5}>Batch: 5 baris (Optimal)</option>
-                <option value={10}>Batch: 10 baris</option>
-              </select>
-
-              {/* Template filter */}
-              <div className="flex items-center gap-1 bg-gray-950 border border-gray-800 rounded-xl p-1">
+              {/* Image Filter (All / Has Image / No Image) */}
+              <div className="flex items-center gap-1 bg-gray-950 border border-indigo-900/60 rounded-xl p-1">
                 <button
-                  onClick={() => setTemplateFilter('ALL')}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
-                    templateFilter === 'ALL'
-                      ? 'bg-amber-500 text-gray-950 shadow-sm'
+                  onClick={() => setImageFilter('ALL')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    imageFilter === 'ALL'
+                      ? 'bg-indigo-600 text-white shadow-sm'
                       : 'text-gray-400 hover:text-gray-200'
                   }`}
                 >
                   Semua ({prompts.length})
                 </button>
                 <button
+                  onClick={() => setImageFilter('HAS_IMAGE')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    imageFilter === 'HAS_IMAGE'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  ✓ Ada Gambar ({countWithImages})
+                </button>
+                <button
+                  onClick={() => setImageFilter('NO_IMAGE')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    imageFilter === 'NO_IMAGE'
+                      ? 'bg-amber-600 text-white shadow-sm'
+                      : 'text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  ⏳ Belum ({countWithoutImages})
+                </button>
+              </div>
+
+              {/* Template filter */}
+              <div className="flex items-center gap-1 bg-gray-950 border border-gray-800 rounded-xl p-1">
+                <button
+                  onClick={() => setTemplateFilter('ALL')}
+                  className={`px-2 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    templateFilter === 'ALL'
+                      ? 'bg-amber-500 text-gray-950 shadow-sm'
+                      : 'text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  Template Semua
+                </button>
+                <button
                   onClick={() => setTemplateFilter('A')}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                  className={`px-2 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                     templateFilter === 'A'
                       ? 'bg-amber-500 text-gray-950 shadow-sm'
                       : 'text-gray-400 hover:text-gray-200'
                   }`}
                 >
-                  🧢 Template A ({countA})
+                  🧢 Kupluk Kuning ({countA})
                 </button>
                 <button
                   onClick={() => setTemplateFilter('B')}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                  className={`px-2 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                     templateFilter === 'B'
                       ? 'bg-amber-500 text-gray-950 shadow-sm'
                       : 'text-gray-400 hover:text-gray-200'
                   }`}
                 >
-                  🏙️ Template B ({countB})
+                  🏙️ Objek ({countB})
                 </button>
               </div>
 
@@ -770,7 +1377,7 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
               <select
                 value={shotFilter}
                 onChange={(e) => setShotFilter(e.target.value)}
-                className="bg-gray-950 border border-gray-800 rounded-xl px-3 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-amber-500/80"
+                className="bg-gray-950 border border-gray-800 rounded-xl px-2.5 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-amber-500/80 cursor-pointer"
               >
                 <option value="ALL">Semua Shot</option>
                 <option value="wide shot">Wide Shot</option>
@@ -786,10 +1393,10 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
                 <button
                   onClick={handleCancelStream}
                   className="px-3.5 py-1.5 bg-red-600 hover:bg-red-500 text-white text-xs font-black rounded-xl transition-all shadow-md shadow-red-900/30 flex items-center gap-1.5 cursor-pointer animate-pulse"
-                  title="Hentikan streaming AI sekarang"
+                  title="Hentikan streaming AI prompt"
                 >
                   <span>⏹️</span>
-                  <span>Hentikan Streaming</span>
+                  <span>Hentikan Prompt AI</span>
                 </button>
               ) : (
                 <button
@@ -797,19 +1404,21 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
                   className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-amber-300 text-xs font-bold rounded-xl border border-gray-700 transition-all flex items-center gap-1.5 cursor-pointer"
                   title="Generate ulang seluruh adegan secara streaming dalam batch"
                 >
-                  <span>🔄 Generate Ulang (Batch {batchSize})</span>
+                  <span>🔄 AI Prompts (Batch {batchSize})</span>
                 </button>
               )}
+
               <button
                 onClick={handleCopyAllPrompts}
-                className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-sky-300 text-xs font-bold rounded-xl border border-sky-800/50 transition-all flex items-center gap-1.5"
+                className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-sky-300 text-xs font-bold rounded-xl border border-sky-800/50 transition-all flex items-center gap-1.5 cursor-pointer"
               >
                 <span>{copiedAll ? '✓ Tersalin!' : '📋 Salin Semua Prompt'}</span>
               </button>
+
               <button
                 onClick={() => handleSave()}
                 disabled={isSaving}
-                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-xl transition-all shadow-md shadow-emerald-700/20 flex items-center gap-1.5"
+                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-xl transition-all shadow-md shadow-emerald-700/20 flex items-center gap-1.5 cursor-pointer"
               >
                 <span>{isSaving ? '⏳ Menyimpan...' : '💾 Simpan Perubahan'}</span>
               </button>
@@ -821,12 +1430,18 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
             {filteredPrompts.map((item) => {
               const isTemplateA = item.templateType === 'A';
               const isRegeneratingThis = regeneratingId === item.id;
+              const hasImg = Boolean(item.has_image || item.media_url);
+              const isSingleGenerating = singleFlowGeneratingId === item.index;
 
               return (
                 <div
                   key={item.id}
                   className={`bg-gray-900/90 border rounded-2xl p-5 shadow-xl space-y-3.5 transition-all ${
-                    isTemplateA ? 'border-amber-500/40 hover:border-amber-500/70' : 'border-sky-500/40 hover:border-sky-500/70'
+                    hasImg
+                      ? 'border-emerald-500/40 hover:border-emerald-500/70 shadow-emerald-950/20'
+                      : isTemplateA
+                      ? 'border-amber-500/40 hover:border-amber-500/70'
+                      : 'border-sky-500/40 hover:border-sky-500/70'
                   }`}
                 >
                   {/* Top line header */}
@@ -839,7 +1454,7 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
                       {/* Timecode seek badge */}
                       <button
                         onClick={() => handleSeekAudio(item.seconds)}
-                        className="px-2.5 py-0.5 rounded-lg bg-gray-800 hover:bg-amber-500/20 text-amber-300 hover:text-amber-200 border border-gray-700 font-mono text-xs font-bold transition-all flex items-center gap-1"
+                        className="px-2.5 py-0.5 rounded-lg bg-gray-800 hover:bg-amber-500/20 text-amber-300 hover:text-amber-200 border border-gray-700 font-mono text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
                         title="Dengarkan narasi di detik ini"
                       >
                         <span>▶</span>
@@ -850,23 +1465,23 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
                       <div className="flex items-center bg-gray-950 border border-gray-800 rounded-lg p-0.5">
                         <button
                           onClick={() => handleUpdateItem(item.id, 'templateType', 'A')}
-                          className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition-all ${
+                          className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition-all cursor-pointer ${
                             isTemplateA
                               ? 'bg-amber-500 text-gray-950 shadow-sm'
                               : 'text-gray-400 hover:text-gray-200'
                           }`}
                         >
-                          🧢 Template A (Kupluk Kuning)
+                          🧢 Template A
                         </button>
                         <button
                           onClick={() => handleUpdateItem(item.id, 'templateType', 'B')}
-                          className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition-all ${
+                          className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition-all cursor-pointer ${
                             !isTemplateA
                               ? 'bg-sky-500 text-gray-950 shadow-sm'
                               : 'text-gray-400 hover:text-gray-200'
                           }`}
                         >
-                          🏙️ Template B (Objek/Lokasi)
+                          🏙️ Template B
                         </button>
                       </div>
 
@@ -874,7 +1489,7 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
                       <select
                         value={item.shotType}
                         onChange={(e) => handleUpdateItem(item.id, 'shotType', e.target.value)}
-                        className="bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-0.5 text-[11px] text-gray-200 font-mono focus:outline-none focus:border-amber-500/80"
+                        className="bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-0.5 text-[11px] text-gray-200 font-mono focus:outline-none focus:border-amber-500/80 cursor-pointer"
                       >
                         {SHOT_OPTIONS.map((opt) => (
                           <option key={opt.value} value={opt.value}>
@@ -882,63 +1497,134 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
                           </option>
                         ))}
                       </select>
+
+                      {/* Image status badge */}
+                      {hasImg ? (
+                        <span className="px-2 py-0.5 rounded-md bg-emerald-950 text-emerald-300 border border-emerald-600/50 text-[10px] font-mono font-bold flex items-center gap-1">
+                          <span>✓</span>
+                          <span>Gambar Siap</span>
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-md bg-gray-950 text-gray-500 border border-gray-800 text-[10px] font-mono">
+                          Belum Ada Gambar
+                        </span>
+                      )}
                     </div>
 
                     {/* Quick action buttons */}
                     <div className="flex items-center gap-1.5">
+                      {/* Flow single generate button */}
+                      <button
+                        onClick={() => handleStartFlow('range', item.index)}
+                        disabled={isFlowRunning}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50 ${
+                          hasImg
+                            ? 'bg-gray-800 hover:bg-gray-700 text-indigo-300 border border-indigo-900/60'
+                            : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-700/30'
+                        }`}
+                        title="Generate gambar adegan ini menggunakan Google Flow Camoufox"
+                      >
+                        <span>⚡</span>
+                        <span>{isSingleGenerating ? 'Sedang Generate...' : hasImg ? 'Re-generate Flow' : 'Generate Gambar (Flow)'}</span>
+                      </button>
+
                       <button
                         onClick={() => setSingleRegenModalItem(item)}
                         disabled={isRegeneratingThis}
-                        className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-amber-300 text-xs font-semibold rounded-lg border border-gray-700 transition-all flex items-center gap-1"
+                        className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-amber-300 text-xs font-semibold rounded-lg border border-gray-700 transition-all flex items-center gap-1 cursor-pointer"
                         title="Revisi atau regenerate scene ini dengan prompt khusus"
                       >
                         <span>🔄</span>
                         <span>Revisi AI</span>
                       </button>
+
                       <button
                         onClick={() => handleCopyPrompt(item.id, item.finalPrompt)}
-                        className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-gray-950 text-xs font-bold rounded-lg transition-all shadow-sm flex items-center gap-1"
+                        className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-gray-950 text-xs font-bold rounded-lg transition-all shadow-sm flex items-center gap-1 cursor-pointer"
                       >
                         <span>{copiedId === item.id ? '✓ Tersalin!' : '📋 Salin Prompt'}</span>
                       </button>
                     </div>
                   </div>
 
-                  {/* Indonesian Narration Quote */}
-                  <div className="text-xs text-gray-300 bg-gray-950/60 border border-gray-800/80 rounded-xl p-3 flex items-start gap-2">
-                    <span className="text-amber-400 text-sm leading-none shrink-0">💬</span>
-                    <p className="leading-relaxed font-sans font-medium">
-                      "{item.narration}"
-                    </p>
-                  </div>
-
-                  {/* Scene Description input */}
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-mono text-gray-400 uppercase font-bold tracking-wider flex items-center justify-between">
-                      <span>Scene Description (Bahasa Inggris):</span>
-                      <span className="text-gray-500 font-normal">Maksimal 3 elemen latar</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={item.sceneDescription}
-                      onChange={(e) => handleUpdateItem(item.id, 'sceneDescription', e.target.value)}
-                      className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-1.5 text-xs text-amber-200 font-mono focus:outline-none focus:border-amber-500/80"
-                    />
-                  </div>
-
-                  {/* Final Full Prompt Display */}
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between text-[10px] text-gray-400 font-mono">
-                      <span>FINAL AI PROMPT (NANO BANANA / MIDJOURNEY):</span>
-                      <button
-                        onClick={() => handleCopyPrompt(item.id, item.finalPrompt)}
-                        className="text-amber-400 hover:underline font-bold"
-                      >
-                        Copy
-                      </button>
+                  {/* Body: Thumbnail & Details Grid */}
+                  <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
+                    {/* Thumbnail Image Preview Box (Col 3 or 4) */}
+                    <div className="md:col-span-4 lg:col-span-3">
+                      {hasImg ? (
+                        <div
+                          onClick={() => setPreviewModalItem(item)}
+                          className="relative group w-full aspect-video rounded-xl overflow-hidden border border-emerald-500/40 bg-gray-950 shadow-lg cursor-pointer hover:border-emerald-400 transition-all"
+                        >
+                          <img
+                            src={item.media_url || (api?.getMediaUrl && item.image_path ? api.getMediaUrl(item.image_path) : '')}
+                            alt={`Adegan #${item.index}`}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                            loading="lazy"
+                          />
+                          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                            <span className="px-2.5 py-1 bg-black/80 rounded-lg text-white text-[11px] font-bold flex items-center gap-1 shadow-md">
+                              <span>🔍</span>
+                              <span>Perbesar</span>
+                            </span>
+                          </div>
+                          <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-black/80 text-[9px] font-mono font-bold text-emerald-300">
+                            scene_{String(item.index).padStart(3, '0')}.jpg
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="w-full aspect-video rounded-xl border-2 border-dashed border-gray-800 bg-gray-950/60 flex flex-col items-center justify-center gap-2 p-3 text-center">
+                          <span className="text-gray-600 text-2xl">🖼️</span>
+                          <div className="text-[10px] text-gray-500 font-mono">Belum ada gambar</div>
+                          <button
+                            onClick={() => handleStartFlow('range', item.index)}
+                            disabled={isFlowRunning}
+                            className="px-2.5 py-1 rounded-lg bg-indigo-600/80 hover:bg-indigo-500 text-white text-[10px] font-bold transition-all shadow-sm flex items-center gap-1 disabled:opacity-50 cursor-pointer"
+                          >
+                            <span>⚡</span>
+                            <span>{isSingleGenerating ? 'Memproses...' : 'Generate via Flow'}</span>
+                          </button>
+                        </div>
+                      )}
                     </div>
-                    <div className="p-3 rounded-xl bg-gray-950 border border-gray-800/80 text-[11px] font-mono text-gray-300 leading-relaxed break-words select-all selection:bg-amber-500 selection:text-black">
-                      {item.finalPrompt}
+
+                    {/* Narration, Scene Desc & Final Prompt (Col 8 or 9) */}
+                    <div className="md:col-span-8 lg:col-span-9 space-y-3">
+                      {/* Indonesian Narration Quote */}
+                      <div className="text-xs text-gray-300 bg-gray-950/60 border border-gray-800/80 rounded-xl p-3 flex items-start gap-2">
+                        <span className="text-amber-400 text-sm leading-none shrink-0">💬</span>
+                        <p className="leading-relaxed font-sans font-medium">"{item.narration}"</p>
+                      </div>
+
+                      {/* Scene Description input */}
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-mono text-gray-400 uppercase font-bold tracking-wider flex items-center justify-between">
+                          <span>Scene Description (Bahasa Inggris):</span>
+                          <span className="text-gray-500 font-normal">Maksimal 3 elemen latar</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={item.sceneDescription}
+                          onChange={(e) => handleUpdateItem(item.id, 'sceneDescription', e.target.value)}
+                          className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-1.5 text-xs text-amber-200 font-mono focus:outline-none focus:border-amber-500/80"
+                        />
+                      </div>
+
+                      {/* Final Full Prompt Display */}
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-[10px] text-gray-400 font-mono">
+                          <span>FINAL AI PROMPT (NANO BANANA / GOOGLE FLOW):</span>
+                          <button
+                            onClick={() => handleCopyPrompt(item.id, item.finalPrompt)}
+                            className="text-amber-400 hover:underline font-bold cursor-pointer"
+                          >
+                            Copy
+                          </button>
+                        </div>
+                        <div className="p-3 rounded-xl bg-gray-950 border border-gray-800/80 text-[11px] font-mono text-gray-300 leading-relaxed break-words select-all selection:bg-amber-500 selection:text-black">
+                          {item.finalPrompt}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -948,18 +1634,20 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
         </div>
       )}
 
-      {/* Modal / Dialog for Single Line Revision */}
+      {/* Modal / Dialog for Single Line AI Revision */}
       {singleRegenModalItem && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-gray-900 border border-gray-800 rounded-3xl p-6 max-w-lg w-full space-y-4 shadow-2xl animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-gray-800 pb-3">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
                 <span>🔄</span>
-                <span>Revisi Adegan #{singleRegenModalItem.index} ({singleRegenModalItem.timecode})</span>
+                <span>
+                  Revisi Adegan #{singleRegenModalItem.index} ({singleRegenModalItem.timecode})
+                </span>
               </h3>
               <button
                 onClick={() => setSingleRegenModalItem(null)}
-                className="text-gray-400 hover:text-white text-xs font-bold px-2 py-1"
+                className="text-gray-400 hover:text-white text-xs font-bold px-2 py-1 cursor-pointer"
               >
                 ✕
               </button>
@@ -970,9 +1658,7 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-[11px] font-bold text-gray-300">
-                Instruksi Revisi Khusus:
-              </label>
+              <label className="text-[11px] font-bold text-gray-300">Instruksi Revisi Khusus:</label>
               <textarea
                 value={singleRegenFeedback}
                 onChange={(e) => setSingleRegenFeedback(e.target.value)}
@@ -985,17 +1671,80 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
             <div className="flex items-center justify-end gap-2 pt-2">
               <button
                 onClick={() => setSingleRegenModalItem(null)}
-                className="px-3.5 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-semibold rounded-xl"
+                className="px-3.5 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-semibold rounded-xl cursor-pointer"
               >
                 Batal
               </button>
               <button
                 onClick={() => handleRegenerateSingle(singleRegenModalItem, singleRegenFeedback)}
                 disabled={regeneratingId === singleRegenModalItem.id}
-                className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-gray-950 font-bold text-xs rounded-xl shadow-lg shadow-amber-600/20"
+                className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-gray-950 font-bold text-xs rounded-xl shadow-lg shadow-amber-600/20 cursor-pointer"
               >
                 {regeneratingId === singleRegenModalItem.id ? '⏳ Merancang...' : 'Generate Revisi ➔'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Lightbox / Fullscreen Image Preview Modal */}
+      {previewModalItem && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in"
+          onClick={() => setPreviewModalItem(null)}
+        >
+          <div
+            className="bg-gray-900 border border-gray-800 rounded-3xl max-w-4xl w-full max-h-[92vh] overflow-hidden flex flex-col shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="p-4 border-b border-gray-800 flex items-center justify-between gap-3 bg-gray-950/80">
+              <div className="flex items-center gap-2.5">
+                <span className="px-2.5 py-1 rounded-lg bg-indigo-950 text-indigo-300 font-mono text-xs font-bold border border-indigo-800">
+                  Adegan #{previewModalItem.index} ({previewModalItem.timecode})
+                </span>
+                <span className="text-xs font-mono text-gray-400">
+                  {previewModalItem.templateType === 'A' ? '🧢 Template A (Kupluk Kuning)' : '🏙️ Template B'} ·{' '}
+                  {previewModalItem.shotType}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleStartFlow('range', previewModalItem.index)}
+                  disabled={isFlowRunning}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition-all shadow-md flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                >
+                  <span>⚡</span>
+                  <span>Generate Ulang (Flow)</span>
+                </button>
+                <button
+                  onClick={() => setPreviewModalItem(null)}
+                  className="w-8 h-8 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white flex items-center justify-center font-bold text-sm cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body: Large Image */}
+            <div className="p-4 flex-1 overflow-y-auto flex flex-col items-center justify-center bg-black/50">
+              <img
+                src={previewModalItem.media_url || (api?.getMediaUrl && previewModalItem.image_path ? api.getMediaUrl(previewModalItem.image_path) : '')}
+                alt={`Scene ${previewModalItem.index}`}
+                className="max-h-[62vh] max-w-full rounded-2xl object-contain border border-gray-800 shadow-2xl"
+              />
+            </div>
+
+            {/* Modal Footer: Narration & Prompt info */}
+            <div className="p-4 bg-gray-950 border-t border-gray-800 space-y-2">
+              <div className="text-xs text-gray-300 flex items-start gap-2">
+                <span className="text-amber-400 font-bold shrink-0">Narasi:</span>
+                <span className="font-sans italic">"{previewModalItem.narration}"</span>
+              </div>
+              <div className="text-[11px] font-mono text-gray-400 bg-gray-900/80 p-2.5 rounded-xl border border-gray-800/80 select-all">
+                {previewModalItem.finalPrompt}
+              </div>
             </div>
           </div>
         </div>
@@ -1006,7 +1755,7 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
         {onBackToAudio && (
           <button
             onClick={onBackToAudio}
-            className="px-4 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white text-xs font-bold rounded-xl border border-gray-700 transition-all flex items-center gap-1.5"
+            className="px-4 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white text-xs font-bold rounded-xl border border-gray-700 transition-all flex items-center gap-1.5 cursor-pointer"
           >
             <span>←</span> Kembali ke Step 2 (Audio & Transkrip)
           </button>
@@ -1017,7 +1766,7 @@ export const FacelessVisualStep: React.FC<FacelessVisualStepProps> = ({ onBackTo
             <button
               onClick={() => handleSave()}
               disabled={isSaving}
-              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-xl transition-all shadow-lg shadow-emerald-700/20 flex items-center gap-1.5"
+              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-xl transition-all shadow-lg shadow-emerald-700/20 flex items-center gap-1.5 cursor-pointer"
             >
               <span>💾</span> Simpan Seluruh Visual Prompts
             </button>

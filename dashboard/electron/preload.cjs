@@ -259,6 +259,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('faceless-visual-stream-progress', handler);
   },
   cancelFacelessVisualStream: () => ipcRenderer.invoke('cancel-faceless-visual-stream'),
+  listCamoufoxProfiles: () => ipcRenderer.invoke('list-faceless-flow-profiles'),
+  startFacelessFlowGeneration: (opts) => ipcRenderer.invoke('start-faceless-flow-generation', opts),
+  stopFacelessFlowGeneration: () => ipcRenderer.invoke('stop-faceless-flow-generation'),
+  getFacelessFlowStatus: () => ipcRenderer.invoke('get-faceless-flow-status'),
+  onFacelessFlowProgress: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('faceless-flow-progress', handler);
+    return () => ipcRenderer.removeListener('faceless-flow-progress', handler);
+  },
 
   // Humanologi Helpers (Prompt, Narration JSON, Audio, and Transcript Mapping)
   getHumanologiPrompt: () => ipcRenderer.invoke('get-humanologi-prompt'),
