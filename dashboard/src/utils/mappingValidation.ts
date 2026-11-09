@@ -1,13 +1,10 @@
 export const VALID_VISUAL_TYPES = [
-  'slow_motion',
-  'mirror_cut',
-  'freeze_frame_with_zoom',
   'video_cut',
-  'pan_and_zoom_cut',
+  'slow_motion',
 ];
 
 export interface VisualClipSpec {
-  type: 'slow_motion' | 'mirror_cut' | 'freeze_frame_with_zoom' | 'video_cut' | 'pan_and_zoom_cut' | string;
+  type: 'video_cut' | 'slow_motion' | string;
   duration: number;
   source_start_seconds?: number;
   source_timestamp_seconds?: number;
@@ -284,23 +281,6 @@ export function validateAlurfilmMapping(
       }
     });
 
-    // Check visual_only mirror cut coverage
-    const isVisualOnly = (sentence as any).type === 'visual_only' || String(sentence.text || '').includes('VISUAL_ONLY');
-    if (isVisualOnly && sentence.visuals && sentence.visuals.length >= 2) {
-      const hasMirror = sentence.visuals.some((v) => v.type === 'mirror_cut' || v.mirror_mode === 'horizontal');
-      if (!hasMirror) {
-        issues.push({
-          id: `visual-only-no-mirror-${sNum}`,
-          type: 'FAIR_USE_VARIETY_WARNING',
-          severity: 'warning',
-          sentenceIndex: sNum,
-          clipIndex: null,
-          message: `Kalimat #${sNum} (visual_only): Seluruh klip tidak menggunakan efek mirror.`,
-          details: 'Disarankan menyelingi minimal 40%-50% klip dengan mirror_cut (horizontal) agar rangkaian potongan aksi tidak membentuk sekuens klip asli YouTube.',
-          fixable: false,
-        });
-      }
-    }
 
     // 3. Compare visual duration sum vs sentence VO duration
     const diff = Math.abs(sumVisualsDuration - voDuration);
@@ -352,15 +332,15 @@ export function validateAlurfilmMapping(
         details: 'Jarak 5.0 detik adalah batas paling minimum absolut (lebih jauh seperti 10s-35s jauh lebih bagus). Dilarang selisih < 5.0 detik.',
         fixable: false,
       });
-    } else if (step > 0 && step < 10.0 && !curr.isMirrored && !prev.isMirrored) {
+    } else if (step > 0 && (step < 5.0 || step > 8.0)) {
       issues.push({
-        id: `small-sampling-gap-${curr.sentenceIndex}-${curr.clipIndex}`,
+        id: `sampling-gap-warning-${curr.sentenceIndex}-${curr.clipIndex}`,
         type: 'SAMPLING_GAP_WARNING',
         severity: 'warning',
         sentenceIndex: curr.sentenceIndex,
         clipIndex: curr.clipIndex,
-        message: `Kalimat #${curr.sentenceIndex} klip #${curr.clipIndex + 1}: Sampling gap agak rapat (${step.toFixed(1)}s < 10.0s) dan maju linier dari klip sebelumnya.`,
-        details: 'Disarankan melompat lebih jauh (+15s s/d +35s), retrograde jump mundur, atau aktifkan mirror_cut agar semakin kebal dari Content ID.',
+        message: `Kalimat #${curr.sentenceIndex} klip #${curr.clipIndex + 1}: Sampling gap (${step.toFixed(1)}s) di luar formula ideal (5.0s - 7.0s).`,
+        details: 'Gunakan formula lompatan gap 5.0 sampai 7.0 detik antar-klip agar alur video dinamis dan aman dari deteksi sekuens continuous YouTube Content ID.',
         fixable: false,
       });
     }
@@ -502,7 +482,7 @@ export function autoFixAlurfilmMapping(
           clip.slow_mo_factor = clip.slow_mo_factor || 0.25;
         }
         if (!clip.type || !VALID_VISUAL_TYPES.includes(clip.type)) {
-          clip.type = cIdx % 2 === 0 ? 'slow_motion' : 'mirror_cut';
+          clip.type = 'video_cut';
         }
         if (typeof clip.duration !== 'number' || clip.duration <= 0 || isNaN(clip.duration)) {
           clip.duration = Number((targetVoDur / sentence.visuals.length).toFixed(2));

@@ -18,6 +18,7 @@ import AlurfilmTestingHub from './components/longform/testing/AlurfilmTestingHub
 import FacelessIdeaAgentStep from './components/faceless/FacelessIdeaAgentStep';
 import FacelessAudioStep from './components/faceless/FacelessAudioStep';
 import FacelessVisualStep from './components/faceless/FacelessVisualStep';
+import FacelessPreviewStep from './components/faceless/FacelessPreviewStep';
 import HumanologiStepContainer from './components/humanologi/HumanologiStepContainer';
 
 type Status = 'ready' | 'rendering' | 'error';
@@ -105,6 +106,13 @@ const App: React.FC = () => {
               <FacelessVisualStep
                 key={`faceless-visual-${longformResetKey}`}
                 onBackToAudio={() => setActiveStep('audio')}
+                onGoToNext={() => setActiveStep('render')}
+              />
+            ) : activeStep === 'render' ? (
+              <FacelessPreviewStep
+                key={`faceless-preview-${longformResetKey}`}
+                onBackToVisual={() => setActiveStep('visual')}
+                onGoToIdea={() => setActiveStep('idea')}
               />
             ) : (
               <FacelessIdeaAgentStep

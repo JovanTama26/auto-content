@@ -39,6 +39,7 @@ const FACELESS_STEPS: Step[] = [
   { id: 'idea', icon: '💬', label: '1. Idea Agent', subText: 'Tentukan ide & naskah' },
   { id: 'audio', icon: '🎙️', label: '2. Voice Over & Transkrip', subText: 'Upload audio & hasil transcribe' },
   { id: 'visual', icon: '🎨', label: '3. Visual Prompt Studio', subText: 'Prompt gambar Si Kupluk Kuning' },
+  { id: 'render', icon: '🎬', label: '4. Preview & Hasil Render', subText: 'Preview per topik & episode' },
 ];
 
 const HUMANOLOGI_STEPS: Step[] = [

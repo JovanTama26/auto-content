@@ -238,20 +238,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Faceless Idea Agent & Project State Helpers
   facelessAgentChat: (opts) => ipcRenderer.invoke('faceless-agent-chat', opts),
-  getFacelessState: () => ipcRenderer.invoke('get-faceless-state'),
-  saveFacelessState: (data) => ipcRenderer.invoke('save-faceless-state', { data }),
-  resetFacelessState: () => ipcRenderer.invoke('reset-faceless-state'),
-  lockFacelessProject: () => ipcRenderer.invoke('lock-faceless-project'),
-  unlockFacelessProject: () => ipcRenderer.invoke('unlock-faceless-project'),
-  listFacelessAudios: () => ipcRenderer.invoke('list-faceless-audios'),
+  getFacelessState: (opts) => ipcRenderer.invoke('get-faceless-state', opts),
+  saveFacelessState: (data, opts) => ipcRenderer.invoke('save-faceless-state', { data, ...opts }),
+  resetFacelessState: (opts) => ipcRenderer.invoke('reset-faceless-state', opts),
+  lockFacelessProject: (opts) => ipcRenderer.invoke('lock-faceless-project', opts),
+  unlockFacelessProject: (opts) => ipcRenderer.invoke('unlock-faceless-project', opts),
+  createFacelessTopic: (opts) => ipcRenderer.invoke('create-faceless-topic', opts),
+  createFacelessEpisode: (opts) => ipcRenderer.invoke('create-faceless-episode', opts),
+  setFacelessActiveSession: (opts) => ipcRenderer.invoke('set-faceless-active-session', opts),
+  listFacelessAudios: (opts) => ipcRenderer.invoke('list-faceless-audios', opts),
   uploadFacelessAudio: (opts) => ipcRenderer.invoke('upload-faceless-audio', opts),
-  deleteFacelessAudio: (audioId) => ipcRenderer.invoke('delete-faceless-audio', { audioId }),
-  getFacelessAudioDir: () => ipcRenderer.invoke('get-faceless-audio-dir'),
+  deleteFacelessAudio: (audioId, opts) => ipcRenderer.invoke('delete-faceless-audio', { audioId, ...opts }),
+  getFacelessAudioDir: (opts) => ipcRenderer.invoke('get-faceless-audio-dir', opts),
   saveFacelessTranscript: (opts) => ipcRenderer.invoke('save-faceless-transcript', opts),
   getFacelessTranscript: (opts) => ipcRenderer.invoke('get-faceless-transcript', opts),
   generateFacelessVisualPrompts: (opts) => ipcRenderer.invoke('generate-faceless-visual-prompts', opts),
-  getFacelessVisualPrompts: () => ipcRenderer.invoke('get-faceless-visual-prompts'),
-  saveFacelessVisualPrompts: (prompts) => ipcRenderer.invoke('save-faceless-visual-prompts', prompts),
+  getFacelessVisualPrompts: (opts) => ipcRenderer.invoke('get-faceless-visual-prompts', opts),
+  saveFacelessVisualPrompts: (prompts, opts) => ipcRenderer.invoke('save-faceless-visual-prompts', prompts, opts),
   regenerateSingleFacelessVisualPrompt: (opts) => ipcRenderer.invoke('regenerate-single-faceless-visual-prompt', opts),
   onFacelessVisualStreamProgress: (callback) => {
     const handler = (_event, data) => callback(data);
@@ -267,6 +270,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const handler = (_event, data) => callback(data);
     ipcRenderer.on('faceless-flow-progress', handler);
     return () => ipcRenderer.removeListener('faceless-flow-progress', handler);
+  },
+  listFacelessTopicsAndEpisodes: () => ipcRenderer.invoke('list-faceless-topics-episodes'),
+  getFacelessEpisodeDetails: (opts) => ipcRenderer.invoke('get-faceless-episode-details', opts),
+  renderFacelessEpisode: (opts) => ipcRenderer.invoke('render-faceless-episode', opts),
+  renderFacelessShort: (opts) => ipcRenderer.invoke('render-faceless-short', opts),
+  onFacelessRenderProgress: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('faceless-render-progress', handler);
+    return () => ipcRenderer.removeListener('faceless-render-progress', handler);
   },
 
   // Humanologi Helpers (Prompt, Narration JSON, Audio, and Transcript Mapping)

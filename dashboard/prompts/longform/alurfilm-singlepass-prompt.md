@@ -128,11 +128,10 @@ Format:
 [VISUAL_ONLY (Range: MM:SS - MM:SS, Duration: Xs): Deskripsi adegan]
 
 Aturan Penempatan:
-* Kuota: Sisipkan **4 s/d 6 tag [VISUAL_ONLY]** per part.
-* Durasi per tag: **5 s/d 8 detik** (total visual murni sekitar 25-35 detik per part).
-* Titik Penempatan: Letakkan pada momen visual yang kuat (adegan aksi/pukulan/ledakan, ketegangan sunyi, perubahan ekspresi krusial, atau ambience lingkungan yang hidup) di mana gambar dan suara asli film lebih berbicara daripada kata-kata.
+* Kuota: **Dinamis & Fleksibel** (TIDAK ADA patokan kaku jumlah tag per part). Sisipkan hanya jika momen adegan film dan kenyamanan penonton benar-benar membutuhkannya. Jika dalam suatu part alur ceritanya padat dialog atau tidak ada momen klimaks yang butuh jeda, tidak perlu dipaksakan.
+* Durasi per tag: **4 s/d 6 detik** (ideal 4.0s atau 6.0s agar pas dibagi menjadi 2–3 klip @ 2.0 detik oleh video mapping). DILARANG KERAS membuat durasi >6 detik karena berisiko memicu klaim hak cipta visual YouTube Content ID.
+* Titik Penempatan: Letakkan pada momen visual yang kuat (adegan aksi/pukulan/ledakan, ketegangan sunyi, perubahan ekspresi krusial, atau ambience lingkungan yang hidup) di mana gambar dan efek suara asli film lebih berbicara daripada kata-kata narator.
 * Timecode harus berada dalam rentang chunk video saat ini dan tidak saling bertumpukan.
-
 
 ==================================================
 5. ATURAN POSISI PART (KONTINUITAS ALUR)

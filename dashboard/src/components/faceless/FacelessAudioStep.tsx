@@ -4,6 +4,8 @@ import type {
   FacelessAudioItem,
   FacelessProjectState,
   FacelessTranscriptData,
+  FacelessTopicItem,
+  FacelessEpisodeSummary,
 } from '../../electron-api';
 import { cleanVoiceoverScript } from '../../utils/cleanScript';
 import { parseAndFormatTimecodedTranscript } from '../../utils/transcriptParser';
@@ -34,6 +36,13 @@ export const FacelessAudioStep: React.FC<FacelessAudioStepProps> = ({
   onBackToIdea,
   onGoToNext,
 }) => {
+  // Multi-topic & Multi-episode navigation
+  const [topics, setTopics] = useState<FacelessTopicItem[]>([]);
+  const [selectedTopicId, setSelectedTopicId] = useState<string>('');
+  const [selectedEpisodeId, setSelectedEpisodeId] = useState<string>('');
+  const [loadingTopics, setLoadingTopics] = useState<boolean>(true);
+
+  // Episode-scoped data
   const [state, setState] = useState<FacelessProjectState | null>(null);
   const [audioList, setAudioList] = useState<FacelessAudioItem[]>([]);
   const [inputDir, setInputDir] = useState<string>('');
@@ -41,20 +50,22 @@ export const FacelessAudioStep: React.FC<FacelessAudioStepProps> = ({
   const [loading, setLoading] = useState<boolean>(true);
   const [uploading, setUploading] = useState<boolean>(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // Script Preview State
   const [copiedScript, setCopiedScript] = useState<boolean>(false);
   const [isScriptExpanded, setIsScriptExpanded] = useState<boolean>(false);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(
-    null
-  );
 
   // Transcript state
   const [rawTranscript, setRawTranscript] = useState<string>('');
   const [savedTranscript, setSavedTranscript] = useState<FacelessTranscriptData | null>(null);
   const [isSavingTranscript, setIsSavingTranscript] = useState<boolean>(false);
   const [copiedTranscript, setCopiedTranscript] = useState<boolean>(false);
-  const [transcriptViewMode, setTranscriptViewMode] = useState<'split' | 'formatted' | 'raw'>('split');
+  const [transcriptTab, setTranscriptTab] = useState<'input' | 'preview'>('input');
   const [transcriptSearch, setTranscriptSearch] = useState<string>('');
   const [currentPlaybackTime, setCurrentPlaybackTime] = useState<number>(0);
+
+  // Toast
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const transcriptFileInputRef = useRef<HTMLInputElement>(null);
@@ -62,60 +73,124 @@ export const FacelessAudioStep: React.FC<FacelessAudioStepProps> = ({
 
   const showToast = (message: string, type: 'success' | 'info' | 'error' = 'success') => {
     setToast({ message, type });
-    setTimeout(() => setToast(null), 3500);
+    setTimeout(() => setToast(null), 3000);
   };
 
-  const loadData = async () => {
+  // Active topic & episode memo
+  const currentTopic = useMemo(() => {
+    return topics.find((t) => t.id === selectedTopicId) || topics[0] || null;
+  }, [topics, selectedTopicId]);
+
+  const currentEpisode = useMemo(() => {
+    return currentTopic?.episodes.find((e) => e.id === selectedEpisodeId) || currentTopic?.episodes[0] || null;
+  }, [currentTopic, selectedEpisodeId]);
+
+  // Load episode-scoped data (script, audio, transcript)
+  const loadEpisodeData = async (topicId: string, episodeId: string) => {
     setLoading(true);
+    // Explicitly reset all episode-specific state to prevent cross-episode data leak
+    setState(null);
+    setAudioList([]);
+    setSavedTranscript(null);
+    setRawTranscript('');
+    setTranscriptTab('input');
+
     try {
-      // 1. Load faceless project state
+      // 1. Load project state
       if (api?.getFacelessState) {
-        const stateRes = await api.getFacelessState();
+        const stateRes = await api.getFacelessState({ topicId, episodeId });
         if (stateRes?.success && stateRes.data) {
           setState(stateRes.data);
+        } else {
+          setState(null);
         }
       }
 
-      // 2. Load audio files
+      // 2. Load audio files for this topic/episode
       if (api?.listFacelessAudios) {
-        const aRes = await api.listFacelessAudios();
+        const aRes = await api.listFacelessAudios({ topicId, episodeId });
         if (aRes?.success && aRes.audios) {
           setAudioList(aRes.audios);
           if (aRes.inputDir) setInputDir(aRes.inputDir);
           if (aRes.audioDir) setAudioDir(aRes.audioDir);
+        } else {
+          setAudioList([]);
         }
       }
 
-      // 3. Audio directory path
-      if (api?.getFacelessAudioDir) {
-        const dRes = await api.getFacelessAudioDir();
-        if (dRes?.success) {
-          if (dRes.dir) setInputDir(dRes.dir);
-          if (dRes.audioDir) setAudioDir(dRes.audioDir);
-        }
-      }
-
-      // 4. Load saved transcript
+      // 3. Load saved transcript for this topic/episode
       if (api?.getFacelessTranscript) {
-        const tRes = await api.getFacelessTranscript();
+        const tRes = await api.getFacelessTranscript({ topicId, episodeId });
         if (tRes?.success && tRes.data) {
           setSavedTranscript(tRes.data);
           if (tRes.data.rawText || tRes.data.formattedText) {
             setRawTranscript(tRes.data.rawText || tRes.data.formattedText);
           }
+          setTranscriptTab('preview');
+        } else {
+          setSavedTranscript(null);
+          setRawTranscript('');
+          setTranscriptTab('input');
         }
       }
-    } catch (err: any) {
-      showToast(err.message || 'Gagal memuat data audio.', 'error');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(msg, 'error');
     } finally {
       setLoading(false);
     }
   };
 
+  // Initial load of topics list and active session
+  const initTopicsAndSession = async () => {
+    setLoadingTopics(true);
+    try {
+      if (api?.listFacelessTopicsAndEpisodes) {
+        const res = await api.listFacelessTopicsAndEpisodes();
+        if (res.success && res.topics && res.topics.length > 0) {
+          setTopics(res.topics);
+          const activeTopicId = res.activeTopicId || res.topics[0].id;
+          setSelectedTopicId(activeTopicId);
+
+          const matchedTopic = res.topics.find((t) => t.id === activeTopicId) || res.topics[0];
+          const activeEpId = res.activeEpisodeId || matchedTopic.episodes[0]?.id || 'ep_01';
+          setSelectedEpisodeId(activeEpId);
+
+          await loadEpisodeData(activeTopicId, activeEpId);
+        }
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`Gagal memuat topik: ${msg}`, 'error');
+    } finally {
+      setLoadingTopics(false);
+    }
+  };
+
   useEffect(() => {
-    loadData();
+    initTopicsAndSession();
   }, []);
 
+  // Switch Topic handler
+  const handleSelectTopic = async (topicId: string) => {
+    if (topicId === selectedTopicId) return;
+    setSelectedTopicId(topicId);
+    const targetTopicObj = topics.find((t) => t.id === topicId);
+    const targetEpId = targetTopicObj?.episodes[0]?.id || 'ep_01';
+    setSelectedEpisodeId(targetEpId);
+    await api?.setFacelessActiveSession?.({ topicId, episodeId: targetEpId });
+    await loadEpisodeData(topicId, targetEpId);
+  };
+
+  // Switch Episode handler
+  const handleSelectEpisode = async (episodeId: string) => {
+    if (episodeId === selectedEpisodeId) return;
+    setSelectedEpisodeId(episodeId);
+    await api?.setFacelessActiveSession?.({ topicId: selectedTopicId, episodeId });
+    await loadEpisodeData(selectedTopicId, episodeId);
+  };
+
+  // Script calculations
   const draftScript = state?.narration?.draft_script || state?.memory?.draft_script || '';
   const cleanScript = useMemo(() => {
     return cleanVoiceoverScript(draftScript);
@@ -125,135 +200,93 @@ export const FacelessAudioStep: React.FC<FacelessAudioStepProps> = ({
     return cleanScript.split(/\s+/).filter(Boolean).length;
   }, [cleanScript]);
 
-  // Estimated speech duration in seconds (~140 words/min = 2.33 words/sec)
-  const estimatedSeconds = Math.round((cleanWordCount / 140) * 60);
+  // Estimated voiceover duration (~140 words per minute in Indonesian)
+  const estimatedSeconds = useMemo(() => {
+    return Math.round((cleanWordCount / 140) * 60);
+  }, [cleanWordCount]);
 
-  // Single Long Form Voiceover audio item
+  // Main voiceover audio
   const mainAudio = useMemo(() => {
-    return audioList.find((a) => a.part === null || a.name.startsWith('voiceover')) || audioList[0] || null;
+    if (audioList.length === 0) return null;
+    return audioList.find((a) => a.part === null || a.name.includes('voiceover')) || audioList[0];
   }, [audioList]);
 
-  // Parsed transcript memo (1 line per timecode)
+  // Parsed transcript
   const parsedTranscript = useMemo(() => {
     return parseAndFormatTimecodedTranscript(rawTranscript);
   }, [rawTranscript]);
 
+  // Search filtered segments
   const filteredSegments = useMemo(() => {
     if (!transcriptSearch.trim()) return parsedTranscript.segments;
-    const query = transcriptSearch.toLowerCase();
+    const q = transcriptSearch.toLowerCase();
     return parsedTranscript.segments.filter(
-      (seg) => seg.text.toLowerCase().includes(query) || seg.timecode.toLowerCase().includes(query)
+      (s) => s.text.toLowerCase().includes(q) || s.timecode.toLowerCase().includes(q)
     );
   }, [parsedTranscript.segments, transcriptSearch]);
 
-  // Audio seeking / playback sync
-  const handleAudioTimeUpdate = () => {
-    if (audioPlayerRef.current) {
-      setCurrentPlaybackTime(audioPlayerRef.current.currentTime);
-    }
+  // Upload Audio Handler
+  const handleSelectAndUploadAudio = () => {
+    fileInputRef.current?.click();
   };
 
-  const handleSeekAudio = (sec: number) => {
-    if (audioPlayerRef.current) {
-      audioPlayerRef.current.currentTime = sec;
-      audioPlayerRef.current.play().catch(() => {});
-      showToast(`⏱️ Audio diputar dari ${formatDuration(sec)}`, 'info');
-    } else {
-      showToast(`Timecode: ${formatDuration(sec)} (Upload audio untuk mendengarkan langsung)`, 'info');
-    }
-  };
-
-  // Handle upload via electron selectAudio dialog (Direct Long Form Audio)
-  const handleSelectAndUploadAudio = async () => {
-    try {
-      if (!api?.selectAudio) {
-        showToast('Fitur dialog file tidak tersedia.', 'error');
-        return;
-      }
-
-      const file = await api.selectAudio();
-      if (!file || !file.path) return;
-
-      setUploading(true);
-
-      if (api?.uploadFacelessAudio) {
-        const res = await api.uploadFacelessAudio({
-          filePath: file.path,
-          part: null, // Always single full long-form audio
-        });
-
-        if (res?.success && res.audio) {
-          showToast(
-            `🎉 Audio Long Form berhasil disimpan ke input/faceless (${res.audio.name})!`,
-            'success'
-          );
-          await loadData();
-        } else {
-          showToast(res?.error || 'Gagal mengupload file audio.', 'error');
-        }
-      }
-    } catch (err: any) {
-      showToast(err.message || 'Terjadi kesalahan saat upload audio.', 'error');
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  // Handle drop or file input fallback for audio
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-
     const file = files[0];
     const filePath = (file as any).path;
 
     if (!filePath) {
-      showToast('Path file lokal tidak terdeteksi dari browser.', 'error');
+      showToast('Path file audio tidak dapat dibaca di browser ini.', 'error');
       return;
     }
 
+    setUploading(true);
     try {
-      setUploading(true);
-
       if (api?.uploadFacelessAudio) {
         const res = await api.uploadFacelessAudio({
           filePath,
           part: null,
+          topicId: selectedTopicId,
+          episodeId: selectedEpisodeId,
         });
 
         if (res?.success && res.audio) {
-          showToast(
-            `🎉 Audio Long Form berhasil disimpan ke input/faceless (${res.audio.name})!`,
-            'success'
-          );
-          await loadData();
+          showToast(`🎉 File "${res.audio.originalName || res.audio.name}" berhasil diunggah!`, 'success');
+          await loadEpisodeData(selectedTopicId, selectedEpisodeId);
         } else {
           showToast(res?.error || 'Gagal mengupload file audio.', 'error');
         }
       }
-    } catch (err: any) {
-      showToast(err.message || 'Gagal mengupload file audio.', 'error');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(msg, 'error');
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
+  // Delete Audio Handler
   const handleDeleteAudio = async (audioId: string) => {
-    if (!window.confirm('Hapus file audio voiceover ini dari input/faceless?')) return;
+    if (!window.confirm('Hapus file audio voiceover ini dari episode aktif?')) return;
     setDeletingId(audioId);
     try {
       if (api?.deleteFacelessAudio) {
-        const res = await api.deleteFacelessAudio(audioId);
+        const res = await api.deleteFacelessAudio(audioId, {
+          topicId: selectedTopicId,
+          episodeId: selectedEpisodeId,
+        });
         if (res?.success) {
-          showToast('🗑️ File audio berhasil dihapus dari input/faceless.', 'info');
-          await loadData();
+          showToast('🗑️ File audio berhasil dihapus.', 'info');
+          await loadEpisodeData(selectedTopicId, selectedEpisodeId);
         } else {
           showToast(res?.error || 'Gagal menghapus file audio.', 'error');
         }
       }
-    } catch (err: any) {
-      showToast(err.message || 'Gagal menghapus audio.', 'error');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(msg, 'error');
     } finally {
       setDeletingId(null);
     }
@@ -272,11 +305,11 @@ export const FacelessAudioStep: React.FC<FacelessAudioStepProps> = ({
     if (!cleanScript) return;
     navigator.clipboard.writeText(cleanScript);
     setCopiedScript(true);
-    showToast('📋 Naskah bersih berhasil disalin ke clipboard!', 'success');
+    showToast('📋 Naskah bersih berhasil disalin! Siap dipaste ke ElevenLabs / TTS.', 'success');
     setTimeout(() => setCopiedScript(false), 2000);
   };
 
-  // Transcript Handlers
+  // Save Transcript Handler
   const handleSaveTranscript = async () => {
     if (!rawTranscript.trim()) {
       showToast('Transkrip masih kosong. Masukkan teks transkrip terlebih dahulu.', 'info');
@@ -291,20 +324,24 @@ export const FacelessAudioStep: React.FC<FacelessAudioStepProps> = ({
           formattedText: parsedTranscript.formattedText,
           segments: parsedTranscript.segments,
           part: null,
+          topicId: selectedTopicId,
+          episodeId: selectedEpisodeId,
         });
 
         if (res?.success && res.data) {
           setSavedTranscript(res.data);
+          setTranscriptTab('preview');
           showToast(
-            `🎉 Transkrip (${res.data.segments?.length || 0} baris) berhasil disimpan ke input/faceless/transcript.txt!`,
+            `🎉 Transkrip (${res.data.segments?.length || 0} baris) berhasil disimpan untuk ${selectedEpisodeId.toUpperCase()}!`,
             'success'
           );
         } else {
           showToast(res?.error || 'Gagal menyimpan transkrip.', 'error');
         }
       }
-    } catch (err: any) {
-      showToast(err.message || 'Terjadi kesalahan saat menyimpan transkrip.', 'error');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(msg, 'error');
     } finally {
       setIsSavingTranscript(false);
     }
@@ -318,7 +355,7 @@ export const FacelessAudioStep: React.FC<FacelessAudioStepProps> = ({
     navigator.clipboard.writeText(parsedTranscript.formattedText);
     setCopiedTranscript(true);
     showToast('📋 Transkrip ber-timecode (per baris) berhasil disalin!', 'success');
-    setTimeout(() => setCopiedTranscript(false), 2500);
+    setTimeout(() => setCopiedTranscript(false), 2000);
   };
 
   const handleTranscriptFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -333,9 +370,11 @@ export const FacelessAudioStep: React.FC<FacelessAudioStepProps> = ({
         return;
       }
       setRawTranscript(text);
-      showToast(`📄 File "${file.name}" berhasil diunggah & otomatis diformat!`, 'success');
-    } catch (err: any) {
-      showToast(err.message || 'Gagal membaca file transkrip.', 'error');
+      setTranscriptTab('preview');
+      showToast(`📄 File "${file.name}" berhasil diunggah & otomatis dirapikan!`, 'success');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(msg, 'error');
     } finally {
       if (transcriptFileInputRef.current) transcriptFileInputRef.current.value = '';
     }
@@ -345,28 +384,37 @@ export const FacelessAudioStep: React.FC<FacelessAudioStepProps> = ({
     const sample =
       '(0:00) Semua orang di luar kota panik berebut jalan tol. (0:03) Sementara aku berhasil mengunci diri di dalam supermarket grocery (0:06) dua lantai seluas 3.000 meter persegi. (0:11) Pintu rolling door setebal 5 cm terkunci mati dengan 3 gembok baja.';
     setRawTranscript(sample);
-    showToast('✨ Contoh transkrip dimasukkan dan otomatis dirapikan per baris timecode!', 'info');
+    setTranscriptTab('preview');
+    showToast('✨ Contoh transkrip dimasukkan dan otomatis diformat!', 'info');
   };
 
-  const handleClearTranscript = () => {
-    if (rawTranscript && !window.confirm('Kosongkan input transkrip?')) return;
-    setRawTranscript('');
+  const handleSeekAudio = (seconds: number) => {
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.currentTime = seconds;
+      audioPlayerRef.current.play().catch(() => {});
+    }
+  };
+
+  const handleAudioTimeUpdate = () => {
+    if (audioPlayerRef.current) {
+      setCurrentPlaybackTime(audioPlayerRef.current.currentTime);
+    }
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 pb-20">
+    <div className="max-w-6xl mx-auto space-y-4 pb-16">
       {/* Toast Notification */}
       {toast && (
         <div
-          className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-2xl shadow-2xl border text-xs font-bold flex items-center gap-2 backdrop-blur-md transition-all animate-bounce ${
+          className={`fixed top-5 right-5 z-50 px-4 py-2.5 rounded-xl text-xs font-bold shadow-xl border flex items-center gap-2 animate-bounce ${
             toast.type === 'success'
-              ? 'bg-emerald-950/90 text-emerald-200 border-emerald-500/50'
+              ? 'bg-emerald-600 text-white border-emerald-400'
               : toast.type === 'error'
-              ? 'bg-red-950/90 text-red-200 border-red-500/50'
-              : 'bg-amber-950/90 text-amber-200 border-amber-500/50'
+              ? 'bg-red-600 text-white border-red-400'
+              : 'bg-indigo-600 text-white border-indigo-400'
           }`}
         >
-          <span>{toast.type === 'success' ? '✓' : toast.type === 'error' ? '⚠️' : 'ℹ️'}</span>
+          <span>{toast.type === 'success' ? '✅' : toast.type === 'error' ? '⚠️' : 'ℹ️'}</span>
           <span>{toast.message}</span>
         </div>
       )}
@@ -387,25 +435,17 @@ export const FacelessAudioStep: React.FC<FacelessAudioStepProps> = ({
         className="hidden"
       />
 
-      {/* Header Banner */}
-      <div className="bg-gray-900/90 border border-gray-800 rounded-3xl p-6 shadow-2xl backdrop-blur-md relative overflow-hidden">
-        <div className="absolute -top-12 -right-12 w-48 h-48 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div className="space-y-2">
+      {/* Header Banner Ringkas & Elegan */}
+      <div className="bg-gray-900/90 border border-gray-800 rounded-3xl p-5 shadow-xl backdrop-blur-md relative overflow-hidden">
+        <div className="absolute -top-10 -right-10 w-40 h-40 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div className="space-y-1">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="px-3 py-1 rounded-full bg-amber-950/80 text-amber-300 border border-amber-700/50 text-[11px] font-mono font-bold tracking-wider uppercase">
-                🎯 Step 2: Voice Over & Transcribe Studio
+              <span className="px-3 py-0.5 rounded-full bg-amber-950/80 text-amber-300 border border-amber-700/50 text-[11px] font-mono font-bold tracking-wider uppercase">
+                🎯 Step 2: Voice Over & Transkrip
               </span>
-              <span className="px-2.5 py-0.5 rounded-full bg-indigo-950/80 text-indigo-300 text-[10px] font-mono border border-indigo-700/60 font-bold">
-                🎬 Fokus Long Form (Shorts tinggal di-cut)
-              </span>
-              {state?.duration && (
-                <span className="px-2.5 py-0.5 rounded-full bg-sky-950/60 text-sky-300 text-[10px] font-mono border border-sky-800/60">
-                  ⏱️ Target: {state.duration.label}
-                </span>
-              )}
               {mainAudio ? (
-                <span className="px-2.5 py-0.5 rounded-full bg-emerald-950/80 text-emerald-300 text-[10px] font-mono border border-emerald-700/60 flex items-center gap-1 font-bold">
+                <span className="px-2.5 py-0.5 rounded-full bg-emerald-950/80 text-emerald-300 text-[10px] font-mono border border-emerald-700/60 font-bold flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                   ✓ Audio Siap ({formatDuration(mainAudio.duration)})
                 </span>
@@ -415,567 +455,413 @@ export const FacelessAudioStep: React.FC<FacelessAudioStepProps> = ({
                 </span>
               )}
               {savedTranscript && (
-                <span className="px-2.5 py-0.5 rounded-full bg-amber-950/80 text-amber-300 text-[10px] font-mono border border-amber-700/60 flex items-center gap-1 font-bold">
-                  ✓ Transkrip Tersimpan ({savedTranscript.segments?.length || 0} baris)
+                <span className="px-2.5 py-0.5 rounded-full bg-amber-950/80 text-amber-300 text-[10px] font-mono border border-amber-700/60 font-bold flex items-center gap-1">
+                  ✓ Transkrip ({savedTranscript.segments?.length || 0} Baris)
                 </span>
               )}
             </div>
-
-            <h1 className="text-2xl font-black text-white tracking-tight flex items-center gap-2">
-              <span>🎙️</span> Voice Over Audio & Transkrip (Long Form)
+            <h1 className="text-xl font-black text-white tracking-tight flex items-center gap-2">
+              <span>🎙️</span> Studio Voice Over & Sinkronisasi Transkrip
             </h1>
-            <p className="text-xs text-gray-400 leading-relaxed max-w-3xl">
-              Upload 1 file audio hasil voiceover lengkap (Long Form) dan hasil transcribe timecode-nya. Seluruh file otomatis disimpan langsung di folder{' '}
-              <code className="text-amber-300 bg-gray-950 px-1.5 py-0.5 rounded border border-gray-800 font-mono text-[11px]">
-                input/faceless/audio/voiceover.mp3
-              </code>{' '}
-              dan{' '}
-              <code className="text-amber-300 bg-gray-950 px-1.5 py-0.5 rounded border border-gray-800 font-mono text-[11px]">
-                input/faceless/transcript.txt
-              </code>.
-            </p>
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2">
             <button
               onClick={handleOpenFolder}
-              className="px-3.5 py-2 bg-gray-800/90 hover:bg-gray-700 text-amber-300 hover:text-amber-200 text-xs font-bold rounded-xl border border-gray-700 hover:border-amber-500/50 transition-all flex items-center gap-1.5 shadow-md"
-              title="Buka folder input faceless di file manager"
+              className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-amber-300 text-xs font-semibold rounded-xl border border-gray-700 transition-all flex items-center gap-1.5 shadow-sm"
+              title="Buka folder episode di file manager"
             >
-              <span>📁</span> Buka Folder Faceless
+              <span>📁</span> Buka Folder
             </button>
             {onBackToIdea && (
               <button
                 onClick={onBackToIdea}
-                className="px-3.5 py-2 bg-gray-800/80 hover:bg-gray-700 text-gray-300 hover:text-white text-xs font-semibold rounded-xl border border-gray-700 transition-all flex items-center gap-1.5"
+                className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white text-xs font-semibold rounded-xl border border-gray-700 transition-all flex items-center gap-1.5"
               >
-                <span>←</span> Step 1 (Ide & Naskah)
+                <span>←</span> Step 1
               </button>
             )}
           </div>
         </div>
       </div>
 
-      {/* Script Reference Card (Collapsible) */}
-      {draftScript && (
-        <div className="bg-gray-900/70 border border-gray-800 rounded-2xl p-4 shadow-xl space-y-3">
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div className="flex items-center gap-2">
-              <span className="text-base">📝</span>
-              <div>
-                <h3 className="text-xs font-bold text-amber-300 flex items-center gap-2">
-                  <span>Referensi Naskah Voiceover (Step 1)</span>
-                  <span className="px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-800/60 text-[10px] font-mono">
-                    {cleanWordCount} kata narasi · Estimasi ~{formatDuration(estimatedSeconds)}
-                  </span>
-                </h3>
-                <p className="text-[10px] text-gray-400">
-                  Naskah narasi bersih lengkap untuk digenerate sekali jalan di ElevenLabs atau software audio pilihanmu.
-                </p>
-              </div>
+      {/* ─── GROUPING BAR 1: PILIH TOPIK SERIAL ─── */}
+      <div className="bg-gray-900/60 border border-gray-800/80 rounded-2xl p-3 shadow-md space-y-1.5">
+        <label className="text-[11px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+          <span>📁</span> Topik Serial ({topics.length} Topik):
+        </label>
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
+          {topics.map((t) => {
+            const isSelected = t.id === selectedTopicId;
+            return (
+              <button
+                key={t.id}
+                onClick={() => handleSelectTopic(t.id)}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  isSelected
+                    ? 'bg-amber-500 text-gray-950 border-amber-400 shadow-md shadow-amber-500/20'
+                    : 'bg-gray-950 text-gray-300 border-gray-800 hover:bg-gray-800 hover:border-gray-700'
+                }`}
+              >
+                <span>{isSelected ? '📂' : '📁'}</span>
+                <span>{t.title}</span>
+                <span
+                  className={`px-1.5 py-0.2 rounded text-[10px] font-mono ${
+                    isSelected ? 'bg-black/20 text-gray-950 font-black' : 'bg-gray-800 text-gray-400'
+                  }`}
+                >
+                  {t.episodesCount || (t.episodes && t.episodes.length) || 1} Ep
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ─── GROUPING BAR 2: PILIH EPISODE ─── */}
+      {currentTopic && (
+        <div className="bg-gray-900/60 border border-gray-800/80 rounded-2xl p-3 shadow-md space-y-1.5">
+          <label className="text-[11px] font-bold uppercase tracking-wider text-cyan-400 flex items-center gap-1.5">
+            <span>🎞️</span> Episode: <span className="text-white normal-case font-semibold">{currentTopic.title}</span>
+          </label>
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
+            {(currentTopic.episodes || []).map((ep: FacelessEpisodeSummary) => {
+              const isSelected = ep.id === selectedEpisodeId;
+              return (
+                <button
+                  key={ep.id}
+                  onClick={() => handleSelectEpisode(ep.id)}
+                  className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                    isSelected
+                      ? 'bg-gray-800 text-cyan-300 border-cyan-500/70 shadow-sm ring-1 ring-cyan-500/30'
+                      : 'bg-gray-950 text-gray-400 border-gray-800 hover:bg-gray-900 hover:text-gray-200'
+                  }`}
+                >
+                  <span className="font-mono font-bold uppercase">{ep.id}:</span>
+                  <span className="font-medium max-w-[200px] truncate">{ep.title.replace(/^Supermarket Apocalypse - /i, '')}</span>
+                  {ep.isLocked && (
+                    <span className="text-[10px]" title="Episode Terkunci">
+                      🔒
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ─── WORKSPACE DUA KOLOM BERDAMPINGAN (2-COLUMN SPLIT STUDIO) ─── */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+        {/* KOLOM KIRI (5 Kolom): Naskah Voiceover & Audio File */}
+        <div className="lg:col-span-5 space-y-4">
+          {/* Card 1: Naskah Voiceover Acuan (Step 1) */}
+          <div className="bg-gray-900/90 border border-gray-800 rounded-3xl p-5 shadow-xl space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                <span>📜</span> Naskah Voiceover {selectedEpisodeId.toUpperCase()}
+              </span>
+              <span className="px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-800/60 text-[10px] font-mono">
+                {cleanWordCount} kata · ~{formatDuration(estimatedSeconds)}
+              </span>
             </div>
+
+            <p className="text-[11px] text-gray-400 leading-relaxed">
+              Salin naskah bersih di bawah ini untuk dibacakan di ElevenLabs atau software TTS favoritmu.
+            </p>
 
             <div className="flex items-center gap-2">
               <button
                 onClick={handleCopyCleanScript}
-                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-gray-950 text-xs font-black rounded-xl transition-all shadow-md flex items-center gap-1.5"
+                disabled={!cleanScript}
+                className="flex-1 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 disabled:opacity-40 text-gray-950 text-xs font-black rounded-xl transition-all shadow-md shadow-amber-600/20 flex items-center justify-center gap-1.5"
               >
-                <span>{copiedScript ? '✓ Tersalin!' : '📋 Salin Naskah Bersih'}</span>
+                <span>{copiedScript ? '✓ Naskah Tersalin!' : '📋 Salin Naskah Bersih'}</span>
               </button>
               <button
                 onClick={() => setIsScriptExpanded(!isScriptExpanded)}
-                className="px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-medium rounded-xl border border-gray-700 transition-all flex items-center gap-1"
+                className="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-semibold rounded-xl border border-gray-700 transition-all flex items-center gap-1"
+                title={isScriptExpanded ? 'Ciutkan naskah' : 'Lihat isi naskah lengkap'}
               >
-                <span>{isScriptExpanded ? '▲ Ciutkan' : '▼ Lihat Naskah'}</span>
+                <span>{isScriptExpanded ? '▲' : '▼'}</span>
               </button>
             </div>
-          </div>
 
-          {isScriptExpanded && (
-            <div className="bg-gray-950/80 border border-gray-800 rounded-xl p-3.5 text-xs font-mono text-gray-300 leading-relaxed whitespace-pre-wrap max-h-60 overflow-y-auto selection:bg-amber-500 selection:text-black">
-              {cleanScript}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* SECTION 1: SINGLE LONG FORM AUDIO UPLOAD & PLAYER */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <span className="text-lg">🎙️</span>
-            <div>
-              <h2 className="text-base font-bold text-white flex items-center gap-2">
-                <span>Voice Over Audio (Long Form Penuh)</span>
-                <span className="px-2 py-0.5 rounded-full bg-amber-950/80 text-amber-300 border border-amber-800/60 text-[10px] font-mono">
-                  1 File Langsung Penuh
-                </span>
-              </h2>
-              <p className="text-[11px] text-gray-400">
-                Audio voiceover digenerate langsung penuh sekaligus. Untuk shorts nantinya tinggal dipotong (cut) dari file audio ini.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {mainAudio ? (
-          /* Card Audio yang Sudah Ter-upload */
-          <div className="bg-gray-900/90 border border-emerald-500/40 rounded-3xl p-6 shadow-xl space-y-4">
-            <div className="flex items-start justify-between gap-4 flex-wrap">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-2xl bg-emerald-950 border border-emerald-500/50 flex items-center justify-center text-2xl shadow-inner">
-                  🎙️
-                </div>
-                <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-500/50 text-[10px] font-mono font-bold">
-                      ✓ Audio Utama Ter-upload
-                    </span>
-                    <span className="px-2 py-0.5 rounded-full bg-gray-800 text-gray-300 text-[10px] font-mono">
-                      {formatBytes(mainAudio.size)}
-                    </span>
-                    <span className="px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-800/60 text-[10px] font-mono font-bold">
-                      ⏱️ Durasi: {formatDuration(mainAudio.duration)}
-                    </span>
-                  </div>
-                  <h3 className="text-base font-bold text-white mt-1 break-all">
-                    {mainAudio.name}
-                  </h3>
-                  <p className="text-[11px] text-gray-400 font-mono mt-0.5">
-                    Tersimpan di: <span className="text-gray-300">{mainAudio.filePath}</span>
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleSelectAndUploadAudio}
-                  disabled={uploading}
-                  className="px-3.5 py-1.5 bg-gray-800 hover:bg-gray-700 text-amber-300 text-xs font-bold rounded-xl border border-gray-700 transition-all flex items-center gap-1.5 shadow-sm"
-                >
-                  <span>🔄</span> Ganti Audio
-                </button>
-                <button
-                  onClick={() => handleDeleteAudio(mainAudio.id)}
-                  disabled={deletingId === mainAudio.id}
-                  className="px-3.5 py-1.5 bg-red-950/80 hover:bg-red-900 text-red-300 text-xs font-bold rounded-xl border border-red-800/60 transition-all flex items-center gap-1.5 shadow-sm"
-                >
-                  <span>🗑️</span> Hapus
-                </button>
-              </div>
-            </div>
-
-            {/* Audio Player Controls */}
-            {mainAudio.url && (
-              <div className="bg-gray-950/80 border border-gray-800 rounded-2xl p-4 space-y-2">
-                <div className="flex items-center justify-between text-xs text-gray-400">
-                  <span className="font-semibold text-gray-300 flex items-center gap-1">
-                    <span>▶️</span> Audio Player Preview
-                  </span>
-                  <span className="font-mono text-emerald-400 font-bold">
-                    {formatDuration(currentPlaybackTime)} / {formatDuration(mainAudio.duration)}
-                  </span>
-                </div>
-                <audio
-                  ref={audioPlayerRef}
-                  onTimeUpdate={handleAudioTimeUpdate}
-                  src={mainAudio.url}
-                  controls
-                  className="w-full h-11 accent-amber-500 rounded-xl outline-none"
-                />
+            {/* Collapsible script view */}
+            {isScriptExpanded && cleanScript && (
+              <div className="bg-gray-950 border border-gray-800 rounded-2xl p-3.5 text-xs font-mono text-gray-300 leading-relaxed whitespace-pre-wrap max-h-56 overflow-y-auto selection:bg-amber-500 selection:text-black">
+                {cleanScript}
               </div>
             )}
           </div>
-        ) : (
-          /* Upload Dropzone untuk Single Audio */
-          <div
-            onClick={handleSelectAndUploadAudio}
-            className="border-2 border-dashed border-gray-700 hover:border-amber-500/80 bg-gray-900/40 hover:bg-gray-900/80 rounded-3xl p-10 text-center cursor-pointer transition-all space-y-3 group shadow-xl"
-          >
-            <div className="w-16 h-16 rounded-3xl bg-amber-500/10 text-amber-400 border border-amber-500/30 mx-auto flex items-center justify-center text-3xl group-hover:scale-110 transition-transform">
-              🎙️
-            </div>
-            <div className="space-y-1">
-              <h3 className="text-base font-bold text-white group-hover:text-amber-300 transition-colors">
-                Klik untuk Pilih & Upload Voice Over (Long Form)
-              </h3>
-              <p className="text-xs text-gray-400 max-w-md mx-auto">
-                Format yang didukung: <span className="text-gray-300 font-mono">.mp3, .wav, .m4a, .aac, .ogg</span>. File otomatis disimpan di <span className="text-amber-300 font-mono">input/faceless/audio/voiceover.mp3</span>.
-              </p>
-            </div>
-            <div>
-              <button
-                type="button"
-                disabled={uploading}
-                className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-gray-950 text-xs font-black shadow-lg shadow-amber-600/30 transition-all inline-flex items-center gap-2"
-              >
-                <span>{uploading ? '⏳ Mengupload & Menganalisis...' : '📂 Pilih File Audio Voiceover'}</span>
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
 
-      {/* SECTION 2: TRANSKRIP VOICEOVER TIMECODE STUDIO */}
-      <div className="bg-gray-900/90 border border-gray-800 rounded-3xl p-6 shadow-2xl backdrop-blur-md space-y-5">
-        <div className="flex items-start justify-between gap-4 flex-wrap border-b border-gray-800/80 pb-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="px-2.5 py-0.5 rounded-full bg-amber-950/80 text-amber-300 border border-amber-700/60 text-[10px] font-mono font-bold uppercase tracking-wider">
-                📝 Transkrip Voiceover Timecode
+          {/* Card 2: Upload / Audio Player */}
+          <div className="bg-gray-900/90 border border-gray-800 rounded-3xl p-5 shadow-xl space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                <span>🎙️</span> File Audio Voiceover
               </span>
-              {parsedTranscript.segments.length > 0 && (
-                <span className="px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-700/50 text-[10px] font-mono font-bold">
-                  ✓ {parsedTranscript.segments.length} Baris Timecode Terdeteksi
-                </span>
-              )}
-              {savedTranscript && (
-                <span className="px-2 py-0.5 rounded-full bg-gray-800 text-gray-300 text-[10px] font-mono">
-                  💾 input/faceless/transcript.txt
+              {mainAudio && (
+                <span className="px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-700/60 text-[10px] font-mono font-bold">
+                  {formatDuration(mainAudio.duration)}
                 </span>
               )}
             </div>
-            <h2 className="text-lg font-black text-white flex items-center gap-2">
-              <span>⚡</span> Upload & Auto-Format Transkrip Timecode
-            </h2>
-            <p className="text-xs text-gray-400 max-w-2xl leading-relaxed">
-              Paste teks hasil transcribe dari Whisper / ElevenLabs dalam format apa saja (misal:{' '}
-              <span className="text-amber-300 font-mono text-[11px]">(0:00) teks... (0:03) teks...</span>). Sistem otomatis merapikan menjadi{' '}
-              <strong className="text-white">1 baris per timecode</strong> dan menyimpannya di{' '}
-              <code className="text-amber-300 bg-gray-950 px-1 py-0.5 rounded border border-gray-800 font-mono text-[10px]">
-                input/faceless/transcript.txt
-              </code>.
-            </p>
-          </div>
 
-          {/* Action buttons */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              onClick={handleLoadSampleTranscript}
-              className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-sky-300 hover:text-sky-200 text-xs font-bold rounded-xl border border-sky-800/50 transition-all flex items-center gap-1.5 shadow-sm"
-              title="Isi dengan contoh format naskah timecode"
-            >
-              <span>✨</span> Contoh Input
-            </button>
-            <button
-              onClick={() => transcriptFileInputRef.current?.click()}
-              className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-amber-300 hover:text-amber-200 text-xs font-bold rounded-xl border border-gray-700 hover:border-amber-500/50 transition-all flex items-center gap-1.5 shadow-sm"
-            >
-              <span>📂</span> Upload File (.txt / .srt)
-            </button>
-            <button
-              onClick={handleCopyFormattedTranscript}
-              disabled={!parsedTranscript.formattedText}
-              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-gray-950 text-xs font-black rounded-xl transition-all shadow-md flex items-center gap-1.5"
-            >
-              <span>{copiedTranscript ? '✓ Tersalin!' : '📋 Salin Transkrip Rapi'}</span>
-            </button>
-            <button
-              onClick={handleSaveTranscript}
-              disabled={isSavingTranscript || !rawTranscript.trim()}
-              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-black rounded-xl transition-all shadow-lg shadow-emerald-700/20 flex items-center gap-1.5"
-            >
-              <span>{isSavingTranscript ? '⏳ Menyimpan...' : '💾 Simpan Transkrip'}</span>
-            </button>
-          </div>
-        </div>
-
-        {/* View mode toggle */}
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-1.5 bg-gray-950/80 border border-gray-800 rounded-xl p-1">
-            <button
-              onClick={() => setTranscriptViewMode('split')}
-              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
-                transcriptViewMode === 'split'
-                  ? 'bg-amber-500 text-gray-950 shadow-sm'
-                  : 'text-gray-400 hover:text-gray-200'
-              }`}
-            >
-              Berdampingan (Input + Hasil)
-            </button>
-            <button
-              onClick={() => setTranscriptViewMode('formatted')}
-              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
-                transcriptViewMode === 'formatted'
-                  ? 'bg-amber-500 text-gray-950 shadow-sm'
-                  : 'text-gray-400 hover:text-gray-200'
-              }`}
-            >
-              Hasil Rapi ({parsedTranscript.segments.length} Baris)
-            </button>
-            <button
-              onClick={() => setTranscriptViewMode('raw')}
-              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
-                transcriptViewMode === 'raw'
-                  ? 'bg-amber-500 text-gray-950 shadow-sm'
-                  : 'text-gray-400 hover:text-gray-200'
-              }`}
-            >
-              Input Mentah
-            </button>
-          </div>
-
-          {rawTranscript && (
-            <div className="flex items-center gap-2 text-xs">
-              <button
-                onClick={handleClearTranscript}
-                className="text-gray-500 hover:text-red-400 text-[11px] underline transition-colors"
-              >
-                Kosongkan Input
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Studio Content according to transcriptViewMode */}
-        {transcriptViewMode === 'split' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* Left: Input Textarea */}
-            <div className="space-y-2 flex flex-col">
-              <div className="flex items-center justify-between text-xs text-gray-400">
-                <span className="font-bold text-gray-300 flex items-center gap-1.5">
-                  <span>📥</span> Paste Hasil Transkrip Mentah
-                </span>
-                <span className="text-[11px] font-mono text-gray-500">
-                  {rawTranscript.length} karakter
-                </span>
-              </div>
-              <textarea
-                value={rawTranscript}
-                onChange={(e) => setRawTranscript(e.target.value)}
-                placeholder="Contoh format input:&#10;(0:00) Semua orang di luar kota panik berebut jalan tol. (0:03) Sementara aku berhasil mengunci diri di dalam supermarket grocery (0:06) dua lantai seluas 3.000 meter persegi. (0:11) Pintu rolling door setebal 5 cm terkunci mati dengan 3 gembok baja."
-                rows={12}
-                className="w-full bg-gray-950 border border-gray-800 rounded-2xl p-4 text-xs font-mono text-gray-200 focus:outline-none focus:border-amber-500/80 transition-all resize-y leading-relaxed placeholder:text-gray-600 selection:bg-amber-500 selection:text-black shadow-inner flex-1 min-h-[260px]"
-              />
-              <p className="text-[10px] text-gray-500 italic">
-                💡 Tip: Kamu bisa paste seluruh paragraf transkrip sekaligus. Sistem otomatis memecah setiap timecode <span className="font-mono text-gray-400">(0:00), (0:03)...</span> menjadi 1 baris tersendiri.
-              </p>
-            </div>
-
-            {/* Right: Formatted Per-Line Output & Interactive Segment Cards */}
-            <div className="space-y-2 flex flex-col">
-              <div className="flex items-center justify-between text-xs text-gray-400">
-                <span className="font-bold text-emerald-400 flex items-center gap-1.5">
-                  <span>✨</span> Hasil Rapi (1 Baris Per Timecode)
-                </span>
-                <span className="text-[11px] font-mono text-amber-300 font-bold">
-                  {parsedTranscript.segments.length} Baris
-                </span>
-              </div>
-
-              {parsedTranscript.segments.length > 0 ? (
-                <div className="bg-gray-950 border border-gray-800 rounded-2xl p-3 flex-1 flex flex-col min-h-[260px] max-h-[360px] overflow-hidden">
-                  <div className="overflow-y-auto space-y-2 pr-1 flex-1">
-                    {parsedTranscript.segments.map((seg, idx) => {
-                      // Check if this segment is actively playing in audio
-                      const isPlayingThis =
-                        mainAudio?.url &&
-                        currentPlaybackTime >= seg.seconds &&
-                        (idx === parsedTranscript.segments.length - 1 ||
-                          currentPlaybackTime < parsedTranscript.segments[idx + 1].seconds);
-
-                      return (
-                        <div
-                          key={idx}
-                          className={`p-2.5 rounded-xl border text-xs transition-all flex items-start gap-2.5 ${
-                            isPlayingThis
-                              ? 'bg-amber-500/15 border-amber-500 text-white shadow-md'
-                              : 'bg-gray-900/60 border-gray-800/80 text-gray-300 hover:border-gray-700 hover:bg-gray-900'
-                          }`}
-                        >
-                          <button
-                            onClick={() => handleSeekAudio(seg.seconds)}
-                            className={`px-2 py-0.5 rounded-lg text-[11px] font-mono font-bold transition-all shrink-0 flex items-center gap-1 ${
-                              isPlayingThis
-                                ? 'bg-amber-500 text-gray-950 shadow-sm'
-                                : 'bg-gray-800 hover:bg-amber-500/20 text-amber-300 hover:text-amber-200 border border-gray-700'
-                            }`}
-                            title={`Putar audio dari ${seg.timecode}`}
-                          >
-                            <span>▶</span>
-                            <span>{seg.timecode}</span>
-                          </button>
-                          <span className="leading-relaxed flex-1 select-text">
-                            {seg.text}
-                          </span>
-                        </div>
-                      );
-                    })}
+            {mainAudio ? (
+              <div className="space-y-3">
+                <div className="p-3 bg-gray-950 rounded-2xl border border-emerald-500/30 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="text-xl">🎵</span>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-white truncate">{mainAudio.name}</p>
+                      <p className="text-[10px] text-gray-400 font-mono">
+                        {formatBytes(mainAudio.size)} · Durasi: {formatDuration(mainAudio.duration)}
+                      </p>
+                    </div>
                   </div>
-
-                  <div className="pt-2.5 border-t border-gray-800/80 flex items-center justify-between text-[11px] text-gray-400">
-                    <span>Klik badge timecode untuk melompat di audio player.</span>
+                  <div className="flex items-center gap-1.5 shrink-0">
                     <button
-                      onClick={handleCopyFormattedTranscript}
-                      className="text-amber-400 hover:text-amber-300 font-bold underline"
+                      onClick={handleSelectAndUploadAudio}
+                      disabled={uploading}
+                      className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-amber-300 text-xs font-bold rounded-lg border border-gray-700 transition-all"
+                      title="Ganti dengan file audio baru"
                     >
-                      Salin Semua ({parsedTranscript.segments.length} Baris)
+                      Ganti
+                    </button>
+                    <button
+                      onClick={() => handleDeleteAudio(mainAudio.id)}
+                      disabled={deletingId === mainAudio.id}
+                      className="px-2.5 py-1 bg-red-950/80 hover:bg-red-900 text-red-300 text-xs font-bold rounded-lg border border-red-800/60 transition-all"
+                      title="Hapus file audio ini"
+                    >
+                      Hapus
                     </button>
                   </div>
                 </div>
-              ) : (
-                <div className="border border-dashed border-gray-800 rounded-2xl p-8 text-center flex-1 flex flex-col items-center justify-center space-y-2 text-gray-500 min-h-[260px]">
-                  <span className="text-3xl">📝</span>
-                  <p className="text-xs">
-                    Belum ada teks transkrip. Paste di sebelah kiri atau klik{' '}
-                    <strong
-                      onClick={handleLoadSampleTranscript}
-                      className="text-amber-400 hover:underline cursor-pointer"
-                    >
-                      Contoh Input
-                    </strong>.
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
 
-        {/* View Mode: FORMATTED FULL LIST */}
-        {transcriptViewMode === 'formatted' && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <input
-                type="text"
-                placeholder="🔍 Cari kata dalam transkrip..."
-                value={transcriptSearch}
-                onChange={(e) => setTranscriptSearch(e.target.value)}
-                className="bg-gray-950 border border-gray-800 rounded-xl px-3 py-1.5 text-xs text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-amber-500/80 w-64"
-              />
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-400 font-mono">
-                  Menampilkan {filteredSegments.length} dari {parsedTranscript.segments.length} baris
-                </span>
-              </div>
-            </div>
-
-            <div className="bg-gray-950 border border-gray-800 rounded-2xl p-4 max-h-[450px] overflow-y-auto space-y-2">
-              {filteredSegments.length > 0 ? (
-                filteredSegments.map((seg, idx) => {
-                  const isPlayingThis =
-                    mainAudio?.url &&
-                    currentPlaybackTime >= seg.seconds &&
-                    (idx === parsedTranscript.segments.length - 1 ||
-                      currentPlaybackTime < parsedTranscript.segments[idx + 1].seconds);
-
-                  return (
-                    <div
-                      key={idx}
-                      className={`p-3 rounded-xl border text-xs transition-all flex items-start gap-3 ${
-                        isPlayingThis
-                          ? 'bg-amber-500/15 border-amber-500 text-white shadow-md'
-                          : 'bg-gray-900/60 border-gray-800/80 text-gray-300 hover:border-gray-700'
-                      }`}
-                    >
-                      <button
-                        onClick={() => handleSeekAudio(seg.seconds)}
-                        className="px-2.5 py-1 rounded-lg bg-gray-800 hover:bg-amber-500/20 text-amber-300 font-mono text-xs font-bold border border-gray-700 transition-all shrink-0 flex items-center gap-1.5"
-                        title="Dengarkan dari timecode ini"
-                      >
-                        <span>▶</span>
-                        <span>{seg.timecode}</span>
-                      </button>
-                      <p className="leading-relaxed flex-1 select-text pt-0.5">
-                        {seg.text}
-                      </p>
+                {/* Audio Player Controls */}
+                {mainAudio.url && (
+                  <div className="bg-gray-950 p-3 rounded-2xl border border-gray-800 space-y-1.5">
+                    <div className="flex items-center justify-between text-[11px] text-gray-400 font-mono">
+                      <span>▶️ Playback Preview</span>
+                      <span className="text-emerald-400 font-bold">
+                        {formatDuration(currentPlaybackTime)} / {formatDuration(mainAudio.duration)}
+                      </span>
                     </div>
-                  );
-                })
-              ) : (
-                <div className="py-12 text-center text-xs text-gray-500">
-                  Tidak ada baris yang cocok dengan kata kunci pencarian.
+                    <audio
+                      ref={audioPlayerRef}
+                      onTimeUpdate={handleAudioTimeUpdate}
+                      src={mainAudio.url}
+                      controls
+                      className="w-full h-9 accent-amber-500 rounded-lg outline-none"
+                    />
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div
+                onClick={handleSelectAndUploadAudio}
+                className="border-2 border-dashed border-gray-700 hover:border-amber-500/80 bg-gray-950/60 hover:bg-gray-950 rounded-2xl p-6 text-center cursor-pointer transition-all space-y-2 group shadow-inner"
+              >
+                <div className="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-400 border border-amber-500/30 mx-auto flex items-center justify-center text-2xl group-hover:scale-110 transition-transform">
+                  🎙️
                 </div>
-              )}
-            </div>
-
-            {/* Formatted Text Box (Clean Export View) */}
-            <div className="space-y-1.5 pt-2">
-              <div className="flex items-center justify-between text-xs text-gray-400">
-                <span className="font-semibold text-gray-300">
-                  📄 Teks Output Bersih (Sesuai Format File transcript.txt)
-                </span>
+                <div className="space-y-0.5">
+                  <h4 className="text-xs font-bold text-white group-hover:text-amber-300 transition-colors">
+                    Klik untuk Pilih Audio (.mp3, .wav)
+                  </h4>
+                  <p className="text-[10px] text-gray-500">File otomatis disimpan untuk {selectedEpisodeId.toUpperCase()}</p>
+                </div>
                 <button
-                  onClick={handleCopyFormattedTranscript}
-                  className="text-amber-400 hover:text-amber-300 font-bold underline"
+                  type="button"
+                  disabled={uploading}
+                  className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-gray-950 text-xs font-black shadow-md transition-all inline-flex items-center gap-1.5"
                 >
-                  Salin Teks Bersih
+                  <span>{uploading ? '⏳ Mengupload...' : '📂 Pilih File Audio'}</span>
                 </button>
               </div>
-              <div className="bg-gray-950 border border-gray-800 rounded-xl p-3 text-xs font-mono text-gray-300 leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto selection:bg-amber-500 selection:text-black">
-                {parsedTranscript.formattedText || '// Belum ada transkrip terformat'}
-              </div>
+            )}
+          </div>
+        </div>
+
+        {/* KOLOM KANAN (7 Kolom): Transkrip Timecode Studio */}
+        <div className="lg:col-span-7 bg-gray-900/90 border border-gray-800 rounded-3xl p-5 shadow-xl space-y-3.5">
+          {/* Header Bar Transkrip & View Tabs */}
+          <div className="flex items-center justify-between gap-3 flex-wrap pb-2 border-b border-gray-800">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-cyan-300 flex items-center gap-1.5">
+                <span>⚡</span> Transkrip Timecode ({parsedTranscript.segments.length} Baris)
+              </span>
+            </div>
+
+            {/* Tab Mode: Input vs Preview */}
+            <div className="flex items-center gap-1 bg-gray-950 p-1 rounded-xl border border-gray-800">
+              <button
+                onClick={() => setTranscriptTab('input')}
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                  transcriptTab === 'input'
+                    ? 'bg-amber-500 text-gray-950 shadow-sm'
+                    : 'text-gray-400 hover:text-gray-200'
+                }`}
+              >
+                📥 Input / Edit
+              </button>
+              <button
+                onClick={() => setTranscriptTab('preview')}
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                  transcriptTab === 'preview'
+                    ? 'bg-amber-500 text-gray-950 shadow-sm'
+                    : 'text-gray-400 hover:text-gray-200'
+                }`}
+              >
+                📋 Preview Baris ({parsedTranscript.segments.length})
+              </button>
             </div>
           </div>
-        )}
 
-        {/* View Mode: RAW INPUT ONLY */}
-        {transcriptViewMode === 'raw' && (
-          <div className="space-y-2">
-            <textarea
-              value={rawTranscript}
-              onChange={(e) => setRawTranscript(e.target.value)}
-              placeholder="Paste teks hasil transcribe di sini..."
-              rows={14}
-              className="w-full bg-gray-950 border border-gray-800 rounded-2xl p-4 text-xs font-mono text-gray-200 focus:outline-none focus:border-amber-500/80 transition-all resize-y leading-relaxed"
-            />
-          </div>
-        )}
-      </div>
+          {/* TAB 1: INPUT TRANSKRIP */}
+          {transcriptTab === 'input' && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <span className="text-[11px] text-gray-400 leading-relaxed">
+                  Paste teks dari Whisper / ElevenLabs dengan timecode <code className="text-amber-300 font-mono">(0:00)... (0:03)...</code>
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={handleLoadSampleTranscript}
+                    className="px-2 py-1 bg-gray-800 hover:bg-gray-700 text-sky-300 text-[10px] font-bold rounded-lg transition-all"
+                  >
+                    ✨ Contoh
+                  </button>
+                  <button
+                    onClick={() => transcriptFileInputRef.current?.click()}
+                    className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-amber-300 text-[10px] font-bold rounded-lg border border-gray-700 transition-all flex items-center gap-1"
+                  >
+                    <span>📂</span> Upload .txt / .srt
+                  </button>
+                </div>
+              </div>
 
-      {/* Directory Storage Path Info Card */}
-      <div className="bg-gray-950/60 border border-gray-800/80 rounded-2xl p-4 flex items-center justify-between gap-3 text-xs text-gray-400">
-        <div className="flex items-center gap-2 truncate">
-          <span>💾</span>
-          <span className="truncate">
-            Lokasi Simpan: <code className="text-gray-300 font-mono">{inputDir || 'input/faceless'}</code>{' '}
-            <span className="text-gray-500">
-              (audio/voiceover.mp3 & transcript.txt)
-            </span>
-          </span>
-        </div>
-        <button
-          onClick={handleOpenFolder}
-          className="text-amber-400 hover:text-amber-300 font-bold shrink-0 underline"
-        >
-          Buka di File Manager ➔
-        </button>
-      </div>
+              <textarea
+                value={rawTranscript}
+                onChange={(e) => setRawTranscript(e.target.value)}
+                placeholder="Contoh format:&#10;(0:00) Semua orang di luar kota panik berebut jalan tol. (0:03) Sementara aku berhasil mengunci diri di dalam supermarket grosir (0:06) dua lantai seluas 3.000 meter persegi. (0:11) Pintu rolling door setebal 5 cm terkunci mati."
+                rows={10}
+                className="w-full bg-gray-950 border border-gray-800 rounded-2xl p-3.5 text-xs font-mono text-gray-200 focus:outline-none focus:border-amber-500/80 transition-all resize-y leading-relaxed placeholder:text-gray-600 selection:bg-amber-500 selection:text-black shadow-inner min-h-[220px]"
+              />
 
-      {/* Bottom Navigation */}
-      <div className="flex items-center justify-between gap-3 pt-4 border-t border-gray-800">
-        {onBackToIdea && (
-          <button
-            onClick={onBackToIdea}
-            className="px-4 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white text-xs font-bold rounded-xl border border-gray-700 transition-all flex items-center gap-1.5"
-          >
-            <span>←</span> Kembali ke Step 1 (Ide & Naskah)
-          </button>
-        )}
-
-        <div className="flex items-center gap-3">
-          {mainAudio && parsedTranscript.segments.length > 0 && (
-            <div className="text-right hidden sm:block">
-              <span className="text-[11px] text-emerald-400 font-bold block">
-                ✓ Audio & Transkrip Siap
-              </span>
-              <span className="text-[10px] text-gray-500 font-mono">
-                Durasi: {formatDuration(mainAudio.duration)} · {parsedTranscript.segments.length} Baris Timecode
-              </span>
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <span className="text-[10px] text-gray-500 font-mono">
+                  {rawTranscript.length} karakter · {parsedTranscript.segments.length} baris terdeteksi
+                </span>
+                <button
+                  onClick={handleSaveTranscript}
+                  disabled={isSavingTranscript || !rawTranscript.trim()}
+                  className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-40 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-emerald-700/20 flex items-center gap-1.5"
+                >
+                  <span>{isSavingTranscript ? '⏳ Menyimpan...' : '💾 Simpan Transkrip'}</span>
+                </button>
+              </div>
             </div>
           )}
 
+          {/* TAB 2: PREVIEW BARIS & SINKRONISASI AUDIO */}
+          {transcriptTab === 'preview' && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <input
+                  type="text"
+                  placeholder="🔍 Cari kata dalam transkrip..."
+                  value={transcriptSearch}
+                  onChange={(e) => setTranscriptSearch(e.target.value)}
+                  className="bg-gray-950 border border-gray-800 rounded-xl px-3 py-1.5 text-xs text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-amber-500/80 w-56"
+                />
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleCopyFormattedTranscript}
+                    disabled={!parsedTranscript.formattedText}
+                    className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-gray-950 text-xs font-bold rounded-xl transition-all shadow-sm flex items-center gap-1"
+                  >
+                    <span>{copiedTranscript ? '✓ Tersalin' : '📋 Salin Rapi'}</span>
+                  </button>
+                  <button
+                    onClick={handleSaveTranscript}
+                    disabled={isSavingTranscript || !rawTranscript.trim()}
+                    className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-xs font-bold rounded-xl transition-all shadow-sm flex items-center gap-1"
+                  >
+                    <span>💾 Simpan</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* List of Timecoded Segments */}
+              <div className="bg-gray-950 border border-gray-800 rounded-2xl p-2.5 max-h-[360px] overflow-y-auto space-y-1.5 scrollbar-thin">
+                {filteredSegments.length > 0 ? (
+                  filteredSegments.map((seg, idx) => {
+                    const isPlayingThis =
+                      mainAudio?.url &&
+                      currentPlaybackTime >= seg.seconds &&
+                      (idx === parsedTranscript.segments.length - 1 ||
+                        currentPlaybackTime < parsedTranscript.segments[idx + 1].seconds);
+
+                    return (
+                      <div
+                        key={idx}
+                        className={`p-2 rounded-xl border text-xs transition-all flex items-start gap-2.5 ${
+                          isPlayingThis
+                            ? 'bg-amber-500/15 border-amber-500 text-white shadow-md'
+                            : 'bg-gray-900/60 border-gray-800/80 text-gray-300 hover:border-gray-700'
+                        }`}
+                      >
+                        <button
+                          onClick={() => handleSeekAudio(seg.seconds)}
+                          className="px-2 py-0.5 rounded-lg bg-gray-800 hover:bg-amber-500/30 text-amber-300 font-mono text-[11px] font-bold border border-gray-700 transition-all shrink-0 flex items-center gap-1 cursor-pointer"
+                          title="Putar audio dari detik ini"
+                        >
+                          <span>▶</span>
+                          <span>{seg.timecode}</span>
+                        </button>
+                        <p className="leading-relaxed flex-1 select-text pt-0.5 text-xs">{seg.text}</p>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="py-12 text-center text-xs text-gray-500">
+                    Belum ada transkrip ber-timecode. Beralih ke tab <strong>"Input / Edit"</strong> untuk memasukkan transkrip.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Bottom Navigation Ringkas */}
+      <div className="flex items-center justify-between gap-3 pt-3 border-t border-gray-800 flex-wrap">
+        {onBackToIdea && (
           <button
-            onClick={handleSaveTranscript}
-            disabled={isSavingTranscript || !rawTranscript.trim()}
-            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-all shadow-lg shadow-emerald-700/20 flex items-center gap-1.5"
+            onClick={onBackToIdea}
+            className="px-3.5 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white text-xs font-semibold rounded-xl border border-gray-700 transition-all flex items-center gap-1.5"
           >
-            <span>💾</span> Simpan Seluruh Data
+            <span>←</span> Step 1 (Ide & Naskah)
           </button>
+        )}
+
+        <div className="flex items-center gap-3 ml-auto">
+          {mainAudio && parsedTranscript.segments.length > 0 && (
+            <span className="text-xs font-mono text-emerald-400 font-semibold hidden sm:inline">
+              ✓ Audio: {formatDuration(mainAudio.duration)} · {parsedTranscript.segments.length} Baris Transkrip
+            </span>
+          )}
 
           {onGoToNext && (
             <button
-              onClick={onGoToNext}
-              className="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-gray-950 text-xs font-black rounded-xl transition-all shadow-lg shadow-amber-600/30 flex items-center gap-1.5"
+              onClick={async () => {
+                await api?.setFacelessActiveSession?.({ topicId: selectedTopicId, episodeId: selectedEpisodeId });
+                onGoToNext();
+              }}
+              className="px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-gray-950 text-xs font-black rounded-xl transition-all shadow-lg shadow-amber-600/30 flex items-center gap-1.5"
             >
               <span>🎨 Lanjut ke Step 3 (Visual Prompt)</span>
               <span>➔</span>

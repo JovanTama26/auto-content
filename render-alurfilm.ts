@@ -348,7 +348,6 @@ program
       duration: number;
       type: string;
       slowMoFactor?: number;
-      mirrorMode?: string;
       colorShift?: { mode?: string; contrast?: number; brightness?: number; saturation?: number; gamma?: number };
       isVisualOnly: boolean;
     }
@@ -423,7 +422,6 @@ program
               duration: cut1Dur,
               type: vis.type || 'video_cut',
               slowMoFactor: vis.slow_mo_factor || (vis.type === 'slow_motion' ? 0.35 : undefined),
-              mirrorMode: vis.mirror_mode,
               colorShift: vis.color_grading_shift,
               isVisualOnly,
             });
@@ -450,7 +448,6 @@ program
               duration: adjustedDur,
               type: vis.type || 'video_cut',
               slowMoFactor: vis.slow_mo_factor || (vis.type === 'slow_motion' ? 0.35 : undefined),
-              mirrorMode: vis.mirror_mode,
               colorShift: vis.color_grading_shift,
               isVisualOnly,
             });
@@ -563,28 +560,19 @@ program
 
           const fxFilters: string[] = [];
 
-          // 1. Mirror cut (Only when explicitly specified, avoiding dizzying constant flipping)
-          const autoMirror = (jsonSettings as any).autoMirror === true;
-          const isMirrored = clip.mirrorMode === 'horizontal' || (autoMirror && !clip.mirrorMode && clip.id % 2 === 0);
-          if (isMirrored) {
-            fxFilters.push('hflip');
-          } else if (clip.mirrorMode === 'vertical') {
-            fxFilters.push('vflip');
-          }
-
-          // 2. PTS normalization & Slow motion (setpts)
-          // Subtracting STARTPTS is mandatory when using fast seek (-ss before -i)
+          // 1. PTS normalization & Slow motion (setpts)
+          // Base raw footage is strictly clamped to max 2.0s from source video
           let baseDur = clip.duration;
           if (clip.type === 'slow_motion' && clip.slowMoFactor && clip.slowMoFactor > 0 && clip.slowMoFactor !== 1) {
-            baseDur = clip.duration * clip.slowMoFactor;
-            const ptsFactor = (1 / clip.slowMoFactor).toFixed(2);
+            baseDur = Math.min(2.0, clip.duration * clip.slowMoFactor);
+            const ptsFactor = (clip.duration / baseDur).toFixed(2);
             fxFilters.push(`setpts=(PTS-STARTPTS)*${ptsFactor}`);
-          } else if (clip.duration > 2.0 && clip.type !== 'freeze_frame_with_zoom') {
-            // Safety Clamp: If a raw cut is >2.0s, stretch the 2.0s raw footage smoothly to keep raw <= 2.0s
+          } else if (clip.duration > 2.0) {
             baseDur = 2.0;
             const ptsFactor = (clip.duration / 2.0).toFixed(2);
             fxFilters.push(`setpts=(PTS-STARTPTS)*${ptsFactor}`);
-          } else if (clip.type !== 'freeze_frame_with_zoom') {
+          } else {
+            baseDur = Math.min(2.0, clip.duration);
             fxFilters.push('setpts=PTS-STARTPTS');
           }
 
@@ -607,18 +595,9 @@ program
           const scaledWidth = Math.round(width * zoomRate);
           const scaledHeight = Math.round(height * zoomRate);
 
-          let scaleFilter = '';
-          let inputReadDur = '';
-
-          if (clip.type === 'freeze_frame_with_zoom') {
-            inputReadDur = '0.5';
-            const clipFrames = Math.max(1, Math.round(clip.duration * 30));
-            scaleFilter = `loop=loop=-1:size=1:start=0,scale=${width}:${height}:force_original_aspect_ratio=increase:flags=lanczos,crop=${width}:${height},zoompan=z='1+0.035*(on/${clipFrames})':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${width}x${height}:fps=30,setsar=1${fxChain},fps=fps=30:round=near`;
-          } else {
-            scaleFilter = `scale=${scaledWidth}:${scaledHeight}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1${fxChain},fps=fps=30:round=near`;
-            // Add +1.5s headroom so decoder is never starved of input frames before output reaches clip.duration
-            inputReadDur = (Math.min(2.0, baseDur) + 1.5).toFixed(3);
-          }
+          const scaleFilter = `scale=${scaledWidth}:${scaledHeight}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1${fxChain},fps=fps=30:round=near`;
+          // Base footage is max 2.0s, add +1.5s headroom so decoder is never starved of input frames
+          inputReadDur = (Math.min(2.0, baseDur) + 1.5).toFixed(3);
 
           const readDurNum = parseFloat(inputReadDur) || 0.5;
           let safeSourceStart = clip.sourceStart;

@@ -145,12 +145,12 @@ export function validateScriptAnalysis(
         const durMatch = tag.match(/(?:Duration|Output):\s*([\d\.]+)\s*s?/i) || tag.match(/\|\s*([\d\.]+)\s*s/i);
         if (durMatch) {
           const dur = parseFloat(durMatch[1]);
-          if (dur > 10.0) {
+          if (dur > 6.0) {
             issues.push({
               id: 'LONG_VISUAL_ONLY_DURATION',
               severity: 'warning',
               field: 'naskah_voiceover.script_text',
-              message: `Tag [VISUAL_ONLY] memiliki durasi ${dur}s (>10s). Berisiko terdeteksi YouTube Content ID. Disarankan 4-10 detik.`,
+              message: `Tag [VISUAL_ONLY] memiliki durasi ${dur}s (>6s). Berisiko terdeteksi YouTube Content ID. Disarankan 4-6 detik.`,
             });
           }
         }

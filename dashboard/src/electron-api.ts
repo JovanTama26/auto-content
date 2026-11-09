@@ -436,17 +436,77 @@ export interface ElectronAPI {
   facelessAgentChat?: (opts: {
     messages: FacelessChatMessage[];
     model?: string;
+    topicId?: string;
+    episodeId?: string;
   }) => Promise<{ success: boolean; data?: FacelessAgentChatResult; error?: string }>;
-  getFacelessState?: () => Promise<{ success: boolean; data?: FacelessProjectState | null; error?: string }>;
-  saveFacelessState?: (data: FacelessProjectState) => Promise<{
+  getFacelessState?: (opts?: {
+    topicId?: string;
+    episodeId?: string;
+  }) => Promise<{
+    success: boolean;
+    data?: FacelessProjectState | null;
+    activeTopicId?: string;
+    activeEpisodeId?: string;
+    error?: string;
+  }>;
+  saveFacelessState?: (
+    data: FacelessProjectState,
+    opts?: { topicId?: string; episodeId?: string }
+  ) => Promise<{
     success: boolean;
     data?: FacelessProjectState;
     error?: string;
   }>;
-  resetFacelessState?: () => Promise<{ success: boolean; error?: string }>;
-  lockFacelessProject?: () => Promise<{ success: boolean; data?: FacelessProjectState; error?: string }>;
-  unlockFacelessProject?: () => Promise<{ success: boolean; data?: FacelessProjectState; error?: string }>;
-  listFacelessAudios?: () => Promise<{
+  resetFacelessState?: (opts?: {
+    topicId?: string;
+    episodeId?: string;
+  }) => Promise<{ success: boolean; error?: string }>;
+  lockFacelessProject?: (opts?: {
+    topicId?: string;
+    episodeId?: string;
+  }) => Promise<{ success: boolean; data?: FacelessProjectState; error?: string }>;
+  unlockFacelessProject?: (opts?: {
+    topicId?: string;
+    episodeId?: string;
+  }) => Promise<{ success: boolean; data?: FacelessProjectState; error?: string }>;
+  createFacelessTopic?: (opts: {
+    title: string;
+    category?: string;
+    description?: string;
+    characterName?: string;
+    characterDesc?: string;
+    vibe?: string;
+  }) => Promise<{
+    success: boolean;
+    topicId?: string;
+    episodeId?: string;
+    topicMeta?: Record<string, unknown>;
+    data?: FacelessProjectState;
+    error?: string;
+  }>;
+  createFacelessEpisode?: (opts: {
+    topicId: string;
+    title?: string;
+  }) => Promise<{
+    success: boolean;
+    topicId?: string;
+    episodeId?: string;
+    data?: FacelessProjectState;
+    error?: string;
+  }>;
+  setFacelessActiveSession?: (opts: {
+    topicId: string;
+    episodeId?: string;
+  }) => Promise<{
+    success: boolean;
+    activeTopicId?: string;
+    activeEpisodeId?: string;
+    error?: string;
+  }>;
+  listFacelessAudios?: (opts?: {
+    topicId?: string;
+    episodeId?: string;
+  }) => Promise<{
     success: boolean;
     audios: FacelessAudioItem[];
     inputDir?: string;
@@ -456,14 +516,18 @@ export interface ElectronAPI {
   uploadFacelessAudio?: (opts: {
     filePath: string;
     part?: number | null;
+    topicId?: string;
+    episodeId?: string;
   }) => Promise<{ success: boolean; audio?: FacelessAudioItem; error?: string }>;
-  deleteFacelessAudio?: (audioId: string) => Promise<{ success: boolean; error?: string }>;
-  getFacelessAudioDir?: () => Promise<{ success: boolean; dir?: string; audioDir?: string; error?: string }>;
+  deleteFacelessAudio?: (audioId: string, opts?: { topicId?: string; episodeId?: string }) => Promise<{ success: boolean; error?: string }>;
+  getFacelessAudioDir?: (opts?: { topicId?: string; episodeId?: string }) => Promise<{ success: boolean; dir?: string; audioDir?: string; error?: string }>;
   saveFacelessTranscript?: (opts: {
     rawText: string;
     formattedText?: string;
     segments?: FacelessTranscriptSegment[];
     part?: number | null;
+    topicId?: string;
+    episodeId?: string;
   }) => Promise<{
     success: boolean;
     data?: FacelessTranscriptData;
@@ -471,6 +535,8 @@ export interface ElectronAPI {
   }>;
   getFacelessTranscript?: (opts?: {
     part?: number | null;
+    topicId?: string;
+    episodeId?: string;
   }) => Promise<{
     success: boolean;
     data?: FacelessTranscriptData | null;
@@ -481,18 +547,24 @@ export interface ElectronAPI {
     model?: string;
     instructions?: string;
     batchSize?: number;
+    topicId?: string;
+    episodeId?: string;
   }) => Promise<{
     success: boolean;
     data?: FacelessVisualPromptsData;
     error?: string;
   }>;
-  getFacelessVisualPrompts?: () => Promise<{
+  getFacelessVisualPrompts?: (opts?: {
+    topicId?: string;
+    episodeId?: string;
+  }) => Promise<{
     success: boolean;
     data?: FacelessVisualPromptsData | null;
     error?: string;
   }>;
   saveFacelessVisualPrompts?: (
-    prompts: FacelessVisualPromptItem[]
+    prompts: FacelessVisualPromptItem[],
+    opts?: { topicId?: string; episodeId?: string }
   ) => Promise<{
     success: boolean;
     data?: FacelessVisualPromptsData;
@@ -516,6 +588,56 @@ export interface ElectronAPI {
   stopFacelessFlowGeneration?: () => Promise<{ success: boolean; message?: string; error?: string }>;
   getFacelessFlowStatus?: () => Promise<{ isRunning: boolean }>;
   onFacelessFlowProgress?: (callback: (data: FacelessFlowProgress) => void) => () => void;
+  listFacelessTopicsAndEpisodes?: () => Promise<{
+    success: boolean;
+    topics: FacelessTopicItem[];
+    activeTopicId?: string;
+    activeEpisodeId?: string;
+    error?: string;
+  }>;
+  getFacelessEpisodeDetails?: (opts: {
+    topicId: string;
+    episodeId: string;
+  }) => Promise<{
+    success: boolean;
+    data?: FacelessEpisodeDetails;
+    error?: string;
+  }>;
+  renderFacelessEpisode?: (opts: {
+    topicId: string;
+    episodeId: string;
+    overwrite?: boolean;
+  }) => Promise<{
+    success: boolean;
+    outputPath?: string;
+    mediaUrl?: string;
+    error?: string;
+  }>;
+  renderFacelessShort?: (opts: {
+    topicId: string;
+    episodeId: string;
+    partNumber?: number;
+    partStart?: number;
+    partEnd?: number;
+    partTitle?: string;
+    outroLabel?: string;
+  }) => Promise<{
+    success: boolean;
+    outputPath?: string;
+    mediaUrl?: string;
+    error?: string;
+  }>;
+  onFacelessRenderProgress?: (
+    callback: (data: {
+      topicId: string;
+      episodeId: string;
+      stage: string;
+      progress: number;
+      message: string;
+      currentFrame?: number;
+      totalFrames?: number;
+    }) => void
+  ) => () => void;
 
   // Humanologi Helpers (Prompt, Narration JSON, and Audio)
   getHumanologiPrompt?: () => Promise<{ success: boolean; prompt?: string; error?: string }>;
@@ -760,20 +882,22 @@ export interface FacelessFlowGenerateOptions {
   overwrite?: boolean;
   outputDir?: string;
   concurrency?: number;
+  topicId?: string;
+  episodeId?: string;
 }
 
 export interface FacelessFlowProgress {
   type:
-    | 'log'
-    | 'item-start'
-    | 'item-generating'
-    | 'item-success'
-    | 'item-error'
-    | 'item-skip'
-    | 'progress'
-    | 'batch-complete'
-    | 'stopped'
-    | 'error';
+  | 'log'
+  | 'item-start'
+  | 'item-generating'
+  | 'item-success'
+  | 'item-error'
+  | 'item-skip'
+  | 'progress'
+  | 'batch-complete'
+  | 'stopped'
+  | 'error';
   message: string;
   sceneId?: number;
   imageUrl?: string;
@@ -803,6 +927,28 @@ export interface FacelessVisualStreamProgress {
 export interface FacelessProjectState {
   version: number;
   stage: FacelessStage;
+  topic_id?: string;
+  episode_id?: string;
+  continuation?: {
+    is_continuation: boolean;
+    previous_episode_id: string;
+    previous_episode_number?: number;
+    previous_summary?: string;
+    previous_cliffhanger?: string;
+    previous_ending_snippet?: string;
+    previous_ending_notes?: string;
+    topic_lore?: string;
+    series_history?: Array<{
+      episode_id: string;
+      episode_number: number;
+      title: string;
+      summary: string;
+      key_points?: string[];
+      hook?: string;
+      cliffhanger?: string;
+      ending_script_snippet?: string;
+    }>;
+  } | null;
   is_locked?: boolean;
   locked_at?: string | null;
   idea_source: 'user' | 'agent' | null;
@@ -832,6 +978,137 @@ export interface FacelessAgentChatResult {
   narration?: FacelessNarration | null;
   suggested_actions: string[];
   state: FacelessProjectState;
+}
+
+export interface FacelessEpisodeSummary {
+  id: string;
+  title: string;
+  isLocked?: boolean;
+  stage?: string;
+  isContinuation?: boolean;
+  prevEpisodeId?: string | null;
+  statePath?: string;
+  totalDuration: number;
+  scenesCount: number;
+  fps: number;
+  resolution: { width: number; height: number };
+  isRendered: boolean;
+  videoPath?: string;
+  videoUrl?: string;
+  videoSizeBytes?: number;
+  videoSizeFormatted?: string;
+  renderedAt?: string;
+  shortVideos?: Array<{
+    id: string;
+    fileName: string;
+    title: string;
+    partNumber?: number;
+    partStart?: number;
+    partEnd?: number;
+    partTitle?: string;
+    isRendered?: boolean;
+    path?: string;
+    url?: string;
+    sizeBytes?: number;
+    sizeFormatted?: string;
+    modifiedAt?: string;
+  }>;
+  audioPath?: string;
+  audioUrl?: string;
+  imagesCount: number;
+  sfxCount: number;
+  typographyCount: number;
+  cameraPresetsSummary?: Record<string, number>;
+  timelinePath: string;
+  transcriptPath?: string;
+  visualPromptsPath?: string;
+}
+
+export interface FacelessTopicItem {
+  id: string;
+  title: string;
+  description: string;
+  character?: {
+    name: string;
+    description: string;
+    dnaPrompt?: string;
+  };
+  visualTheme?: {
+    style: string;
+    environment?: string;
+  };
+  referenceImages?: {
+    characterRefUrl?: string;
+    dnaVisualRefUrl?: string;
+  };
+  created_at?: string;
+  episodesCount: number;
+  renderedCount: number;
+  totalDuration: number;
+  episodes: FacelessEpisodeSummary[];
+}
+
+export interface FacelessEpisodeSceneDetail {
+  id: string;
+  index: number;
+  start: number;
+  duration: number;
+  end: number;
+  label: string;
+  camera?: {
+    preset: string;
+    from?: any;
+    to?: any;
+    whipOut?: any;
+  } | null;
+  typography?: {
+    enabled: boolean;
+    style?: 'typewriter' | 'kinetic_punch';
+    text?: string;
+  } | null;
+  imagePath?: string | null;
+  imageUrl?: string | null;
+  prompt?: string;
+  shotType?: string;
+  characterDna?: string;
+  hasSfx: boolean;
+  sfxList: Array<{
+    id: string;
+    name: string;
+    start: number;
+    volume: number;
+    src?: string;
+  }>;
+}
+
+export interface FacelessEpisodeDetails {
+  topicId: string;
+  episodeId: string;
+  topicMeta?: any;
+  title: string;
+  totalDuration: number;
+  fps: number;
+  resolution: { width: number; height: number };
+  video: {
+    exists: boolean;
+    filePath?: string;
+    mediaUrl?: string;
+    sizeBytes?: number;
+    sizeFormatted?: string;
+    renderedAt?: string;
+  };
+  audio: {
+    voiceoverUrl?: string | null;
+    bgmUrl?: string | null;
+    bgmSrc?: string;
+    bgmVolume?: number;
+    sfxCount: number;
+    sfxList: any[];
+  };
+  scenes: FacelessEpisodeSceneDetail[];
+  cameraPresetCounts: Record<string, number>;
+  typographyCount: number;
+  sfxCount: number;
 }
 
 export interface WatermarkTextConfig {
