@@ -431,8 +431,14 @@ const AlurfilmMappingStep: React.FC = () => {
     setError(null);
     try {
       let raw = pasteJsonInput.trim();
-      if (raw.startsWith('```')) {
-        raw = raw.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+      const codeBlockMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+      if (codeBlockMatch && codeBlockMatch[1]) {
+        raw = codeBlockMatch[1].trim();
+      }
+      const firstBrace = raw.indexOf('{');
+      const lastBrace = raw.lastIndexOf('}');
+      if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+        raw = raw.slice(firstBrace, lastBrace + 1);
       }
       const parsed = JSON.parse(raw);
 
@@ -916,7 +922,7 @@ const AlurfilmMappingStep: React.FC = () => {
                           const vType = v.type || 'video_cut';
                           let typeColor = 'text-purple-300 border-purple-800/40 bg-purple-950/20';
                           if (vType === 'slow_motion') typeColor = 'text-violet-300 border-violet-800/40 bg-violet-950/20';
-                          if (vType === 'freeze_frame_with_zoom') typeColor = 'text-sky-300 border-sky-800/40 bg-sky-950/20';
+                          if (vType === 'freeze_frame' || vType === 'freeze_frame_with_zoom' || vType === 'freeze_zoom_outro') typeColor = 'text-sky-300 border-sky-800/40 bg-sky-950/20';
                           if (vType === 'mirror_cut') typeColor = 'text-pink-300 border-pink-800/40 bg-pink-950/20';
 
                           return (

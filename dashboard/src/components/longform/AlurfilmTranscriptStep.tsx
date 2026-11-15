@@ -325,7 +325,7 @@ const AlurfilmTranscriptStep: React.FC = () => {
     try {
       let raw = pasteJsonInput.trim();
       if (raw.startsWith('```')) {
-        raw = raw.replace(/^```(?:json|srt)?\s*\n?/i, '').replace(/\n?```\s*$/, '');
+        raw = raw.replace(/^```(?:[a-z0-9_-]+)?\s*\n?/i, '').replace(/\n?```\s*$/, '');
       }
 
       const res = await api.saveAlurfilmTranscript(contentId || 'default', activePart, raw);
@@ -1325,7 +1325,7 @@ const AlurfilmTranscriptStep: React.FC = () => {
                   <span className="p-2 bg-cyan-500/20 text-cyan-400 rounded-lg text-lg group-hover:scale-110 transition-all">✂️</span>
                   <div>
                     <span className="text-xs font-bold text-cyan-300 block">Metode 3: Paste Raw Transcript & Audio Splicer (Manual Presisi)</span>
-                    <span className="text-[10px] text-gray-400 block">Paste transkrip raw audio ([Speaker 0]). Sistem otomatis mendeteksi posisi [VISUAL_ONLY], memotong audio raw, dan menyisipkan hening.</span>
+                    <span className="text-[10px] text-gray-400 block">Paste transkrip raw audio ([Speaker 0] atau format (0:00) teks...). Sistem otomatis mendeteksi posisi [VISUAL_ONLY], memotong audio raw, dan menyisipkan hening.</span>
                   </div>
                 </div>
               </div>
@@ -1356,7 +1356,7 @@ const AlurfilmTranscriptStep: React.FC = () => {
                 <span>⚡</span> Auto-Detect [VISUAL_ONLY] & Audio Splicer Aktif:
               </p>
               <p className="text-gray-300 text-[10px] leading-relaxed">
-                Paste hasil transkrip raw audio berformat <code>00:00:00,140 --&gt; 00:00:33,260 [Speaker 0]</code>.
+                Mendukung format <code>00:00:00,140 --&gt; 00:00:33,260 [Speaker 0]</code> maupun inline timestamp <code>(0:00) Teks... (0:03) Teks...</code>.
                 Sistem otomatis mencocokkan naskah Step 2, memotong audio raw, menyisipkan jeda hening sesuai durasi visual, dan menyesuaikan timeline 100% presisi!
               </p>
             </div>
@@ -1375,7 +1375,7 @@ const AlurfilmTranscriptStep: React.FC = () => {
             <textarea
               value={pasteJsonInput}
               onChange={(e) => setPasteJsonInput(e.target.value)}
-              placeholder={`Format Raw Transcript yang didukung:\n00:00:00,140 --> 00:00:33,260 [Speaker 0]\nDemi mencari petunjuk sekaligus persenjataan...\n\n00:00:36,540 --> 00:00:48,780 [Speaker 0]\nAlih-alih gentar menghadapi kepungan puluhan lawan...\n\n(Atau format SRT Subtitle / JSON standard)`}
+              placeholder={`Format Raw Transcript yang didukung:\n1) Inline Timestamp:\n(0:00) Cerita berawal saat seorang wanita bernama Amanda (0:03) tiba-tiba membawankan suaminya...\n\n2) Raw SRT / Speaker:\n00:00:00,140 --> 00:00:33,260 [Speaker 0]\nDemi mencari petunjuk sekaligus persenjataan...\n\n(Atau format SRT Subtitle / JSON standard)`}
               className="w-full h-64 bg-gray-950 text-gray-200 text-xs font-mono p-3 rounded-xl border border-gray-800 focus:border-purple-500 focus:outline-none resize-none custom-scrollbar"
             />
 

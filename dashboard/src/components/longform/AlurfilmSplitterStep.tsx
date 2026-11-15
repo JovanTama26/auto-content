@@ -122,8 +122,11 @@ const AlurfilmSplitterStep: React.FC = () => {
           const chunkDurText = chunkDur < 60
             ? `${Math.round(chunkDur)} Detik`
             : `${(chunkDur / 60).toFixed(1)} Menit`;
-          const computedMinWords = Math.max(50, Math.round((chunkDur * 480) / 1200));
-          const computedMaxWords = Math.max(50, Math.round((chunkDur * 530) / 1200));
+          const computedMinChars = Math.max(300, Math.round((chunkDur * 3000) / 1200));
+          const computedMaxChars = Math.max(350, Math.round((chunkDur * 3400) / 1200));
+          const computedMinWords = Math.max(45, Math.round((chunkDur * 450) / 1200));
+          const computedMaxWords = Math.max(50, Math.round((chunkDur * 500) / 1200));
+          const computedChars = `${computedMinChars} - ${computedMaxChars} Karakter`;
           const computedWords = `${computedMinWords} - ${computedMaxWords}`;
           const isFirstPartStr = 'YA (Chunk #1 / Part Pembuka Film Utama - Langsung masuk ke alur cerita tanpa intro formal. DILARANG menyebut nama/judul film!)';
           const isLastPartStr = total === 1 ? 'YA (Chunk Terakhir / Part Penutup Film - Akhiri tanpa menyebut judul film)' : 'TIDAK (Part Bukan Penutup)';
@@ -137,6 +140,9 @@ const AlurfilmSplitterStep: React.FC = () => {
             .replace(/\{\{movie_year\}\}/g, savedYear.trim() ? `tahun ${savedYear.trim()}` : '')
             .replace(/\{\{is_first_part\}\}/g, isFirstPartStr)
             .replace(/\{\{is_last_part\}\}/g, isLastPartStr)
+            .replace(/\{\{target_chars_per_chunk\}\}/g, computedChars)
+            .replace(/\{\{target_min_chars\}\}/g, String(computedMinChars))
+            .replace(/\{\{target_max_chars\}\}/g, String(computedMaxChars))
             .replace(/\{\{target_words_per_chunk\}\}/g, computedWords)
             .replace(/\{\{target_min_words\}\}/g, String(computedMinWords))
             .replace(/\{\{target_max_words\}\}/g, String(computedMaxWords))

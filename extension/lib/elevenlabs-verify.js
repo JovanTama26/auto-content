@@ -335,11 +335,11 @@ async function fetchVerificationFromGmailTab(options = {}) {
   }
 }
 
-const VPS_MAIL_API_BASE = 'http://43.129.43.29:8888';
+const VPS_MAIL_API_BASE = 'https://mail.riztama.my.id';
 
 /**
- * Mengambil link verifikasi ElevenLabs langsung dari server VPS penangkap email
- * Polling API: http://43.129.43.29:8888/api/get-link?email=...
+ * Mengambil link verifikasi ElevenLabs langsung dari server penangkap email
+ * Polling API: https://mail.riztama.my.id/api/get-link?email=...
  * 100% mandiri tanpa membuka tab Gmail & tanpa captcha!
  */
 async function fetchVerificationFromVps(email, options = {}) {
@@ -419,7 +419,7 @@ const ElevenLabsVerify = {
 
   /**
    * Mengambil URL verifikasi
-   * Secara default memprioritaskan polling ke Server VPS (port 8888) tanpa perlu buka Gmail
+   * Secara default memprioritaskan polling ke server email (mail.riztama.my.id) tanpa perlu buka Gmail
    */
   async pollForVerifyUrl(email, options = {}) {
     const onProgress = options.onProgress || (() => {});

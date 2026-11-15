@@ -24,6 +24,7 @@ const DEFAULT_SETTINGS: RenderSettings = {
   introDuration: 6.0,
   introImpactTimestamp: 0.48,
   introAudioPath: 'assets/The Final Horizon.mp3',
+  zoomRate: 1.08,
 };
 
 const formatDuration = (sec: number) => {
@@ -486,7 +487,7 @@ const AlurfilmRenderStep: React.FC = () => {
     : rawMappingEnd;
   const hasSlowMo = mappingSentences.some((s) => s.visuals?.some((v) => v.type === 'slow_motion' || (v.slow_mo_factor && v.slow_mo_factor < 1)));
   const hasMirrorCut = mappingSentences.some((s) => s.visuals?.some((v) => v.type === 'mirror_cut' || v.mirror_mode === 'horizontal'));
-  const hasFreezeFrame = mappingSentences.some((s) => s.visuals?.some((v) => v.type === 'freeze_frame_with_zoom'));
+  const hasFreezeFrame = mappingSentences.some((s) => s.visuals?.some((v) => v.type === 'freeze_frame' || v.type === 'freeze_frame_with_zoom' || v.type === 'freeze_zoom_outro'));
   const hasColorGrading = mappingSentences.some((s) => s.visuals?.some((v) => !!v.color_grading_shift));
   const hasVisualOnly = mappingSentences.some((s) => s.type === 'visual_only' || s.text?.includes('[visual_only') || s.text?.includes('VISUAL_ONLY'));
   const activeBgmFile = currentMapping?.bgm_timeline && currentMapping.bgm_timeline.length > 0
@@ -704,6 +705,28 @@ const AlurfilmRenderStep: React.FC = () => {
                     className="w-full bg-gray-900 border border-gray-700 text-white rounded-lg p-1.5 text-xs font-mono"
                   />
                 </div>
+              </div>
+
+              {/* Anti-Copyright Zoom / Crop */}
+              <div className="space-y-1 pt-2 border-t border-gray-800">
+                <div className="flex justify-between items-center font-mono text-[11px]">
+                  <label className="text-gray-300 font-semibold flex items-center gap-1">
+                    <span>🛡️</span> Anti-Copyright Safe Zoom:
+                  </label>
+                  <span className="text-cyan-400 font-bold">{Math.round(((settings.zoomRate ?? 1.08) - 1.0) * 100)}% crop ({settings.zoomRate ?? 1.08}x)</span>
+                </div>
+                <input
+                  type="range"
+                  min="1.0"
+                  max="1.15"
+                  step="0.01"
+                  value={settings.zoomRate ?? 1.08}
+                  onChange={(e) => setSettings({ ...settings, zoomRate: parseFloat(e.target.value) || 1.08 })}
+                  className="w-full accent-cyan-500 h-1.5 bg-gray-800 rounded-lg cursor-pointer"
+                />
+                <p className="text-[10px] text-gray-500">
+                  Crop aman 8%–12% merusak sidik jari spasial/frame ratio Content ID YouTube.
+                </p>
               </div>
             </div>
 

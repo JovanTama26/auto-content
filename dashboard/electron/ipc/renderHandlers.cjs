@@ -135,7 +135,7 @@ function register(ipcMain, { paths: p, media, ffmpeg, getMainWindow }) {
     introDuration: 6.0,
     introImpactTimestamp: 0.48,
     introAudioPath: 'assets/The Final Horizon.mp3',
-    zoomRate: 1.0,
+    zoomRate: 1.08,
   };
 
   async function renderIntroVideoHelper(introOpts, cwd) {

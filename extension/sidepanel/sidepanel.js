@@ -3,8 +3,8 @@
 // Memvalidasi keberadaan file di Google Drive Picker tanpa ekstensi & update Supabase
 
 // Definisi URL Google AI Studio untuk masing-masing modul
-const AI_STUDIO_SCRIPT_MODEL = 'gemini-3.1-pro-preview';
-const AI_STUDIO_MAPPING_MODEL = AI_STUDIO_SCRIPT_MODEL; // Model mapping sama dengan script generator ('gemini-3.1-pro-preview')
+const AI_STUDIO_SCRIPT_MODEL = 'gemini-4-argon';
+const AI_STUDIO_MAPPING_MODEL = AI_STUDIO_SCRIPT_MODEL; // Model mapping sama dengan script generator ('gemini-4-argon')
 
 const AI_STUDIO_SCRIPT_NEW_CHAT_URL = `https://aistudio.google.com/prompts/new_chat?model=${AI_STUDIO_SCRIPT_MODEL}`;
 const AI_STUDIO_MAPPING_NEW_CHAT_URL = `https://aistudio.google.com/prompts/new_chat?model=${AI_STUDIO_MAPPING_MODEL}`;

@@ -4,6 +4,7 @@ export interface AlurfilmAnalysisData {
   chunk_part?: number;
   total_chunks?: number;
   naskah_voiceover?: {
+    char_count?: number;
     word_count?: number;
     script_text: string;
     macro_summary?: string;
@@ -136,9 +137,9 @@ export function validateScriptAnalysis(
           message: `Script narration is unusually short (${words.length} words). Target is ~500 words per chunk.`,
         });
       }
-      // Auto-correct or update word_count
+      // Auto-correct or update word_count & char_count
       data.naskah_voiceover.word_count = words.length;
-
+      data.naskah_voiceover.char_count = scriptText.length;
       // Check for VISUAL_ONLY tags with excessive duration (>10s) that risk YouTube Content ID
       const visualMatches = scriptText.match(/\[VISUAL_ONLY[^\]]*\]/gi) || [];
       for (const tag of visualMatches) {
@@ -262,7 +263,7 @@ export function validateScriptAnalysis(
     warningCount: warnings.length,
     normalizedData: isValid ? data : null,
     summaryText: isValid
-      ? `Valid Script JSON (${data.naskah_voiceover?.word_count || 0} Kata)`
+      ? `Valid Script JSON (${(data.naskah_voiceover?.char_count || 0).toLocaleString()} Karakter / ${data.naskah_voiceover?.word_count || 0} Kata)`
       : `Validation Failed: ${errors.map((e) => e.message).join(', ')}`,
   };
 }

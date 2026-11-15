@@ -11,7 +11,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const { parseSrtToEntries } = require('../shared/subtitle-utils.cjs');
+const { parseSrtToEntries, parseTranscriptToEntriesWithMeta } = require('../shared/subtitle-utils.cjs');
 
 /**
  * Parses [VISUAL_ONLY...] tag string for duration, timecode range, and description.
@@ -429,7 +429,7 @@ function mapElementsToSplicedTimeline(alignedElements, audioSplits, audioSpliced
         timestamp_minute: tsMin,
         text: current.text,
         type: 'narration',
-        speaker: 'Narator',
+        speaker: current.speaker || 'Narator',
         words: mappedWords
       };
 
@@ -576,38 +576,89 @@ function matchTranscriptWithScriptVisualOnly(transcriptEntries, scriptText) {
 
   if (hasExistingVisual) {
     let secCounter = 0;
-    return transcriptEntries.map((t) => {
-      const isVis = t.type === 'visual_only' || /\[VISUAL_ONLY/i.test(t.text || '') || (t.speaker && /visual/i.test(t.speaker));
-      if (isVis) {
-        secCounter++;
-        const parsedVis = parseVisualOnlyTag(t.text);
-        const dur = parsedVis.outputDuration || t.duration || 5.0;
-        return {
-          type: 'visual_only',
-          text: t.text || `[VISUAL_ONLY (Range: ${parsedVis.sourceRange}, Duration: ${dur}s): ${parsedVis.description}]`,
-          description: parsedVis.description,
-          duration: dur,
-          outputDuration: dur,
-          sourceRange: parsedVis.sourceRange,
-          sourceStartSeconds: parsedVis.sourceStartSeconds,
-          sourceEndSeconds: parsedVis.sourceEndSeconds,
-          sectionIndex: secCounter
-        };
-      }
+    const inlineVisRegex = /\[VISUAL_ONLY[^\]]*\]/gi;
+    const result = [];
+
+    const buildVisualElement = (tagText, fallbackDur) => {
+      secCounter++;
+      const parsedVis = parseVisualOnlyTag(tagText);
+      const dur = parsedVis.outputDuration || fallbackDur || 5.0;
       return {
-        type: 'narration',
-        text: t.text,
-        start: t.start_seconds !== undefined ? t.start_seconds : t.start,
-        end: t.end_seconds !== undefined ? t.end_seconds : t.end,
-        speech_start: t.start_seconds !== undefined ? t.start_seconds : t.start,
-        speech_end: t.end_seconds !== undefined ? t.end_seconds : t.end,
-        firstWordStart: t.start_seconds !== undefined ? t.start_seconds : t.start,
-        lastWordEnd: t.end_seconds !== undefined ? t.end_seconds : t.end,
-        speaker: t.speaker || 'Narator',
-        sectionIndex: secCounter,
-        words: t.words || []
+        type: 'visual_only',
+        text: tagText || `[VISUAL_ONLY (Range: ${parsedVis.sourceRange}, Duration: ${dur}s): ${parsedVis.description}]`,
+        description: parsedVis.description,
+        duration: dur,
+        outputDuration: dur,
+        sourceRange: parsedVis.sourceRange,
+        sourceStartSeconds: parsedVis.sourceStartSeconds,
+        sourceEndSeconds: parsedVis.sourceEndSeconds,
+        sectionIndex: secCounter
       };
+    };
+
+    const buildNarrationElement = (text, startSec, endSec, speaker, words) => ({
+      type: 'narration',
+      text,
+      start: startSec,
+      end: endSec,
+      speech_start: startSec,
+      speech_end: endSec,
+      firstWordStart: startSec,
+      lastWordEnd: endSec,
+      speaker: speaker || 'Narator',
+      sectionIndex: secCounter,
+      words: words || []
     });
+
+    for (const t of transcriptEntries) {
+      const startSec = t.start_seconds !== undefined ? t.start_seconds : t.start;
+      const endSec = t.end_seconds !== undefined ? t.end_seconds : t.end;
+      const rawText = String(t.text || '').trim();
+      const visMatches = Array.from(rawText.matchAll(inlineVisRegex));
+
+      if (visMatches.length === 0) {
+        const isVis = t.type === 'visual_only' || (t.speaker && /visual/i.test(t.speaker));
+        if (isVis) {
+          result.push(buildVisualElement(rawText, t.duration));
+        } else {
+          result.push(buildNarrationElement(t.text, startSec, endSec, t.speaker, t.words));
+        }
+        continue;
+      }
+
+      // Split entry if narration text and [VISUAL_ONLY] tags are combined in one segment
+      const parts = [];
+      let cursorIdx = 0;
+      for (const vm of visMatches) {
+        const before = rawText.slice(cursorIdx, vm.index).trim();
+        if (before) parts.push({ isVis: false, text: before });
+        parts.push({ isVis: true, text: vm[0].trim() });
+        cursorIdx = vm.index + vm[0].length;
+      }
+      const after = rawText.slice(cursorIdx).trim();
+      if (after) parts.push({ isVis: false, text: after });
+
+      const narrationParts = parts.filter((p) => !p.isVis);
+      const totalNarrChars = narrationParts.reduce((acc, p) => acc + Math.max(1, p.text.length), 0) || 1;
+      const totalNarrDur = Math.max(0.2, (endSec || 0) - (startSec || 0));
+      let narrCursor = startSec || 0;
+      let narrSeen = 0;
+
+      for (const part of parts) {
+        if (part.isVis) {
+          result.push(buildVisualElement(part.text, t.duration));
+        } else {
+          narrSeen++;
+          const isLastNarr = narrSeen === narrationParts.length;
+          const share = Math.max(1, part.text.length) / totalNarrChars;
+          const partEnd = isLastNarr ? endSec : Number((narrCursor + totalNarrDur * share).toFixed(3));
+          result.push(buildNarrationElement(part.text, narrCursor, Math.max(narrCursor + 0.1, partEnd), t.speaker, narrSeen === 1 ? t.words : []));
+          narrCursor = Math.max(narrCursor + 0.1, partEnd);
+        }
+      }
+    }
+
+    return result;
   }
 
   // Extract all [VISUAL_ONLY...] tags and their surrounding text in scriptText
@@ -771,6 +822,77 @@ function matchTranscriptWithScriptVisualOnly(transcriptEntries, scriptText) {
 }
 
 /**
+ * Resolves raw audio path, single-part flag, and probed audio duration for a part.
+ */
+async function resolvePartAudioInfo({ contentId, part, paths: p, ffmpeg }) {
+  const partNum = Number(part) || 1;
+  const mappingFile = p.ALURFILM_AUDIO_DIR
+    ? path.join(p.ALURFILM_AUDIO_DIR, `${contentId}_audio_mappings.json`)
+    : null;
+  let targetAudioEntry = null;
+  let targetAudioPath = null;
+
+  if (mappingFile && fs.existsSync(mappingFile)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(mappingFile, 'utf-8'));
+      targetAudioEntry = (data.audios || []).find(
+        (item) => item.parts && item.parts.includes(partNum)
+      );
+    } catch { }
+  }
+
+  if (targetAudioEntry) {
+    const candidate = targetAudioEntry.rawFilePath || targetAudioEntry.originalFilePath;
+    if (candidate && fs.existsSync(candidate)) {
+      targetAudioPath = candidate;
+    } else if (targetAudioEntry.filePath && fs.existsSync(targetAudioEntry.filePath)) {
+      targetAudioPath = targetAudioEntry.filePath;
+    }
+  }
+
+  const isSinglePartAudio =
+    !targetAudioEntry ||
+    !Array.isArray(targetAudioEntry.parts) ||
+    targetAudioEntry.parts.length <= 1;
+
+  let audioDuration = null;
+  if (targetAudioPath && fs.existsSync(targetAudioPath) && ffmpeg && typeof ffmpeg.getVideoMetaHelper === 'function') {
+    try {
+      const audioMeta = await ffmpeg.getVideoMetaHelper(targetAudioPath);
+      if (audioMeta && typeof audioMeta.duration === 'number' && audioMeta.duration > 0) {
+        audioDuration = audioMeta.duration;
+      }
+    } catch { }
+  }
+
+  return { mappingFile, targetAudioEntry, targetAudioPath, isSinglePartAudio, audioDuration };
+}
+
+/**
+ * Snaps an open-ended final entry (e.g. inline "(3:14) ...") to real single-part audio duration
+ * when the audio ends reasonably close after the final timestamp.
+ */
+function applyInferredEndFromAudio(entries, audioDuration, isSinglePartAudio = true) {
+  if (!isSinglePartAudio || !audioDuration || !Array.isArray(entries) || entries.length === 0) {
+    return entries;
+  }
+  const last = entries[entries.length - 1];
+  const lastStart = last.start_seconds !== undefined ? last.start_seconds : (last.start || 0);
+  if (audioDuration > lastStart && audioDuration - lastStart <= 30) {
+    const snappedEnd = Number(audioDuration.toFixed(3));
+    last.end_seconds = snappedEnd;
+    if ('end' in last) last.end = snappedEnd;
+    const pad = (n) => String(Math.max(0, Math.floor(n))).padStart(2, '0');
+    const m1 = Math.floor(lastStart / 60);
+    const s1 = Math.floor(lastStart % 60);
+    const m2 = Math.floor(snappedEnd / 60);
+    const s2 = Math.floor(snappedEnd % 60);
+    last.timestamp_minute = `${pad(m1)}:${pad(s1)} - ${pad(m2)}:${pad(s2)}`;
+  }
+  return entries;
+}
+
+/**
  * End-to-end workflow for processing manual transcript and splicing audio.
  */
 async function processManualTranscriptWorkflow({
@@ -788,12 +910,27 @@ async function processManualTranscriptWorkflow({
 
   log('preparing', 10, `Parsing raw transcript untuk Part #${part}...`);
 
-  let transcriptEntries = parseSrtToEntries(rawTranscriptText);
+  const parsedResult = parseTranscriptToEntriesWithMeta(rawTranscriptText);
+  let transcriptEntries = parsedResult.entries;
   if (!transcriptEntries || transcriptEntries.length === 0) {
-    throw new Error('Gagal membaca format transkrip. Pastikan format timestamp valid (00:00:00,140 --> 00:00:33,260 [Speaker 0]).');
+    throw new Error(
+      'Gagal membaca format transkrip. Pastikan format timestamp valid (SRT: 00:00:00,140 --> 00:00:33,260 [Speaker 0] atau Inline: (0:00) Teks...).'
+    );
   }
 
-  log('preparing', 25, `Berhasil membaca ${transcriptEntries.length} baris kalimat dari transkrip.`);
+  log('preparing', 25, `Berhasil membaca ${transcriptEntries.length} baris kalimat dari transkrip (${parsedResult.format}).`);
+
+  // Resolve target raw audio early so open-ended inline timestamps (e.g. "(3:14) ...") snap to real duration
+  const {
+    mappingFile,
+    targetAudioPath,
+    isSinglePartAudio,
+    audioDuration: probedAudioDuration
+  } = await resolvePartAudioInfo({ contentId, part, paths: p, ffmpeg });
+
+  if (parsedResult.lastEntryHasInferredEnd && probedAudioDuration) {
+    applyInferredEndFromAudio(transcriptEntries, probedAudioDuration, isSinglePartAudio);
+  }
 
   // Load Step 2 script analysis
   const partStr = String(part).padStart(2, '0');
@@ -823,27 +960,6 @@ async function processManualTranscriptWorkflow({
 
   log('mapping', 50, `Terdeteksi ${visualGaps.length} adegan Visual-Only pada Part #${part}.`);
 
-  // Resolve target raw audio
-  let targetAudioPath = null;
-  const mappingFile = path.join(p.ALURFILM_AUDIO_DIR, `${contentId}_audio_mappings.json`);
-  let targetAudioEntry = null;
-
-  if (fs.existsSync(mappingFile)) {
-    try {
-      const data = JSON.parse(fs.readFileSync(mappingFile, 'utf-8'));
-      targetAudioEntry = (data.audios || []).find(item => item.parts && item.parts.includes(part));
-    } catch { }
-  }
-
-  if (targetAudioEntry) {
-    const candidate = targetAudioEntry.rawFilePath || targetAudioEntry.originalFilePath;
-    if (candidate && fs.existsSync(candidate)) {
-      targetAudioPath = candidate;
-    } else if (targetAudioEntry.filePath && fs.existsSync(targetAudioEntry.filePath)) {
-      targetAudioPath = targetAudioEntry.filePath;
-    }
-  }
-
   let finalPartAudioPath = targetAudioPath;
   let audioSplits = [];
   let audioSpliced = false;
@@ -851,8 +967,7 @@ async function processManualTranscriptWorkflow({
 
   if (visualGaps.length > 0 && targetAudioPath && fs.existsSync(targetAudioPath)) {
     log('splicing_audio', 65, `Menghitung titik potong audio raw (${path.basename(targetAudioPath)})...`);
-    const audioMeta = await ffmpeg.getVideoMetaHelper(targetAudioPath);
-    const totalRawAudioDur = (audioMeta && audioMeta.duration) ? audioMeta.duration : (transcriptEntries[transcriptEntries.length - 1].end_seconds + 5.0);
+    const totalRawAudioDur = probedAudioDuration || (transcriptEntries[transcriptEntries.length - 1].end_seconds + 5.0);
 
     const splitResult = calculateAudioSplits(alignedElements, totalRawAudioDur);
     audioSplits = splitResult.audioSplits;
@@ -875,11 +990,12 @@ async function processManualTranscriptWorkflow({
         finalPartAudioPath = splicedOutPath;
         audioSpliced = true;
 
-        if (fs.existsSync(mappingFile)) {
+        if (mappingFile && fs.existsSync(mappingFile)) {
           try {
+            const partNum = Number(part) || 1;
             const mapData = JSON.parse(fs.readFileSync(mappingFile, 'utf-8'));
             if (Array.isArray(mapData.audios)) {
-              const audioItem = mapData.audios.find(item => item.parts && item.parts.includes(part));
+              const audioItem = mapData.audios.find(item => item.parts && item.parts.includes(partNum));
               if (audioItem) {
                 const splicedStat = fs.statSync(splicedOutPath);
                 if (!audioItem.rawFilePath) {
@@ -946,5 +1062,7 @@ module.exports = {
   executeFfmpegSplicing,
   cleanWords,
   matchTranscriptWithScriptVisualOnly,
+  resolvePartAudioInfo,
+  applyInferredEndFromAudio,
   processManualTranscriptWorkflow,
 };

@@ -1,10 +1,14 @@
 export const VALID_VISUAL_TYPES = [
   'video_cut',
   'slow_motion',
+  'freeze_frame',
+  'freeze_zoom_outro',
+  'freeze_frame_with_zoom',
+  'mirror_cut',
 ];
 
 export interface VisualClipSpec {
-  type: 'video_cut' | 'slow_motion' | string;
+  type: 'video_cut' | 'slow_motion' | 'freeze_frame' | 'freeze_zoom_outro' | 'freeze_frame_with_zoom' | 'mirror_cut' | string;
   duration: number;
   source_start_seconds?: number;
   source_timestamp_seconds?: number;
@@ -223,7 +227,7 @@ export function validateAlurfilmMapping(
             fixable: false,
           });
         }
-      } else if (cDur > 4.5 && clip.type !== 'slow_motion' && clip.type !== 'freeze_frame_with_zoom') {
+      } else if (cDur > 4.5 && clip.type !== 'slow_motion' && clip.type !== 'freeze_frame' && clip.type !== 'freeze_frame_with_zoom' && clip.type !== 'freeze_zoom_outro') {
         issues.push({
           id: `long-clip-dur-${sNum}-${clipIdx}`,
           type: 'INVALID_CLIP_DURATION',
@@ -231,26 +235,15 @@ export function validateAlurfilmMapping(
           sentenceIndex: sNum,
           clipIndex: clipIdx,
           message: `Kalimat #${sNum} klip #${clipIdx + 1}: Durasi klip bergerak sangat panjang (${cDur.toFixed(1)}s > 4.5s).`,
-          details: 'Disarankan menggunakan slow_motion atau memecah klip agar alur visual bergerak dinamis & raw footage <= 2.0s.',
+          details: 'Disarankan menggunakan freeze_zoom_outro atau slow_motion agar alur visual bergerak dinamis & raw footage <= 2.0s.',
           fixable: false,
-        });
-      } else if (clip.type === 'freeze_frame_with_zoom') {
-        issues.push({
-          id: `freeze-frame-warning-${sNum}-${clipIdx}`,
-          type: 'FAIR_USE_VARIETY_WARNING',
-          severity: 'warning',
-          sentenceIndex: sNum,
-          clipIndex: clipIdx,
-          message: `Kalimat #${sNum} klip #${clipIdx + 1}: Menggunakan freeze_frame_with_zoom (foto diam).`,
-          details: 'Sesuai konfigurasi baru, disarankan mengganti ke pure slow_motion (faktor 0.20-0.28) agar visual tidak kaku/macet.',
-          fixable: true,
         });
       }
 
       // Check source timestamp / start seconds
       const sourceStart = clip.source_start_seconds ?? clip.source_timestamp_seconds;
       if (typeof sourceStart !== 'number' || isNaN(sourceStart) || sourceStart < 0) {
-        if (clip.type !== 'freeze_frame_with_zoom') {
+        if (clip.type !== 'freeze_frame' && clip.type !== 'freeze_frame_with_zoom' && clip.type !== 'freeze_zoom_outro') {
           issues.push({
             id: `invalid-source-time-${sNum}-${clipIdx}`,
             type: 'INVALID_SOURCE_TIME',
@@ -478,8 +471,7 @@ export function autoFixAlurfilmMapping(
       // Fix invalid clip fields & convert legacy freeze frames to pure slow-mo
       sentence.visuals.forEach((clip, cIdx) => {
         if (clip.type === 'freeze_frame_with_zoom') {
-          clip.type = 'slow_motion';
-          clip.slow_mo_factor = clip.slow_mo_factor || 0.25;
+          clip.type = 'freeze_frame';
         }
         if (!clip.type || !VALID_VISUAL_TYPES.includes(clip.type)) {
           clip.type = 'video_cut';

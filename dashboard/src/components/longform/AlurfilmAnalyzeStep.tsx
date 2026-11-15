@@ -381,12 +381,19 @@ const AlurfilmAnalyzeStep: React.FC = () => {
       const activeChunk = chunks.find((c) => c.part === partNum);
       const chunkDur = activeChunk?.durationSec || activeChunk?.duration || 0;
       const isIntroPart = partNum === 0;
+      const computedMinChars = isIntroPart
+        ? Math.max(250, Math.round(chunkDur * 4.5))
+        : Math.max(300, Math.round((chunkDur * 3000) / 1200));
+      const computedMaxChars = isIntroPart
+        ? Math.min(950, Math.round(chunkDur * 6.0))
+        : Math.max(350, Math.round((chunkDur * 3400) / 1200));
       const computedMinWords = isIntroPart
         ? Math.max(40, Math.round(chunkDur * 0.7))
-        : Math.max(50, Math.round((chunkDur * 480) / 1200));
+        : Math.max(45, Math.round((chunkDur * 450) / 1200));
       const computedMaxWords = isIntroPart
         ? Math.min(150, Math.round(chunkDur * 0.9))
-        : Math.max(50, Math.round((chunkDur * 530) / 1200));
+        : Math.max(50, Math.round((chunkDur * 500) / 1200));
+      const computedChars = `${computedMinChars} - ${computedMaxChars} Karakter`;
       const computedWords = `${computedMinWords} - ${computedMaxWords}`;
 
       let formattedPrompt = '';
@@ -431,6 +438,9 @@ const AlurfilmAnalyzeStep: React.FC = () => {
           .replace(/\{\{movie_year\}\}/g, movieYear.trim() ? `tahun ${movieYear.trim()}` : '')
           .replace(/\{\{is_first_part\}\}/g, isFirstPartStr)
           .replace(/\{\{is_last_part\}\}/g, isLastPartStr)
+          .replace(/\{\{target_chars_per_chunk\}\}/g, computedChars)
+          .replace(/\{\{target_min_chars\}\}/g, String(computedMinChars))
+          .replace(/\{\{target_max_chars\}\}/g, String(computedMaxChars))
           .replace(/\{\{target_words_per_chunk\}\}/g, computedWords)
           .replace(/\{\{target_min_words\}\}/g, String(computedMinWords))
           .replace(/\{\{target_max_words\}\}/g, String(computedMaxWords))
@@ -518,7 +528,7 @@ const AlurfilmAnalyzeStep: React.FC = () => {
             Alur Film Script & Story Generator
           </h1>
           <p className="text-xs text-gray-400 mt-1">
-            Generate & preview 10-minute recap scripts alongside video scene chunks (~350 words/part for 2-3 min VO).
+            Generate & preview naskah alur cerita film (target ~3.000 s/d 3.400 karakter / ~450 - 500 kata per part 20 menit).
           </p>
         </div>
 
@@ -815,12 +825,18 @@ const AlurfilmAnalyzeStep: React.FC = () => {
               const activeChunk = chunks.find((c) => c.part === activePart);
               const chunkDur = activeChunk?.durationSec || activeChunk?.duration || 0;
               const isIntro = activePart === 0;
+              const minChars = isIntro
+                ? Math.max(250, Math.round(chunkDur * 4.5))
+                : Math.max(300, Math.round((chunkDur * 3000) / 1200));
+              const maxChars = isIntro
+                ? Math.min(950, Math.round(chunkDur * 6.0))
+                : Math.max(350, Math.round((chunkDur * 3400) / 1200));
               const minWords = isIntro
                 ? Math.max(40, Math.round(chunkDur * 0.7))
-                : Math.max(50, Math.round((chunkDur * 650) / 1200));
+                : Math.max(45, Math.round((chunkDur * 450) / 1200));
               const maxWords = isIntro
                 ? Math.min(150, Math.round(chunkDur * 0.9))
-                : Math.max(50, Math.round((chunkDur * 700) / 1200));
+                : Math.max(50, Math.round((chunkDur * 500) / 1200));
               const durText = chunkDur < 60
                 ? `${Math.round(chunkDur)} Detik`
                 : `${(chunkDur / 60).toFixed(1)} Menit`;
@@ -829,7 +845,7 @@ const AlurfilmAnalyzeStep: React.FC = () => {
               return (
                 <>
                   <p>- Split Video Duration: <span className="text-emerald-400 font-bold">{durText}</span></p>
-                  <p>- Target Kata: <span className="text-emerald-400 font-bold">{minWords} - {maxWords} Kata</span> (Mentok Maksimal {maxWords} Kata ~{voMinMin}-{voMaxMin} Menit VO)</p>
+                  <p>- Target Naskah: <span className="text-emerald-400 font-bold">{minChars.toLocaleString()} - {maxChars.toLocaleString()} Karakter</span> (~{minWords} - {maxWords} Kata, Max {maxChars.toLocaleString()} Chars ~{voMinMin}-{voMaxMin} Menit VO)</p>
                 </>
               );
             })()}
@@ -940,7 +956,7 @@ const AlurfilmAnalyzeStep: React.FC = () => {
                   return (
                     <div className="space-y-3">
                       <div className="flex items-center justify-between text-xs bg-gray-950 p-3 rounded-xl border border-gray-800 flex-wrap gap-2">
-                        <span className="text-gray-400">Word Count: <strong className="text-purple-400 font-mono">{currentAnalysis.naskah_voiceover?.word_count || 0} Kata</strong></span>
+                        <span className="text-gray-400">Panjang Naskah: <strong className="text-purple-400 font-mono">{(currentAnalysis.naskah_voiceover?.script_text?.length || 0).toLocaleString()} Karakter</strong> ({currentAnalysis.naskah_voiceover?.word_count || 0} Kata)</span>
                         {parsed.totalVisualOnlyCount > 0 ? (
                           <span className="text-purple-300 bg-purple-950/60 border border-purple-800/60 px-2 py-0.5 rounded-lg text-[11px] font-semibold">
                             🎥 {parsed.totalVisualOnlyCount} Jeda Visual ({(Number(parsed.totalVisualOnlyDuration) || 0).toFixed(1)}s Total)

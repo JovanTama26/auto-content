@@ -189,7 +189,7 @@ export interface AlurfilmTranscriptResult {
 }
 
 export interface AlurfilmVisualClip {
-  type: 'slow_motion' | 'mirror_cut' | 'freeze_frame_with_zoom' | 'video_cut' | 'pan_and_zoom_cut';
+  type: 'slow_motion' | 'mirror_cut' | 'freeze_frame' | 'freeze_frame_with_zoom' | 'freeze_zoom_outro' | 'video_cut' | 'pan_and_zoom_cut';
   duration: number;
   source_start_seconds?: number;
   source_timestamp_seconds?: number;
@@ -265,6 +265,7 @@ export interface RenderSettings {
   introDuration?: number;
   introImpactTimestamp?: number;
   introAudioPath?: string;
+  zoomRate?: number;
 }
 
 export interface ElectronAPI {

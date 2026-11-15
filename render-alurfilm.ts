@@ -21,7 +21,7 @@ const positiveDurationSchema = z.preprocess(
 );
 
 const VisualClipSchema = z.object({
-  type: z.enum(['slow_motion', 'mirror_cut', 'freeze_frame_with_zoom', 'video_cut', 'pan_and_zoom_cut']).optional().default('video_cut'),
+  type: z.enum(['slow_motion', 'mirror_cut', 'freeze_frame', 'freeze_frame_with_zoom', 'freeze_zoom_outro', 'video_cut', 'pan_and_zoom_cut']).optional().default('video_cut'),
   duration: positiveDurationSchema,
   source_start_seconds: z.number().min(0).optional(),
   source_timestamp_seconds: z.number().min(0).optional(),
@@ -190,7 +190,7 @@ program
     const resolvedOutput = path.resolve(opts.output);
 
     // Load render_settings.json if present
-    let jsonSettings: any = {};
+    let jsonSettings: Record<string, unknown> = {};
     const configPath = opts.config ? path.resolve(opts.config) : path.join(process.cwd(), 'input', 'render_settings.json');
     if (fs.existsSync(configPath)) {
       try {
@@ -348,6 +348,7 @@ program
       duration: number;
       type: string;
       slowMoFactor?: number;
+      mirrorMode?: 'horizontal' | 'vertical';
       colorShift?: { mode?: string; contrast?: number; brightness?: number; saturation?: number; gamma?: number };
       isVisualOnly: boolean;
     }
@@ -422,6 +423,7 @@ program
               duration: cut1Dur,
               type: vis.type || 'video_cut',
               slowMoFactor: vis.slow_mo_factor || (vis.type === 'slow_motion' ? 0.35 : undefined),
+              mirrorMode: vis.mirror_mode || (vis.type === 'mirror_cut' ? 'horizontal' : undefined),
               colorShift: vis.color_grading_shift,
               isVisualOnly,
             });
@@ -448,6 +450,7 @@ program
               duration: adjustedDur,
               type: vis.type || 'video_cut',
               slowMoFactor: vis.slow_mo_factor || (vis.type === 'slow_motion' ? 0.35 : undefined),
+              mirrorMode: vis.mirror_mode || (vis.type === 'mirror_cut' ? 'horizontal' : undefined),
               colorShift: vis.color_grading_shift,
               isVisualOnly,
             });
@@ -492,7 +495,7 @@ program
             text: 'Outro video extension',
             sourceStart: safeSs,
             duration: remainingGap,
-            type: 'slow_motion',
+            type: 'freeze_zoom_outro',
             slowMoFactor: 0.35,
             colorShift: { mode: 'normal', contrast: 1.04, brightness: 0.005, saturation: 1.05, gamma: 1.0 },
             isVisualOnly: false,
@@ -558,25 +561,17 @@ program
           const outFile = path.join(tmpDir, `c${String(i).padStart(4, '0')}.ts`);
           clipFiles[i] = outFile;
 
+          const isFreezeOutro = clip.type === 'freeze_zoom_outro' || clip.type === 'freeze_frame_with_zoom';
           const fxFilters: string[] = [];
 
-          // 1. PTS normalization & Slow motion (setpts)
-          // Base raw footage is strictly clamped to max 2.0s from source video
-          let baseDur = clip.duration;
-          if (clip.type === 'slow_motion' && clip.slowMoFactor && clip.slowMoFactor > 0 && clip.slowMoFactor !== 1) {
-            baseDur = Math.min(2.0, clip.duration * clip.slowMoFactor);
-            const ptsFactor = (clip.duration / baseDur).toFixed(2);
-            fxFilters.push(`setpts=(PTS-STARTPTS)*${ptsFactor}`);
-          } else if (clip.duration > 2.0) {
-            baseDur = 2.0;
-            const ptsFactor = (clip.duration / 2.0).toFixed(2);
-            fxFilters.push(`setpts=(PTS-STARTPTS)*${ptsFactor}`);
-          } else {
-            baseDur = Math.min(2.0, clip.duration);
-            fxFilters.push('setpts=PTS-STARTPTS');
+          // 1. Mirror mode (hflip / vflip)
+          if (clip.mirrorMode === 'horizontal') {
+            fxFilters.push('hflip');
+          } else if (clip.mirrorMode === 'vertical') {
+            fxFilters.push('vflip');
           }
 
-          // 3. Color grading shift & Dark boost (FFmpeg eq filter)
+          // 2. Color grading shift & Dark boost (FFmpeg eq filter)
           if (clip.colorShift) {
             const contrast = Math.max(0.5, Math.min(2.5, clip.colorShift.contrast ?? 1.04));
             const brightness = Math.max(-0.5, Math.min(0.5, clip.colorShift.brightness ?? 0.005));
@@ -585,20 +580,53 @@ program
             fxFilters.push(`eq=contrast=${contrast.toFixed(3)}:brightness=${brightness.toFixed(3)}:saturation=${saturation.toFixed(3)}:gamma=${gamma.toFixed(3)}`);
           }
 
-          // 4. Anti-Content ID Spatial Defense: Authentic 35mm Luma Film Grain (c0s luma-only is 2x faster than chroma noise)
+          // 3. Anti-Content ID Spatial Defense: Authentic 35mm Luma Film Grain (c0s luma-only is 2x faster than chroma noise)
           fxFilters.push('noise=c0s=6:allf=t');
 
           const fxChain = fxFilters.length > 0 ? ',' + fxFilters.join(',') : '';
 
-          // Zoom Rate (default 1.0 = no zoom / 100% original framing)
-          const zoomRate = (jsonSettings as any).zoomRate ?? 1.0;
+          // Zoom Rate (default 1.08 = 8% safe zoom to break original frame bounding box)
+          const zoomRate = typeof jsonSettings.zoomRate === 'number' ? jsonSettings.zoomRate : 1.08;
           const scaledWidth = Math.round(width * zoomRate);
           const scaledHeight = Math.round(height * zoomRate);
 
-          const scaleFilter = `scale=${scaledWidth}:${scaledHeight}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1${fxChain},fps=fps=30:round=near`;
-          // Base footage is max 2.0s, add +1.5s headroom so decoder is never starved of input frames
-          inputReadDur = (Math.min(2.0, baseDur) + 1.5).toFixed(3);
+          let scaleFilter = '';
+          let inputReadDur = '';
 
+          const isStandaloneFreeze = clip.type === 'freeze_frame' || clip.type === 'freeze_frame_with_zoom';
+          // Eye-comfort protection: only do hybrid outro freeze if clip.duration >= 3.0s, otherwise fallback to continuous fluid motion
+          const isEffectiveFreezeOutro = (clip.type === 'freeze_zoom_outro') && (clip.duration >= 3.0);
+          const totalFrames = Math.max(1, Math.round(clip.duration * 30));
+
+          if (isStandaloneFreeze) {
+            // Mode A: Standalone Cinematic Hero Still (Crisp, sharp frame with flags=lanczos & unsharp, smooth Ken Burns zoom)
+            const zoomOutExpr = `zoompan=z='max(1.001,1.08-0.07*(on/${totalFrames}))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${width}x${height}:fps=30`;
+            scaleFilter = `loop=loop=-1:size=1:start=0,scale=${width}:${height}:force_original_aspect_ratio=increase:flags=lanczos,crop=${width}:${height},unsharp=3:3:0.4:3:3:0.0,${zoomOutExpr},setsar=1${fxChain},fps=fps=30:round=near`;
+            inputReadDur = '0.5';
+          } else if (isEffectiveFreezeOutro) {
+            // Mode B: Generous Hybrid Outro Freeze (live motion 1.2s followed by comfortable >= 1.8s hold + Ken Burns zoom)
+            const motionDur = 1.2;
+            const freezeDur = Math.max(1.5, Number((clip.duration - motionDur).toFixed(3)));
+            const zoomOutExpr = `zoompan=z='max(1.001,1.08-0.07*(on/${totalFrames}))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${width}x${height}:fps=30`;
+            scaleFilter = `trim=0:${motionDur.toFixed(3)},setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=${freezeDur.toFixed(3)},scale=${width}:${height}:force_original_aspect_ratio=increase:flags=lanczos,crop=${width}:${height},unsharp=3:3:0.3:3:3:0.0,${zoomOutExpr},setsar=1${fxChain},fps=fps=30:round=near`;
+            inputReadDur = (motionDur + 0.5).toFixed(3);
+          } else {
+            // Mode C: Continuous Fluid Motion (Standard Video Cut or Smooth Slow Motion) - 100% fluid, ZERO micro-stutters
+            let baseDur = clip.duration;
+            if (clip.type === 'slow_motion' && clip.slowMoFactor && clip.slowMoFactor > 0 && clip.slowMoFactor !== 1) {
+              baseDur = Math.min(2.0, clip.duration * clip.slowMoFactor);
+              const ptsFactor = (clip.duration / baseDur).toFixed(2);
+              scaleFilter = `setpts=(PTS-STARTPTS)*${ptsFactor},scale=${scaledWidth}:${scaledHeight}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1${fxChain},fps=fps=30:round=near`;
+            } else if (clip.duration > 2.0) {
+              baseDur = 2.0;
+              const ptsFactor = (clip.duration / 2.0).toFixed(2);
+              scaleFilter = `setpts=(PTS-STARTPTS)*${ptsFactor},scale=${scaledWidth}:${scaledHeight}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1${fxChain},fps=fps=30:round=near`;
+            } else {
+              baseDur = Math.min(2.0, clip.duration);
+              scaleFilter = `setpts=PTS-STARTPTS,scale=${scaledWidth}:${scaledHeight}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1${fxChain},fps=fps=30:round=near`;
+            }
+            inputReadDur = (Math.min(2.0, baseDur) + 1.5).toFixed(3);
+          }
           const readDurNum = parseFloat(inputReadDur) || 0.5;
           let safeSourceStart = clip.sourceStart;
           if (sourceVideoDuration > 0 && safeSourceStart + readDurNum > sourceVideoDuration - 0.2) {

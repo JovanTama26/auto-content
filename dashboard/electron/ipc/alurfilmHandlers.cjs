@@ -2,7 +2,7 @@
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
-const { parseSrtToEntries } = require('../shared/subtitle-utils.cjs');
+const { parseSrtToEntries, parseTranscriptToEntriesWithMeta } = require('../shared/subtitle-utils.cjs');
 const { syncAnalysesFromSupabase, syncMappingsFromSupabase, syncMappingPromptsToSupabase, supabase } = require('../shared/supabaseClient.cjs');
 const audioSplicer = require('../services/alurfilmAudioSplicer.cjs');
 
@@ -850,12 +850,19 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
 
     const safeDuration = Math.max(1, durationSec);
     const isIntroPart = Number(chunkPart) === 0;
+    const computedMinChars = isIntroPart
+      ? Math.max(250, Math.round(safeDuration * 4.5))
+      : Math.max(300, Math.round((safeDuration * 3000) / 1200));
+    const computedMaxChars = isIntroPart
+      ? Math.min(950, Math.round(safeDuration * 6.0))
+      : Math.max(350, Math.round((safeDuration * 3400) / 1200));
     const computedMinWords = isIntroPart
       ? Math.max(40, Math.round(safeDuration * 0.7))
-      : Math.max(50, Math.round((safeDuration * 480) / 1200));
+      : Math.max(45, Math.round((safeDuration * 450) / 1200));
     const computedMaxWords = isIntroPart
       ? Math.min(150, Math.round(safeDuration * 0.9))
-      : Math.max(50, Math.round((safeDuration * 530) / 1200));
+      : Math.max(50, Math.round((safeDuration * 500) / 1200));
+    const computedCharsPerChunk = `${computedMinChars} - ${computedMaxChars} Karakter`;
     const computedWordsPerChunk = `${computedMinWords} - ${computedMaxWords}`;
     const chunkDurationText = safeDuration < 60
       ? `${Math.round(safeDuration)} Detik`
@@ -899,6 +906,9 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
       .replace(/{{movie_year}}/g, movieYearFormatted)
       .replace(/{{is_first_part}}/g, isFirstPartStr)
       .replace(/{{is_last_part}}/g, isLastPartStr)
+      .replace(/{{target_chars_per_chunk}}/g, computedCharsPerChunk)
+      .replace(/{{target_min_chars}}/g, String(computedMinChars))
+      .replace(/{{target_max_chars}}/g, String(computedMaxChars))
       .replace(/{{target_words_per_chunk}}/g, computedWordsPerChunk)
       .replace(/{{target_min_words}}/g, String(computedMinWords))
       .replace(/{{target_max_words}}/g, String(computedMaxWords))
@@ -949,6 +959,7 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
     const partNum = isNaN(rawPartNum) ? 0 : rawPartNum;
     const words = resultData.naskah_voiceover.script_text.split(/\s+/).filter(Boolean);
     resultData.naskah_voiceover.word_count = words.length;
+    resultData.naskah_voiceover.char_count = resultData.naskah_voiceover.script_text.length;
     resultData.chunk_part = partNum;
     resultData.status = resultData.status || 'done';
 
@@ -1577,20 +1588,40 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
 
     let raw = (typeof jsonText === 'string' ? jsonText : JSON.stringify(jsonText)).trim();
     if (raw.startsWith('```')) {
-      raw = raw.replace(/^```(?:json|srt)?\s*\n?/i, '').replace(/\n?```\s*$/, '');
+      raw = raw.replace(/^```(?:[a-z0-9_-]+)?\s*\n?/i, '').replace(/\n?```\s*$/, '');
     }
 
     let parsed = null;
+    let parsedTextResult = null;
     let srtEntries = [];
 
-    if (raw.includes('-->') || (!raw.startsWith('{') && !raw.startsWith('['))) {
-      srtEntries = parseSrtToEntries(raw);
+    const looksLikeInlineTimestamp = /^[\(\[]\s*\d{1,2}:[0-5]\d/.test(raw);
+    if (raw.includes('-->') || looksLikeInlineTimestamp || (!raw.startsWith('{') && !raw.startsWith('['))) {
+      parsedTextResult = parseTranscriptToEntriesWithMeta(raw);
+      srtEntries = parsedTextResult.entries;
     } else {
       try {
         parsed = JSON.parse(raw);
       } catch {
-        srtEntries = parseSrtToEntries(raw);
+        parsedTextResult = parseTranscriptToEntriesWithMeta(raw);
+        srtEntries = parsedTextResult.entries;
       }
+    }
+
+    if (!parsed && srtEntries.length === 0) {
+      throw new Error(
+        'Format transkrip tidak dikenali. Gunakan format JSON, SRT, atau inline timestamp seperti (0:00) Teks...'
+      );
+    }
+
+    if (parsedTextResult?.lastEntryHasInferredEnd && srtEntries.length > 0) {
+      const { isSinglePartAudio, audioDuration } = await audioSplicer.resolvePartAudioInfo({
+        contentId,
+        part: chunkPart,
+        paths: p,
+        ffmpeg
+      });
+      audioSplicer.applyInferredEndFromAudio(srtEntries, audioDuration, isSinglePartAudio);
     }
 
     let parsedInfo = { isMultiPart: false, multiPartMap: null, entries: [] };
@@ -2101,15 +2132,48 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
     }
 
     // Fetch Step 2 Script Analysis for Context
+    function toSecondsHelper(tStr) {
+      if (typeof tStr === 'number') return Math.round(tStr);
+      if (!tStr || typeof tStr !== 'string') return null;
+      const clean = tStr.trim().replace(',', '.');
+      const parts = clean.split(':').map(Number);
+      if (parts.some(isNaN)) return null;
+      if (parts.length === 3) return Math.round(parts[0] * 3600 + parts[1] * 60 + parts[2]);
+      if (parts.length === 2) return Math.round(parts[0] * 60 + parts[1]);
+      if (parts.length === 1) return Math.round(parts[0]);
+      return null;
+    }
+
     let sceneBreakdownText = '[Acuan adegan dari Step 2 Script Generator]';
-    const analysisPath = path.join(p.ALURFILM_DIR, `${contentId}_analysis_part_${partStr}.json`);
-    if (fs.existsSync(analysisPath)) {
+    let characterRegistryText = '[Identifikasi karakter berdasarkan alur cerita video]';
+
+    const possibleAnalysisPaths = [
+      path.join(p.ALURFILM_DIR, `${contentId}_analysis_part_${partStr}.json`),
+      path.join(p.ALURFILM_DIR, `${contentId}_analysis_part_${chunkPart}.json`),
+      path.join(p.ALURFILM_DIR, 'analysis', `${contentId}_analysis_part_${partStr}.json`),
+      path.join(p.ALURFILM_DIR, 'analysis', `${contentId}_analysis_part_${chunkPart}.json`),
+    ];
+    const foundAnalysisPath = possibleAnalysisPaths.find(fp => fs.existsSync(fp));
+
+    if (foundAnalysisPath) {
       try {
-        const data = JSON.parse(fs.readFileSync(analysisPath, 'utf-8'));
+        const data = JSON.parse(fs.readFileSync(foundAnalysisPath, 'utf-8'));
         const summary = data.naskah_voiceover?.macro_summary || '';
         const timeline = data.timeline_edits || [];
-        const timelineText = timeline.map((tl, i) => `${i + 1}. [${tl.start_time} - ${tl.end_time}] ${tl.scene_label}: ${tl.narrative_focus}`).join('\n');
+        const timelineText = timeline.map((tl, i) => {
+          const sSec = toSecondsHelper(tl.start_time);
+          const eSec = toSecondsHelper(tl.end_time);
+          const secBadge = (sSec !== null && eSec !== null) ? ` (${sSec}s - ${eSec}s)` : '';
+          return `${i + 1}. [${tl.start_time} - ${tl.end_time}${secBadge}] ${tl.scene_label}: ${tl.narrative_focus}`;
+        }).join('\n');
         sceneBreakdownText = `Ringkasan: ${summary}\nTimeline Scenery:\n${timelineText}`;
+
+        const charRegistry = data.character_registry || [];
+        if (Array.isArray(charRegistry) && charRegistry.length > 0) {
+          characterRegistryText = charRegistry
+            .map(c => `* ${c.assigned_name}: ${c.visual_description}`)
+            .join('\n');
+        }
       } catch { }
     }
 
@@ -2251,6 +2315,7 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
       .replace(/{{voiceover_sentences}}/g, voSentencesJson)
       .replace(/{{source_video_name}}/g, chunkVideoName)
       .replace(/{{scene_id}}/g, `part_${partStr}`)
+      .replace(/{{character_registry}}/g, characterRegistryText)
       .replace(/{{scene_breakdown}}/g, sceneBreakdownText)
       .replace(/{{available_clips}}/g, availableClipsText)
       .replace(/{{audio_vo_file_name}}/g, audioVoFileName)
@@ -2526,8 +2591,14 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
     }
 
     let raw = (typeof jsonText === 'string' ? jsonText : JSON.stringify(jsonText)).trim();
-    if (raw.startsWith('```')) {
-      raw = raw.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+    const codeBlockMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (codeBlockMatch && codeBlockMatch[1]) {
+      raw = codeBlockMatch[1].trim();
+    }
+    const firstBrace = raw.indexOf('{');
+    const lastBrace = raw.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      raw = raw.slice(firstBrace, lastBrace + 1);
     }
 
     const parsed = typeof jsonText === 'object' && jsonText !== null ? jsonText : JSON.parse(raw);
