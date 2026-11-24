@@ -632,15 +632,17 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
     return true;
   });
 
-  // ─── Get Available Browser User Profiles ─────────────────────
+  // ─── Get Available Browser User Profiles (Camoufox) ──────────
   ipcMain.handle('get-browser-user-profiles', async () => {
-    const userDataDir = path.resolve(p.PROJECT_ROOT, 'playwright/user_data');
-    if (!fs.existsSync(userDataDir)) {
-      return ['user_1'];
+    const profilesDir = path.resolve(p.PROJECT_ROOT, 'camoufox', 'profiles');
+    if (!fs.existsSync(profilesDir)) {
+      return ['jovangithub@gmail.com'];
     }
-    const items = fs.readdirSync(userDataDir);
-    const profiles = items.filter(f => (f.startsWith('user_') || f === 'cdp_profile') && fs.statSync(path.join(userDataDir, f)).isDirectory());
-    return profiles.sort();
+    const items = fs.readdirSync(profilesDir);
+    const profiles = items.filter(
+      (f) => !f.startsWith('.') && fs.statSync(path.join(profilesDir, f)).isDirectory()
+    );
+    return profiles.length > 0 ? profiles.sort() : ['jovangithub@gmail.com'];
   });
 
 
@@ -720,8 +722,8 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
   });
 
 
-  // ─── Get Alurfilm Prompt ───────────────────────────────
-  ipcMain.handle('get-alurfilm-prompt', async (_event, rawOpts = {}) => {
+  // ─── Helper & IPC: Get Alurfilm Prompt ─────────────────
+  async function buildAlurfilmPrompt(rawOpts = {}) {
     let opts = {};
     if (typeof rawOpts === 'object' && rawOpts !== null) {
       opts = rawOpts;
@@ -921,6 +923,214 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
       .replace(/{{style_example}}/g, styleExampleStr);
 
     return fullPrompt;
+  }
+
+  ipcMain.handle('get-alurfilm-prompt', async (_event, rawOpts = {}) => {
+    return buildAlurfilmPrompt(rawOpts);
+  });
+
+  // ─── Run Alurfilm AI Studio Script Pipeline via Camoufox ─────
+  ipcMain.handle('run-alurfilm-gemini-script-pipeline', async (event, rawOpts = {}) => {
+    const opts = typeof rawOpts === 'object' && rawOpts !== null ? rawOpts : {};
+    const contentId = opts.contentId || opts.modeContentId || p.getOrGenerateContentId('longform');
+    const partNum = typeof opts.partNum !== 'undefined' ? Number(opts.partNum) : (typeof opts.chunkPart !== 'undefined' ? Number(opts.chunkPart) : 1);
+    const partStr = String(partNum).padStart(2, '0');
+    const profileName = String(opts.profileName || 'jovangithub@gmail.com').trim();
+    const modelName = String(opts.model || 'gemini-4-hydrogen').trim();
+    const headless = Boolean(opts.headless);
+    const reuseDrive = Boolean(opts.reuseDrive);
+
+    const sendLog = (level, message) => {
+      try {
+        if (event?.sender && !event.sender.isDestroyed()) {
+          event.sender.send('alurfilm:log', { level, message, partNum });
+        }
+      } catch {}
+    };
+
+    const sendProgress = (percent, step, message) => {
+      try {
+        if (event?.sender && !event.sender.isDestroyed()) {
+          event.sender.send('alurfilm:progress', { percent, step, message, partNum });
+        }
+      } catch {}
+    };
+
+    try {
+      const scriptPath = path.join(p.PROJECT_ROOT, 'camoufox', 'aistudio.py');
+      if (!fs.existsSync(scriptPath)) {
+        return { success: false, partNum, rawText: '', error: `Script Camoufox tidak ditemukan: ${scriptPath}` };
+      }
+
+      // 1. Cari file video part (prioritaskan compress/, fallback ke chunks/)
+      let videoPath = opts.chunkPath && fs.existsSync(opts.chunkPath) ? opts.chunkPath : null;
+      if (!videoPath) {
+        const candidateNames = [
+          `${contentId}_part_${partStr}.mp4`,
+          `${contentId}_part_${partNum}.mp4`,
+        ];
+        for (const dir of [p.ALURFILM_COMPRESS_DIR, p.ALURFILM_CHUNKS_DIR]) {
+          if (!dir || !fs.existsSync(dir)) continue;
+          for (const name of candidateNames) {
+            const full = path.join(dir, name);
+            if (fs.existsSync(full)) {
+              videoPath = full;
+              break;
+            }
+          }
+          if (videoPath) break;
+        }
+      }
+
+      if (!videoPath || !fs.existsSync(videoPath)) {
+        return {
+          success: false,
+          partNum,
+          rawText: '',
+          error: `File video chunk untuk Part #${partNum} (${contentId}_part_${partStr}.mp4) tidak ditemukan di input/alurfilm/compress maupun chunks.`,
+        };
+      }
+
+      sendProgress(10, 'PROMPT', `Menyiapkan prompt analisis Part #${partNum} (dengan konteks part sebelumnya)...`);
+      const fullPrompt = await buildAlurfilmPrompt({
+        ...opts,
+        contentId,
+        chunkPart: partNum,
+      });
+
+      if (!fs.existsSync(p.TMP_DIR)) fs.mkdirSync(p.TMP_DIR, { recursive: true });
+      const runTag = `${contentId}_part_${partStr}_${Date.now()}`;
+      const tmpPromptFile = path.join(p.TMP_DIR, `aistudio_prompt_${runTag}.txt`);
+      const tmpOutputFile = path.join(p.TMP_DIR, `aistudio_output_${runTag}.json`);
+      fs.writeFileSync(tmpPromptFile, fullPrompt, 'utf-8');
+
+      sendLog('info', `Prompt Part #${partNum} siap (${fullPrompt.length} karakter). Video: ${path.basename(videoPath)}`);
+      sendProgress(15, 'LAUNCH', `Meluncurkan Camoufox (${profileName}, model: ${modelName})...`);
+
+      const pythonBin = process.platform === 'win32' ? 'python' : '/usr/bin/python3';
+      const args = [
+        scriptPath,
+        '--file', videoPath,
+        '--prompt-file', tmpPromptFile,
+        '--output', tmpOutputFile,
+        '--email', profileName,
+        '--model', modelName,
+      ];
+      if (headless) args.push('--headless');
+      if (reuseDrive) args.push('--reuse-drive');
+
+      const cleanupTmp = () => {
+        try { if (fs.existsSync(tmpPromptFile)) fs.unlinkSync(tmpPromptFile); } catch {}
+        try { if (fs.existsSync(tmpOutputFile)) fs.unlinkSync(tmpOutputFile); } catch {}
+      };
+
+      return await new Promise((resolve) => {
+        const proc = spawn(pythonBin, args, {
+          cwd: p.PROJECT_ROOT,
+          env: { ...process.env, PYTHONUNBUFFERED: '1' },
+        });
+
+        let stderrBuf = '';
+
+        const handleLine = (rawLine, defaultLevel = 'info') => {
+          const line = rawLine.trim();
+          if (!line) return;
+
+          const m = line.match(/^\[CAMOUFOX\]\[(INFO|WARN|ERROR|DEBUG)\]\s*(.*)$/i);
+          const level = m ? (m[1].toLowerCase() === 'warn' ? 'warn' : m[1].toLowerCase() === 'error' ? 'error' : 'info') : defaultLevel;
+          const msg = m ? m[2] : line;
+
+          sendLog(level, msg);
+
+          if (/Membuka Google AI Studio/i.test(msg)) {
+            sendProgress(20, 'OPEN', msg);
+          } else if (/Memulai Drive Upload/i.test(msg)) {
+            sendProgress(30, 'UPLOAD', msg);
+          } else if (/Menunggu upload Drive selesai/i.test(msg)) {
+            sendProgress(45, 'UPLOAD_WAIT', msg);
+          } else if (/Media chunk siap/i.test(msg)) {
+            sendProgress(65, 'MEDIA_READY', msg);
+          } else if (/Mengisi prompt ke textarea/i.test(msg)) {
+            sendProgress(75, 'PROMPT_FILL', msg);
+          } else if (/Streaming dimulai/i.test(msg)) {
+            sendProgress(85, 'GENERATING', `AI Studio sedang menganalisis video & menulis naskah Part #${partNum}...`);
+          } else if (/JSON berhasil di-parse/i.test(msg)) {
+            sendProgress(95, 'PARSED', msg);
+          }
+        };
+
+        proc.stdout.on('data', (chunk) => {
+          const lines = chunk.toString().split(/\r?\n/);
+          for (const l of lines) {
+            if (l.startsWith('[CAMOUFOX]') || l.startsWith('[*]')) {
+              handleLine(l, 'info');
+            }
+          }
+        });
+
+        proc.stderr.on('data', (chunk) => {
+          const text = chunk.toString();
+          stderrBuf += text;
+          const lines = text.split(/\r?\n/);
+          for (const l of lines) {
+            if (l.trim()) handleLine(l, 'warn');
+          }
+        });
+
+        proc.on('error', (err) => {
+          cleanupTmp();
+          resolve({
+            success: false,
+            partNum,
+            rawText: '',
+            error: `Gagal menjalankan Camoufox Python: ${err.message}`,
+          });
+        });
+
+        proc.on('close', (code) => {
+          if (code === 0 && fs.existsSync(tmpOutputFile)) {
+            try {
+              const rawText = fs.readFileSync(tmpOutputFile, 'utf-8').trim();
+              const extractedJson = JSON.parse(rawText);
+              cleanupTmp();
+              resolve({
+                success: true,
+                partNum,
+                rawText,
+                extractedJson,
+                source: 'camoufox',
+              });
+              return;
+            } catch (parseErr) {
+              cleanupTmp();
+              resolve({
+                success: false,
+                partNum,
+                rawText: '',
+                error: `Gagal membaca hasil JSON Camoufox: ${parseErr.message}`,
+              });
+              return;
+            }
+          }
+
+          cleanupTmp();
+          const lastErrLine = stderrBuf.trim().split(/\r?\n/).filter(Boolean).slice(-3).join(' | ');
+          resolve({
+            success: false,
+            partNum,
+            rawText: '',
+            error: lastErrLine || `Camoufox berhenti dengan kode exit ${code}.`,
+          });
+        });
+      });
+    } catch (err) {
+      return {
+        success: false,
+        partNum,
+        rawText: '',
+        error: err.message,
+      };
+    }
   });
 
   // ─── Save Alurfilm Analysis ────────────────────────────
@@ -2411,6 +2621,209 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
   ipcMain.handle('sync-alurfilm-mapping-prompts-to-supabase', async (_event, { contentId: reqContentId, prompts } = {}) => {
     const contentId = reqContentId || p.getOrGenerateContentId('longform');
     return await syncMappingPromptsToSupabase(contentId, prompts || {});
+  });
+
+  // ─── Run Alurfilm Video Mapping Pipeline via Camoufox ──
+  ipcMain.handle('run-alurfilm-mapping-pipeline', async (event, rawOpts = {}) => {
+    const opts = typeof rawOpts === 'object' && rawOpts !== null ? rawOpts : {};
+    const contentId = opts.contentId || opts.modeContentId || p.getOrGenerateContentId('longform');
+    const partNum = typeof opts.partNum !== 'undefined' ? Number(opts.partNum) : (typeof opts.chunkPart !== 'undefined' ? Number(opts.chunkPart) : 1);
+    const totalChunks = Number(opts.totalChunks) || 2;
+    const partStr = String(partNum).padStart(2, '0');
+    const profileName = String(opts.profileName || 'jovangithub@gmail.com').trim();
+    const modelName = String(opts.model || 'gemini-4-hydrogen').trim();
+    const headless = Boolean(opts.headless);
+    const reuseDrive = typeof opts.reuseDrive === 'boolean' ? opts.reuseDrive : true;
+
+    const sendLog = (level, message) => {
+      try {
+        if (event?.sender && !event.sender.isDestroyed()) {
+          event.sender.send('alurfilm:log', { level, message, partNum, stage: 'mapping' });
+        }
+      } catch {}
+    };
+
+    const sendProgress = (percent, step, message) => {
+      try {
+        if (event?.sender && !event.sender.isDestroyed()) {
+          event.sender.send('alurfilm:progress', { percent, step, message, partNum, stage: 'mapping' });
+        }
+      } catch {}
+    };
+
+    try {
+      const scriptPath = path.join(p.PROJECT_ROOT, 'camoufox', 'aistudio.py');
+      if (!fs.existsSync(scriptPath)) {
+        return { success: false, partNum, rawText: '', error: `Script Camoufox tidak ditemukan: ${scriptPath}` };
+      }
+
+      // 1. Cari file video part (prioritaskan compress/, fallback ke chunks/)
+      let videoPath = opts.chunkPath && fs.existsSync(opts.chunkPath) ? opts.chunkPath : null;
+      if (!videoPath) {
+        const candidateNames = [
+          `${contentId}_part_${partStr}.mp4`,
+          `${contentId}_part_${partNum}.mp4`,
+        ];
+        for (const dir of [p.ALURFILM_COMPRESS_DIR, p.ALURFILM_CHUNKS_DIR]) {
+          if (!dir || !fs.existsSync(dir)) continue;
+          for (const name of candidateNames) {
+            const full = path.join(dir, name);
+            if (fs.existsSync(full)) {
+              videoPath = full;
+              break;
+            }
+          }
+          if (videoPath) break;
+        }
+      }
+
+      if (!videoPath || !fs.existsSync(videoPath)) {
+        return {
+          success: false,
+          partNum,
+          rawText: '',
+          error: `File video chunk untuk Part #${partNum} (${contentId}_part_${partStr}.mp4) tidak ditemukan di input/alurfilm/compress maupun chunks.`,
+        };
+      }
+
+      sendProgress(10, 'PROMPT', `Menyiapkan prompt Video Mapping Part #${partNum}...`);
+      const fullPrompt = (typeof opts.promptText === 'string' && opts.promptText.trim())
+        ? opts.promptText.trim()
+        : await buildMappingPromptForPart(contentId, partNum, totalChunks);
+
+      if (!fs.existsSync(p.TMP_DIR)) fs.mkdirSync(p.TMP_DIR, { recursive: true });
+      const runTag = `mapping_${contentId}_part_${partStr}_${Date.now()}`;
+      const tmpPromptFile = path.join(p.TMP_DIR, `aistudio_prompt_${runTag}.txt`);
+      const tmpOutputFile = path.join(p.TMP_DIR, `aistudio_output_${runTag}.json`);
+      fs.writeFileSync(tmpPromptFile, fullPrompt, 'utf-8');
+
+      sendLog('info', `Prompt Mapping Part #${partNum} siap (${fullPrompt.length} karakter). Video: ${path.basename(videoPath)}`);
+      sendProgress(15, 'LAUNCH', `Meluncurkan Camoufox Mapping (${profileName}, model: ${modelName})...`);
+
+      const pythonBin = process.platform === 'win32' ? 'python' : '/usr/bin/python3';
+      const args = [
+        scriptPath,
+        '--file', videoPath,
+        '--prompt-file', tmpPromptFile,
+        '--output', tmpOutputFile,
+        '--email', profileName,
+        '--model', modelName,
+      ];
+      if (headless) args.push('--headless');
+      if (reuseDrive) args.push('--reuse-drive');
+
+      const cleanupTmp = () => {
+        try { if (fs.existsSync(tmpPromptFile)) fs.unlinkSync(tmpPromptFile); } catch {}
+        try { if (fs.existsSync(tmpOutputFile)) fs.unlinkSync(tmpOutputFile); } catch {}
+      };
+
+      return await new Promise((resolve) => {
+        const proc = spawn(pythonBin, args, {
+          cwd: p.PROJECT_ROOT,
+          env: { ...process.env, PYTHONUNBUFFERED: '1' },
+        });
+
+        let stderrBuf = '';
+
+        const handleLine = (rawLine, defaultLevel = 'info') => {
+          const line = rawLine.trim();
+          if (!line) return;
+
+          const m = line.match(/^\[CAMOUFOX\]\[(INFO|WARN|ERROR|DEBUG)\]\s*(.*)$/i);
+          const level = m ? (m[1].toLowerCase() === 'warn' ? 'warn' : m[1].toLowerCase() === 'error' ? 'error' : 'info') : defaultLevel;
+          const msg = m ? m[2] : line;
+
+          sendLog(level, msg);
+
+          if (/Membuka Google AI Studio/i.test(msg)) {
+            sendProgress(20, 'OPEN', msg);
+          } else if (/Memulai Drive Upload|Mengecek apakah/i.test(msg)) {
+            sendProgress(35, 'UPLOAD', msg);
+          } else if (/Menunggu upload Drive selesai/i.test(msg)) {
+            sendProgress(50, 'UPLOAD_WAIT', msg);
+          } else if (/Media chunk siap/i.test(msg)) {
+            sendProgress(65, 'MEDIA_READY', msg);
+          } else if (/Mengisi prompt ke textarea/i.test(msg)) {
+            sendProgress(75, 'PROMPT_FILL', msg);
+          } else if (/Streaming dimulai/i.test(msg)) {
+            sendProgress(85, 'GENERATING', `AI Studio sedang menyusun Video Mapping Part #${partNum}...`);
+          } else if (/JSON berhasil di-parse/i.test(msg)) {
+            sendProgress(95, 'PARSED', msg);
+          }
+        };
+
+        proc.stdout.on('data', (chunk) => {
+          const lines = chunk.toString().split(/\r?\n/);
+          for (const l of lines) {
+            if (l.startsWith('[CAMOUFOX]') || l.startsWith('[*]')) {
+              handleLine(l, 'info');
+            }
+          }
+        });
+
+        proc.stderr.on('data', (chunk) => {
+          const text = chunk.toString();
+          stderrBuf += text;
+          const lines = text.split(/\r?\n/);
+          for (const l of lines) {
+            if (l.trim()) handleLine(l, 'warn');
+          }
+        });
+
+        proc.on('error', (err) => {
+          cleanupTmp();
+          resolve({
+            success: false,
+            partNum,
+            rawText: '',
+            error: `Gagal menjalankan Camoufox Mapping: ${err.message}`,
+          });
+        });
+
+        proc.on('close', (code) => {
+          if (code === 0 && fs.existsSync(tmpOutputFile)) {
+            try {
+              const rawText = fs.readFileSync(tmpOutputFile, 'utf-8').trim();
+              const extractedJson = JSON.parse(rawText);
+              cleanupTmp();
+              resolve({
+                success: true,
+                partNum,
+                rawText,
+                extractedJson,
+                source: 'camoufox',
+              });
+              return;
+            } catch (parseErr) {
+              cleanupTmp();
+              resolve({
+                success: false,
+                partNum,
+                rawText: '',
+                error: `Gagal membaca hasil JSON Mapping Camoufox: ${parseErr.message}`,
+              });
+              return;
+            }
+          }
+
+          cleanupTmp();
+          const lastErrLine = stderrBuf.trim().split(/\r?\n/).filter(Boolean).slice(-3).join(' | ');
+          resolve({
+            success: false,
+            partNum,
+            rawText: '',
+            error: lastErrLine || `Camoufox Mapping berhenti dengan kode exit ${code}.`,
+          });
+        });
+      });
+    } catch (err) {
+      return {
+        success: false,
+        partNum,
+        rawText: '',
+        error: err.message,
+      };
+    }
   });
 
 

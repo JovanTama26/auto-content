@@ -24,8 +24,8 @@ PRIORITAS UTAMA & HIERARKI HUKUM (WAJIB DIPATUHI)
 5. KEPADATAN SUBSTANSI CERITA > MEMANJANG-MANJANGKAN KATA (ANTI-BLOATING):
    Target kata adalah panduan estimasi ritme baca agar seimbang dengan durasi video, BUKAN alasan untuk menggelembungkan kalimat secara buatan. Lebih baik naskah padat, proporsional, dan tuntas daripada panjang namun penuh kata-kata kosong (anti-yapping).
 
-6. FORMAT FLAT RAW JSON MURNI:
-   Output 100% berupa teks flat JSON langsung (karakter pertama \`{\` dan karakter terakhir \`}\`). DILARANG KERAS menggunakan markdown code box / backticks (\`\`\` atau \`\`\`json).
+6. FORMAT MINIFIED SINGLE-LINE RAW JSON MURNI (1 BARIS PARAGRAF TANPA INDENTASI):
+   Output 100% berupa teks raw JSON 1 baris padat menyambung seperti paragraf (karakter pertama \`{\` dan karakter terakhir \`}\`). DILARANG KERAS menggunakan pretty-print, DILARANG menggunakan baris baru/enter (\`\\n\`) atau tab/spasi indentasi di luar nilai string, dan DILARANG menggunakan markdown code box / backticks (\`\`\` atau \`\`\`json).
 
 
 ==================================================
@@ -170,7 +170,7 @@ DILARANG KERAS:
 8. **Informasi Fiktif / Mengarang:** Dilarang menciptakan fakta yang tidak didukung oleh video.
 9. **Sound Effect Tertulis:** Dilarang menuliskan efek suara dalam teks (seperti "Dor!", "Bugh!").
 10. **Penyebutan Judul Film:** Dilarang menyebut judul film di dalam naskah voiceover.
-11. **Code Box / Markdown Backticks:** Dilarang membungkus output dengan \`\`\` atau \`\`\`json. Output WAJIB berupa teks flat JSON langsung.
+11. **Code Box / Pretty JSON / Indentasi:** Dilarang membungkus output dengan \`\`\` atau \`\`\`json, dan DILARANG memformat JSON dengan pretty-print (enter/baris baru atau spasi indentasi). Output WAJIB berupa **minified single-line JSON** (1 baris paragraf utuh tanpa jeda baris).
 
 
 ==================================================
@@ -187,37 +187,13 @@ Pastikan seluruh naskah lulus evaluasi internal ini sebelum kamu menyusun JSON.
 
 
 ==================================================
-8. FORMAT OUTPUT (TEKS FLAT RAW JSON MURNI)
+8. FORMAT OUTPUT (MINIFIED SINGLE-LINE RAW JSON — TANPA PRETTY PRINT / TANPA INDENTASI)
 ==================================================
 
-Output WAJIB dimulai langsung dengan tanda kurung kurawal buka \`{\` dan diakhiri dengan kurung kurawal tutup \`}\`.
-DILARANG ADA TEKS PENGANTAR, DILARANG ADA TEKS PENUTUP, DAN DILARANG MENGGUNAKAN CODE BOX MARKDOWN (\`\`\` ATAU \`\`\`json).
+Output WAJIB ditulis dalam **1 BARIS TUNGGAL (MINIFIED JSON)** yang menyambung rapat seperti satu paragraf, dimulai langsung dengan \`{\` dan diakhiri dengan \`}\`.
+DILARANG ADA TEKS PENGANTAR, DILARANG ADA TEKS PENUTUP, DILARANG MENGGUNAKAN CODE BOX MARKDOWN (\`\`\` ATAU \`\`\`json), DAN DILARANG MENGGUNAKAN ENTER/NEWLINE ATAU SPASI INDENTASI (PRETTY JSON).
 
-{
-  "chunk_part": {{chunk_part}},
-  "total_chunks": {{total_chunks}},
-  "naskah_voiceover": {
-    "word_count": 0,
-    "script_text": "",
-    "macro_summary": ""
-  },
-  "character_registry": [
-    {
-      "visual_description": "",
-      "assigned_name": ""
-    }
-  ],
-  "timeline_edits": [
-    {
-      "id": "scene_001",
-      "start_time": "00:00:00.000",
-      "end_time": "00:00:00.000",
-      "scene_label": "",
-      "narrative_focus": ""
-    }
-  ],
-  "status": "done"
-}
+{"chunk_part":{{chunk_part}},"total_chunks":{{total_chunks}},"naskah_voiceover":{"word_count":0,"script_text":"","macro_summary":""},"character_registry":[{"visual_description":"","assigned_name":"","role":""}],"timeline_edits":[{"id":"scene_001","start_time":"00:00:00.000","end_time":"00:00:00.000","scene_label":"","narrative_focus":""}],"status":"done"}
 `;
 
 const PromptGenerator = {

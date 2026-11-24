@@ -37,6 +37,17 @@ const AlurfilmMappingStep: React.FC = () => {
   const [showImportModal, setShowImportModal] = useState<boolean>(false);
   const [pasteJsonInput, setPasteJsonInput] = useState<string>('');
 
+  // Camoufox AI Studio Mapping Automation State
+  const [availableProfiles, setAvailableProfiles] = useState<string[]>(['jovangithub@gmail.com']);
+  const [selectedProfile, setSelectedProfile] = useState<string>('jovangithub@gmail.com');
+  const [selectedModel, setSelectedModel] = useState<string>('gemini-4-hydrogen');
+  const [headlessMode, setHeadlessMode] = useState<boolean>(false);
+  const [reuseDriveMode, setReuseDriveMode] = useState<boolean>(true);
+  const [isRunningCamoufox, setIsRunningCamoufox] = useState<boolean>(false);
+  const [mappingProgress, setMappingProgress] = useState<{ percent: number; step: string; message: string }>({ percent: 0, step: '', message: '' });
+  const [mappingLogs, setMappingLogs] = useState<Array<{ level: string; message: string; timestamp: string }>>([]);
+  const [showLogConsole, setShowLogConsole] = useState<boolean>(true);
+
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 3500);
@@ -399,7 +410,128 @@ const AlurfilmMappingStep: React.FC = () => {
 
   useEffect(() => {
     loadData();
+    if (api.getBrowserUserProfiles) {
+      api.getBrowserUserProfiles().then((profs) => {
+        if (Array.isArray(profs) && profs.length > 0) {
+          setAvailableProfiles(profs);
+          if (!profs.includes(selectedProfile)) {
+            setSelectedProfile(profs.includes('jovangithub@gmail.com') ? 'jovangithub@gmail.com' : profs[0]);
+          }
+        }
+      }).catch(() => {});
+    }
   }, []);
+
+  useEffect(() => {
+    if (api.onAlurfilmProgress) {
+      const unsubProgress = api.onAlurfilmProgress((data) => {
+        setMappingProgress({ percent: data.percent, step: data.step, message: data.message });
+      });
+      const unsubLog = api.onAlurfilmLog
+        ? api.onAlurfilmLog((data) => {
+            setMappingLogs((prev) => [
+              ...prev,
+              { level: data.level, message: data.message, timestamp: new Date().toLocaleTimeString() },
+            ]);
+          })
+        : () => {};
+      return () => {
+        unsubProgress();
+        unsubLog();
+      };
+    }
+  }, []);
+
+  const runSinglePartMappingViaCamoufox = async (partToRun: number): Promise<boolean> => {
+    const mainChunks = chunks.filter((c) => c.part > 0);
+    const totalCount = mainChunks.length > 0 ? mainChunks.length : (chunks.length || 1);
+    const chunkObj = chunks.find((c) => c.part === partToRun);
+
+    setActivePart(partToRun);
+    setMappingProgress({
+      percent: 5,
+      step: 'INIT',
+      message: `Menjalankan Camoufox Video Mapping untuk Part #${partToRun} (${selectedProfile}, model: ${selectedModel})...`,
+    });
+
+    if (!api.runAlurfilmMappingPipeline) {
+      const errMsg = 'Camoufox Mapping Pipeline API tidak tersedia di window.electronAPI.';
+      setError(errMsg);
+      setMappingLogs((prev) => [...prev, { level: 'error', message: `❌ ${errMsg}`, timestamp: new Date().toLocaleTimeString() }]);
+      return false;
+    }
+
+    const res = await api.runAlurfilmMappingPipeline({
+      partNum: partToRun,
+      totalChunks: totalCount,
+      profileName: selectedProfile,
+      model: selectedModel,
+      headless: headlessMode,
+      reuseDrive: reuseDriveMode,
+      contentId: contentId || undefined,
+      chunkPath: chunkObj?.filePath,
+    });
+
+    if (res.success && (res.rawText || res.extractedJson)) {
+      const jsonStr = res.rawText || JSON.stringify(res.extractedJson);
+      await api.saveAlurfilmMapping(contentId || 'default', partToRun, jsonStr);
+      if (api.listAlurfilmMappings) {
+        const updatedList = await api.listAlurfilmMappings(contentId || undefined);
+        const mapObj: Record<number, any> = {};
+        if (Array.isArray(updatedList)) {
+          updatedList.forEach((m: any) => {
+            mapObj[m.part] = m;
+          });
+        }
+        setMappings(mapObj);
+      }
+      setMappingProgress({ percent: 100, step: 'done', message: `🎉 Video Mapping Part #${partToRun} Selesai & Tersimpan!` });
+      setMappingLogs((prev) => [...prev, { level: 'info', message: `🎉 Video Mapping Part #${partToRun} Selesai & Tersimpan!`, timestamp: new Date().toLocaleTimeString() }]);
+      showToast(`🎉 Video Mapping Part #${partToRun} selesai di-generate & disimpan!`);
+      return true;
+    }
+
+    const errMsg = `Camoufox Mapping Error (Part #${partToRun}): ${res.error || 'Unknown error'}`;
+    setError(errMsg);
+    setMappingLogs((prev) => [...prev, { level: 'error', message: `❌ ${errMsg}`, timestamp: new Date().toLocaleTimeString() }]);
+    return false;
+  };
+
+  const handleRunMappingForActivePart = async () => {
+    if (isRunningCamoufox) return;
+    setIsRunningCamoufox(true);
+    setError(null);
+    setMappingLogs([]);
+    try {
+      await runSinglePartMappingViaCamoufox(activePart);
+    } catch (err: any) {
+      setError(`Gagal menjalankan Auto Mapping Part #${activePart}: ${err.message}`);
+    } finally {
+      setIsRunningCamoufox(false);
+    }
+  };
+
+  const handleRunMappingForAllParts = async () => {
+    if (isRunningCamoufox) return;
+    const partNumbers = (chunks.length > 0 ? chunks.map((c) => c.part) : [1, 2, 3, 4])
+      .filter((p) => p > 0)
+      .sort((a, b) => a - b);
+    if (partNumbers.length === 0) return;
+
+    setIsRunningCamoufox(true);
+    setError(null);
+    setMappingLogs([]);
+    try {
+      for (const pNum of partNumbers) {
+        const ok = await runSinglePartMappingViaCamoufox(pNum);
+        if (!ok) break;
+      }
+    } catch (err: any) {
+      setError(`Gagal menjalankan Auto Mapping Semua Part: ${err.message}`);
+    } finally {
+      setIsRunningCamoufox(false);
+    }
+  };
 
   const handleCopyPromptForPart = async (partNum: number) => {
     try {
@@ -519,7 +651,74 @@ const AlurfilmMappingStep: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Camoufox AI Studio Automation Controls */}
+          <select
+            value={selectedProfile}
+            onChange={(e) => setSelectedProfile(e.target.value)}
+            disabled={isRunningCamoufox}
+            className="bg-gray-900 border border-gray-700 text-gray-200 text-xs rounded-xl px-2.5 py-2 focus:outline-none focus:border-emerald-500 font-mono"
+            title="Profil akun Google Camoufox"
+          >
+            {availableProfiles.map((prof) => (
+              <option key={prof} value={prof}>{prof}</option>
+            ))}
+          </select>
+
+          <select
+            value={selectedModel}
+            onChange={(e) => setSelectedModel(e.target.value)}
+            disabled={isRunningCamoufox}
+            className="bg-gray-900 border border-gray-700 text-emerald-300 text-xs rounded-xl px-2.5 py-2 focus:outline-none focus:border-emerald-500 font-mono"
+            title="Model Google AI Studio"
+          >
+            <option value="gemini-4-hydrogen">gemini-4-hydrogen (Free)</option>
+            <option value="gemini-4-argon">gemini-4-argon</option>
+            <option value="gemini-4-neon">gemini-4-neon</option>
+          </select>
+
+          <label className="flex items-center gap-1.5 text-[11px] text-gray-300 bg-gray-900 border border-gray-800 px-2.5 py-2 rounded-xl cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={headlessMode}
+              onChange={(e) => setHeadlessMode(e.target.checked)}
+              disabled={isRunningCamoufox}
+              className="accent-emerald-500"
+            />
+            <span>Headless</span>
+          </label>
+
+          <label className="flex items-center gap-1.5 text-[11px] text-gray-300 bg-gray-900 border border-gray-800 px-2.5 py-2 rounded-xl cursor-pointer select-none" title="Pilih file part yang sudah ter-upload di Drive (Recent / My Drive) tanpa upload ulang">
+            <input
+              type="checkbox"
+              checked={reuseDriveMode}
+              onChange={(e) => setReuseDriveMode(e.target.checked)}
+              disabled={isRunningCamoufox}
+              className="accent-emerald-500"
+            />
+            <span>Reuse Drive</span>
+          </label>
+
+          <button
+            onClick={handleRunMappingForActivePart}
+            disabled={isRunningCamoufox || chunks.length === 0}
+            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-lg shadow-emerald-600/30 transition-all flex items-center gap-1.5"
+            title="Attach video part via Drive Picker, jalankan prompt Mapping, dan simpan JSON via Camoufox"
+          >
+            <span>{isRunningCamoufox ? '⏳' : '🤖'}</span>
+            <span>{isRunningCamoufox ? `Mapping Part #${activePart}...` : `Auto Mapping Part #${activePart}`}</span>
+          </button>
+
+          <button
+            onClick={handleRunMappingForAllParts}
+            disabled={isRunningCamoufox || chunks.length === 0}
+            className="px-3.5 py-2 bg-teal-700 hover:bg-teal-600 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-lg shadow-teal-700/30 transition-all flex items-center gap-1.5"
+            title="Loop otomatis Video Mapping Part 1 s/d Part Terakhir secara berurutan"
+          >
+            <span>🚀</span>
+            <span>Auto Mapping Semua Part</span>
+          </button>
+
           {/* Main Action Button: Generate & Simpan Prompt Mapping ke Supabase */}
           <button
             onClick={() => handleGenerateAllPrompts(chunks, true)}
@@ -606,6 +805,54 @@ const AlurfilmMappingStep: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Camoufox Live Progress & Terminal Console */}
+      {(isRunningCamoufox || mappingLogs.length > 0) && (
+        <div className="mt-4 bg-gray-900/90 border border-emerald-500/40 rounded-2xl p-4 shadow-2xl space-y-2.5 shrink-0">
+          <div className="flex items-center justify-between text-xs">
+            <div className="flex items-center gap-2">
+              <span className="p-1.5 bg-emerald-500/20 text-emerald-400 rounded-lg font-bold text-sm">🎯</span>
+              <div>
+                <h4 className="font-bold text-white text-xs">
+                  Camoufox AI Studio Video Mapping Automation (Part #{activePart})
+                </h4>
+                <p className="text-[11px] text-gray-400 truncate mt-0.5">
+                  {mappingProgress.message || 'Running Camoufox video mapping pipeline...'}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 shrink-0">
+              <span className="font-mono font-bold text-emerald-400 text-sm">{mappingProgress.percent}%</span>
+              <button
+                onClick={() => setShowLogConsole(!showLogConsole)}
+                className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-[11px] font-mono"
+              >
+                {showLogConsole ? 'Hide Log' : `View Log (${mappingLogs.length})`}
+              </button>
+            </div>
+          </div>
+
+          <div className="w-full h-2 bg-gray-950 rounded-full overflow-hidden border border-gray-800 p-0.5">
+            <div
+              className="h-full bg-gradient-to-r from-emerald-500 via-teal-400 to-indigo-500 rounded-full transition-all duration-300"
+              style={{ width: `${mappingProgress.percent}%` }}
+            />
+          </div>
+
+          {showLogConsole && mappingLogs.length > 0 && (
+            <div className="bg-black/95 rounded-xl border border-gray-800 p-3 font-mono text-[11px] leading-relaxed max-h-40 overflow-y-auto space-y-1 text-gray-300">
+              {mappingLogs.map((log, idx) => (
+                <div key={idx} className="flex gap-2 items-start">
+                  <span className="text-gray-600 shrink-0 text-[10px]">[{log.timestamp}]</span>
+                  <span className={log.level === 'error' ? 'text-red-400 font-bold' : log.level === 'warn' ? 'text-amber-300' : 'text-gray-200'}>
+                    {log.message}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Main Grid Workspace with Side Parts List */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 pt-5 flex-1 min-h-0 overflow-hidden">

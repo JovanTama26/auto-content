@@ -157,6 +157,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('get-all-alurfilm-mapping-prompts', { contentId }),
   syncAlurfilmMappingPrompts: (contentId, prompts) =>
     ipcRenderer.invoke('sync-alurfilm-mapping-prompts-to-supabase', { contentId, prompts }),
+  runAlurfilmMappingPipeline: (opts) =>
+    ipcRenderer.invoke('run-alurfilm-mapping-pipeline', opts || {}),
   saveAlurfilmMapping: (...args) => {
     let chunkPart = 1;
     let jsonText = null;

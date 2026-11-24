@@ -374,7 +374,30 @@ export interface ElectronAPI {
   saveAlurfilmMetadata: (opts: { modeContentId?: string; metadata: AlurfilmMetadataResult }) => Promise<{ success: boolean; filePath: string; metadata: AlurfilmMetadataResult }>;
   getAlurfilmMetadata: (modeContentId?: string) => Promise<AlurfilmMetadataResult | null>;
   getBrowserUserProfiles?: () => Promise<string[]>;
-  runAlurfilmGeminiScriptPipeline?: (opts: { partNum: number; totalChunks?: number; previousContext?: any; profileName?: string }) => Promise<{ success: boolean; partNum: number; rawText: string; extractedJson?: any; source?: string; error?: string }>;
+  runAlurfilmGeminiScriptPipeline?: (opts: {
+    partNum: number;
+    totalChunks?: number;
+    previousContext?: any;
+    profileName?: string;
+    model?: string;
+    headless?: boolean;
+    reuseDrive?: boolean;
+    contentId?: string;
+    movieTitle?: string;
+    movieYear?: string;
+    chunkPath?: string;
+  }) => Promise<{ success: boolean; partNum: number; rawText: string; extractedJson?: any; source?: string; error?: string }>;
+  runAlurfilmMappingPipeline?: (opts: {
+    partNum: number;
+    totalChunks?: number;
+    profileName?: string;
+    model?: string;
+    headless?: boolean;
+    reuseDrive?: boolean;
+    contentId?: string;
+    chunkPath?: string;
+    promptText?: string;
+  }) => Promise<{ success: boolean; partNum: number; rawText: string; extractedJson?: any; source?: string; error?: string }>;
   onAlurfilmProgress?: (callback: (data: { percent: number; step: string; message: string; partNum: number }) => void) => () => void;
   onAlurfilmLog?: (callback: (data: { level: 'info' | 'warn' | 'error'; message: string; partNum: number }) => void) => () => void;
   onAlurfilmMetadataChunk?: (callback: (data: { chunk: string; fullText: string }) => void) => () => void;

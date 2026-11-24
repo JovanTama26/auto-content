@@ -75,9 +75,12 @@ const AlurfilmAnalyzeStep: React.FC = () => {
   };
 
 
-  // User Profile Browser Selection State
-  const [availableProfiles, setAvailableProfiles] = useState<string[]>(['user_1', 'user_2']);
-  const [selectedProfile, setSelectedProfile] = useState<string>('user_1');
+  // User Profile Browser Selection State (Camoufox)
+  const [availableProfiles, setAvailableProfiles] = useState<string[]>(['jovangithub@gmail.com']);
+  const [selectedProfile, setSelectedProfile] = useState<string>('jovangithub@gmail.com');
+  const [selectedModel, setSelectedModel] = useState<string>('gemini-4-hydrogen');
+  const [headlessMode, setHeadlessMode] = useState<boolean>(false);
+  const [reuseDriveMode, setReuseDriveMode] = useState<boolean>(false);
 
   // Auto Intro Downloader State
   const [isGeneratingAutoIntro, setIsGeneratingAutoIntro] = useState<boolean>(false);
@@ -127,6 +130,9 @@ const AlurfilmAnalyzeStep: React.FC = () => {
       api.getBrowserUserProfiles().then((profs) => {
         if (Array.isArray(profs) && profs.length > 0) {
           setAvailableProfiles(profs);
+          if (!profs.includes(selectedProfile)) {
+            setSelectedProfile(profs.includes('jovangithub@gmail.com') ? 'jovangithub@gmail.com' : profs[0]);
+          }
         }
       }).catch(() => { });
     }
@@ -154,90 +160,130 @@ const AlurfilmAnalyzeStep: React.FC = () => {
     }
   }, []);
 
+  const runSinglePartViaCamoufox = async (partToRun: number): Promise<boolean> => {
+    const mainChunks = chunks.filter((c) => c.part > 0);
+    const totalChunks = mainChunks.length > 0 ? mainChunks.length : (chunks.length || 4);
+    const activeChunkObj = chunks.find((c) => c.part === partToRun);
+
+    setActivePart(partToRun);
+    setPipelineProgress({
+      percent: 5,
+      step: 'INIT',
+      message: `Menjalankan Camoufox AI Studio untuk Part #${partToRun} (${selectedProfile}, model: ${selectedModel})...`,
+    });
+
+    if (!api.runAlurfilmGeminiScriptPipeline) {
+      const errMsg = 'Camoufox Script Pipeline API tidak tersedia di window.electronAPI.';
+      setError(errMsg);
+      setPipelineLogs((prev) => [...prev, { level: 'error', message: `❌ ${errMsg}`, timestamp: new Date().toLocaleTimeString() }]);
+      return false;
+    }
+
+    const res = await api.runAlurfilmGeminiScriptPipeline({
+      partNum: partToRun,
+      totalChunks,
+      profileName: selectedProfile,
+      model: selectedModel,
+      headless: headlessMode,
+      reuseDrive: reuseDriveMode,
+      contentId: contentId || undefined,
+      movieTitle,
+      movieYear,
+      chunkPath: activeChunkObj?.filePath,
+    });
+
+    if (res.success && (res.extractedJson || res.rawText)) {
+      let dataToSave = res.extractedJson;
+      if (!dataToSave && res.rawText) {
+        try {
+          const firstBrace = res.rawText.indexOf('{');
+          const lastBrace = res.rawText.lastIndexOf('}');
+          if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+            dataToSave = JSON.parse(res.rawText.substring(firstBrace, lastBrace + 1));
+          }
+        } catch { }
+      }
+
+      if (dataToSave) {
+        const report = validateScriptAnalysis(dataToSave, partToRun);
+        if (!report.isValid) {
+          const errMsg = `Validasi Naskah Part #${partToRun} Gagal: ${report.issues.map((i) => i.message).join(' | ')}`;
+          setError(errMsg);
+          setPipelineLogs((prev) => [...prev, { level: 'error', message: `❌ ${errMsg}`, timestamp: new Date().toLocaleTimeString() }]);
+          showToast(`❌ ${errMsg}`);
+          return false;
+        }
+
+        const validData = report.normalizedData || dataToSave;
+        const targetPart = Number(validData?.chunk_part ?? partToRun);
+
+        const saveRes = await api.saveAlurfilmAnalysis(targetPart, validData);
+        const analysisList = await api.listAlurfilmAnalyses(contentId || undefined);
+        const map: Record<number, AlurfilmAnalysisResult> = {};
+        if (analysisList) {
+          for (const item of analysisList) {
+            if (item.data && typeof item.data.chunk_part === 'number') {
+              map[item.data.chunk_part] = item;
+            } else if (typeof item.part === 'number') {
+              map[item.part] = item;
+            }
+          }
+        }
+        if (saveRes) {
+          map[targetPart] = saveRes;
+        }
+        setAnalyses(map);
+        setPipelineProgress({ percent: 100, step: 'done', message: `🎉 Part #${targetPart} Naskah Selesai & Tersimpan!` });
+        setPipelineLogs((prev) => [...prev, { level: 'info', message: `🎉 Part #${targetPart} Naskah Selesai & Tersimpan!`, timestamp: new Date().toLocaleTimeString() }]);
+        showToast(`🎉 Camoufox selesai untuk Part #${targetPart}! JSON naskah tersimpan.`);
+        return true;
+      }
+
+      const errMsg = `Output Camoufox Part #${partToRun} tidak memiliki struktur JSON "naskah_voiceover".`;
+      setError(errMsg);
+      setPipelineProgress({ percent: 0, step: 'error', message: `❌ ${errMsg}` });
+      setPipelineLogs((prev) => [...prev, { level: 'error', message: `❌ ${errMsg}`, timestamp: new Date().toLocaleTimeString() }]);
+      return false;
+    }
+
+    const errMsg = `Camoufox Pipeline Error (Part #${partToRun}): ${res.error || 'Unknown error'}`;
+    setError(errMsg);
+    setPipelineLogs((prev) => [...prev, { level: 'error', message: `❌ ${errMsg}`, timestamp: new Date().toLocaleTimeString() }]);
+    return false;
+  };
+
   const handleRunGeminiPipeline = async () => {
     if (isGenerating) return;
     setIsGenerating(true);
     setError(null);
     setPipelineLogs([]);
-    setPipelineProgress({ percent: 5, step: 'INIT', message: `Initializing Playwright Automation (Profile: ${selectedProfile})...` });
-
     try {
-      const previousContext = buildCumulativePreviousContext(activePart);
+      await runSinglePartViaCamoufox(activePart);
+    } catch (err: any) {
+      setError(`Gagal menjalankan Camoufox Pipeline: ${err.message}`);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
-      const totalChunks = chunks.length || 4;
+  const handleRunAllPartsPipeline = async () => {
+    if (isGenerating) return;
+    const partNumbers = (chunks.length > 0 ? chunks.map((c) => c.part) : [1, 2, 3, 4])
+      .filter((p) => p > 0)
+      .sort((a, b) => a - b);
 
-      if (api.runAlurfilmGeminiScriptPipeline) {
-        const res = await api.runAlurfilmGeminiScriptPipeline({
-          partNum: activePart,
-          totalChunks,
-          previousContext,
-          profileName: selectedProfile,
-        });
+    if (partNumbers.length === 0) return;
 
-        if (res.success && (res.extractedJson || res.rawText)) {
-          let dataToSave = res.extractedJson;
-          if (!dataToSave && res.rawText) {
-            try {
-              const firstBrace = res.rawText.indexOf('{');
-              const lastBrace = res.rawText.lastIndexOf('}');
-              if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-                dataToSave = JSON.parse(res.rawText.substring(firstBrace, lastBrace + 1));
-              }
-            } catch { }
-          }
-
-          if (dataToSave) {
-            const report = validateScriptAnalysis(dataToSave, activePart);
-            if (!report.isValid) {
-              const errMsg = `Script Analysis Validation Error: ${report.issues.map(i => i.message).join(' | ')}`;
-              setError(errMsg);
-              setPipelineLogs(prev => [...prev, { level: 'error', message: `❌ ${errMsg}`, timestamp: new Date().toLocaleTimeString() }]);
-              showToast(`❌ ${errMsg}`);
-              return;
-            }
-
-            const validData = report.normalizedData || dataToSave;
-            const targetPart = Number(validData?.chunk_part || activePart) || 1;
-
-            const saveRes = await api.saveAlurfilmAnalysis(targetPart, validData);
-
-            // Refresh analyses map from disk to guarantee UI sync
-            const analysisList = await api.listAlurfilmAnalyses(contentId || undefined);
-            const map: Record<number, AlurfilmAnalysisResult> = {};
-            if (analysisList) {
-              for (const item of analysisList) {
-                if (item.data && typeof item.data.chunk_part === 'number') {
-                  map[item.data.chunk_part] = item;
-                } else if (typeof item.part === 'number') {
-                  map[item.part] = item;
-                }
-              }
-            }
-            if (saveRes) {
-              map[targetPart] = saveRes;
-            }
-            setAnalyses(map);
-            setPipelineProgress({ percent: 100, step: 'done', message: `🎉 Part #${targetPart} Script Analysis Completed & Saved!` });
-            setPipelineLogs(prev => [...prev, { level: 'info', message: `🎉 Part #${targetPart} Script Analysis Completed & Saved!`, timestamp: new Date().toLocaleTimeString() }]);
-            showToast(`🎉 Playwright Pipeline completed for Part #${targetPart}! Script analysis JSON saved.`);
-          } else {
-            const errMsg = `Playwright Pipeline completed but output is missing mandatory "naskah_voiceover" JSON structure. File was NOT saved.`;
-            setError(errMsg);
-            setPipelineProgress({ percent: 0, step: 'error', message: `❌ ${errMsg}` });
-            setPipelineLogs(prev => [...prev, { level: 'error', message: `❌ ${errMsg}`, timestamp: new Date().toLocaleTimeString() }]);
-          }
-        } else if (res.error) {
-          const errMsg = `Playwright Pipeline Error: ${res.error}`;
-          setError(errMsg);
-          setPipelineLogs(prev => [...prev, { level: 'error', message: `❌ ${errMsg}`, timestamp: new Date().toLocaleTimeString() }]);
-        }
-      } else {
-        const errMsg = 'Playwright Script Pipeline API is not available on window.electronAPI.';
-        setError(errMsg);
-        setPipelineLogs(prev => [...prev, { level: 'error', message: `❌ ${errMsg}`, timestamp: new Date().toLocaleTimeString() }]);
+    setIsGenerating(true);
+    setError(null);
+    setPipelineLogs([]);
+    try {
+      for (const pNum of partNumbers) {
+        const ok = await runSinglePartViaCamoufox(pNum);
+        if (!ok) break;
       }
     } catch (err: any) {
-      setError(`Failed to execute Gemini Pipeline: ${err.message}`);
+      setError(`Gagal menjalankan Auto Semua Part: ${err.message}`);
     } finally {
       setIsGenerating(false);
     }
@@ -536,7 +582,73 @@ const AlurfilmAnalyzeStep: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+        <div className="flex items-center gap-2 shrink-0 flex-wrap">
+          <select
+            value={selectedProfile}
+            onChange={(e) => setSelectedProfile(e.target.value)}
+            disabled={isGenerating}
+            className="bg-gray-900 border border-gray-700 text-gray-200 text-xs rounded-xl px-2.5 py-2 focus:outline-none focus:border-emerald-500 font-mono"
+            title="Profil akun Google Camoufox"
+          >
+            {availableProfiles.map((prof) => (
+              <option key={prof} value={prof}>{prof}</option>
+            ))}
+          </select>
+
+          <select
+            value={selectedModel}
+            onChange={(e) => setSelectedModel(e.target.value)}
+            disabled={isGenerating}
+            className="bg-gray-900 border border-gray-700 text-emerald-300 text-xs rounded-xl px-2.5 py-2 focus:outline-none focus:border-emerald-500 font-mono"
+            title="Model Google AI Studio"
+          >
+            <option value="gemini-4-hydrogen">gemini-4-hydrogen (Free)</option>
+            <option value="gemini-4-argon">gemini-4-argon</option>
+            <option value="gemini-4-neon">gemini-4-neon</option>
+          </select>
+
+          <label className="flex items-center gap-1.5 text-[11px] text-gray-300 bg-gray-900 border border-gray-800 px-2.5 py-2 rounded-xl cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={headlessMode}
+              onChange={(e) => setHeadlessMode(e.target.checked)}
+              disabled={isGenerating}
+              className="accent-emerald-500"
+            />
+            <span>Headless</span>
+          </label>
+
+          <label className="flex items-center gap-1.5 text-[11px] text-gray-300 bg-gray-900 border border-gray-800 px-2.5 py-2 rounded-xl cursor-pointer select-none" title="Gunakan file di My Drive bila nama file part sudah pernah di-upload">
+            <input
+              type="checkbox"
+              checked={reuseDriveMode}
+              onChange={(e) => setReuseDriveMode(e.target.checked)}
+              disabled={isGenerating}
+              className="accent-emerald-500"
+            />
+            <span>Reuse Drive</span>
+          </label>
+
+          <button
+            onClick={handleRunGeminiPipeline}
+            disabled={isGenerating}
+            className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-lg shadow-emerald-600/30 transition-all flex items-center gap-1.5"
+            title="Upload video part via Drive Picker, jalankan prompt, dan simpan JSON via Camoufox"
+          >
+            <span>{isGenerating ? '⏳' : '🤖'}</span>
+            {isGenerating ? `Running Part #${activePart}...` : `Auto Part #${activePart}`}
+          </button>
+
+          <button
+            onClick={handleRunAllPartsPipeline}
+            disabled={isGenerating}
+            className="px-3.5 py-2.5 bg-teal-700 hover:bg-teal-600 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-lg shadow-teal-700/30 transition-all flex items-center gap-1.5"
+            title="Loop otomatis Part 1 s/d Part Terakhir secara berurutan dengan konteks bersambung"
+          >
+            <span>🚀</span>
+            Auto Semua Part
+          </button>
+
           <button
             onClick={() => handleCopyPromptForPart(activePart)}
             className={`px-3.5 py-2.5 text-white rounded-xl text-xs font-bold shadow-lg transition-all flex items-center gap-1.5 ${copiedPromptPart === activePart
