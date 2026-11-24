@@ -3,12 +3,25 @@
 // Memvalidasi keberadaan file di Google Drive Picker tanpa ekstensi & update Supabase
 
 // Definisi URL Google AI Studio untuk masing-masing modul
-const AI_STUDIO_SCRIPT_MODEL = 'gemini-4-argon';
-const AI_STUDIO_MAPPING_MODEL = AI_STUDIO_SCRIPT_MODEL; // Model mapping sama dengan script generator ('gemini-4-argon')
+const AI_STUDIO_MODELS = ['gemini-4-argon', 'gemini-4-neon'];
+const AI_STUDIO_DEFAULT_MODEL = 'gemini-4-argon';
 
-const AI_STUDIO_SCRIPT_NEW_CHAT_URL = `https://aistudio.google.com/prompts/new_chat?model=${AI_STUDIO_SCRIPT_MODEL}`;
-const AI_STUDIO_MAPPING_NEW_CHAT_URL = `https://aistudio.google.com/prompts/new_chat?model=${AI_STUDIO_MAPPING_MODEL}`;
-const AI_STUDIO_NEW_CHAT_URL = AI_STUDIO_SCRIPT_NEW_CHAT_URL;
+let AI_STUDIO_SCRIPT_MODEL = AI_STUDIO_DEFAULT_MODEL;
+let AI_STUDIO_MAPPING_MODEL = AI_STUDIO_SCRIPT_MODEL; // Model mapping sama dengan script generator
+
+let AI_STUDIO_SCRIPT_NEW_CHAT_URL = `https://aistudio.google.com/prompts/new_chat?model=${AI_STUDIO_SCRIPT_MODEL}`;
+let AI_STUDIO_MAPPING_NEW_CHAT_URL = `https://aistudio.google.com/prompts/new_chat?model=${AI_STUDIO_MAPPING_MODEL}`;
+let AI_STUDIO_NEW_CHAT_URL = AI_STUDIO_SCRIPT_NEW_CHAT_URL;
+
+function applyAIStudioModel(model) {
+  const safeModel = AI_STUDIO_MODELS.includes(model) ? model : AI_STUDIO_DEFAULT_MODEL;
+  AI_STUDIO_SCRIPT_MODEL = safeModel;
+  AI_STUDIO_MAPPING_MODEL = safeModel;
+  AI_STUDIO_SCRIPT_NEW_CHAT_URL = `https://aistudio.google.com/prompts/new_chat?model=${safeModel}`;
+  AI_STUDIO_MAPPING_NEW_CHAT_URL = AI_STUDIO_SCRIPT_NEW_CHAT_URL;
+  AI_STUDIO_NEW_CHAT_URL = AI_STUDIO_SCRIPT_NEW_CHAT_URL;
+  return safeModel;
+}
 
 document.addEventListener('DOMContentLoaded', async () => {
   const connStatus = document.getElementById('connStatus');
@@ -21,6 +34,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const queueCount = document.getElementById('queueCount');
   const btnRefresh = document.getElementById('btnRefresh');
   const btnOpenAIStudio = document.getElementById('btnOpenAIStudio');
+  const modelSelect = document.getElementById('modelSelect');
 
   // Navigation tab elements
   const tabBtnAiStudio = document.getElementById('tabBtnAiStudio');
@@ -2835,6 +2849,19 @@ document.addEventListener('DOMContentLoaded', async () => {
       setSignupStatus(`Gagal Sign Out: ${e.message}`, 'error');
     }
   });
+
+  // Restore saved AI Studio model
+  try {
+    const savedModel = await safeStorageGet(['aiStudioModel']);
+    if (savedModel?.aiStudioModel) applyAIStudioModel(savedModel.aiStudioModel);
+  } catch (e) { }
+  if (modelSelect) {
+    modelSelect.value = AI_STUDIO_SCRIPT_MODEL;
+    modelSelect.addEventListener('change', async (e) => {
+      const selected = applyAIStudioModel(e.target.value);
+      await safeStorageSet({ aiStudioModel: selected });
+    });
+  }
 
   // Initial connection
   await initConnection();

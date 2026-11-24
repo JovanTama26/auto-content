@@ -1,5 +1,5 @@
 // extension/popup/popup.js
-const AI_STUDIO_NEW_CHAT_URL = 'https://aistudio.google.com/prompts/new_chat?model=gemini-4-argon';
+let AI_STUDIO_NEW_CHAT_URL = 'https://aistudio.google.com/prompts/new_chat?model=gemini-4-argon';
 
 document.addEventListener('DOMContentLoaded', async () => {
   const connStatus = document.getElementById('connStatus');
@@ -470,6 +470,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // Initial checks
+  try {
+    const saved = await safeStorageGet(['aiStudioModel']);
+    if (saved?.aiStudioModel) {
+      AI_STUDIO_NEW_CHAT_URL = `https://aistudio.google.com/prompts/new_chat?model=${saved.aiStudioModel}`;
+    }
+  } catch (e) { }
   await checkBridge();
   await initConnection();
 });
