@@ -12,7 +12,7 @@ Dokumen ini berisi standar dan aturan main AI dalam memodifikasi, menambah fitur
 
 ### 2. Kualitas Kode & Arsitektur
 - Gunakan TypeScript dengan tipe data yang ketat (`strict type`).
-- Pertahankan struktur modul yang ada di `lib/`, `cli.ts`, dan `dashboard/`.
+- Pertahankan struktur modul yang ada di `lib/`, `cli/`, dan `dashboard/`.
 - Jaga pemisahan logika bisnis (pengerjaan video/alurfilm) dengan UI Dashboard & CLI handler.
 
 ### 3. Verifikasi & Pengujian

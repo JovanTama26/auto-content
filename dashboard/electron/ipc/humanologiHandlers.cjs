@@ -3,7 +3,7 @@
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
-const { chatCompletion, streamChatCompletion, extractCleanJsonObject } = require('../aiClient.cjs');
+const { chatCompletion, streamChatCompletion, extractCleanJsonObject } = require('../services/aiClient.cjs');
 
 /**
  * Context-aware sentence & clause splitter for Humanologi documentary video pacing (~5 - 9s per visual shot)
@@ -1508,11 +1508,11 @@ ${JSON.stringify(
   });
 
   /**
-   * Render single part video using render-humanologi.ts
+   * Render single part video using cli/render-humanologi.ts
    */
   ipcMain.handle('render-humanologi-part', async (event, { part = 1, enableSubtitles = true, kenBurns = true, concurrency = 4 } = {}) => {
     const partNum = Number(part) || 1;
-    const scriptPath = path.join(p.PROJECT_ROOT, 'render-humanologi.ts');
+    const scriptPath = path.join(p.PROJECT_ROOT, 'cli', 'render-humanologi.ts');
 
     if (!fs.existsSync(scriptPath)) {
       return { success: false, error: `Script renderer tidak ditemukan: ${scriptPath}` };
@@ -1641,7 +1641,7 @@ ${JSON.stringify(
    * Merge all rendered part videos into final longform video
    */
   ipcMain.handle('merge-humanologi-full', async (event) => {
-    const scriptPath = path.join(p.PROJECT_ROOT, 'render-humanologi.ts');
+    const scriptPath = path.join(p.PROJECT_ROOT, 'cli', 'render-humanologi.ts');
     if (!fs.existsSync(scriptPath)) {
       return { success: false, error: `Script renderer tidak ditemukan: ${scriptPath}` };
     }

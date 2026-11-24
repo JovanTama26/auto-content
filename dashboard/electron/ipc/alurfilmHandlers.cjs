@@ -789,10 +789,14 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
               itemData.character_registry.forEach((char) => {
                 const nameKey = (char.assigned_name || char.visual_description || '').trim().toLowerCase();
                 if (nameKey && !characterMap.has(nameKey)) {
-                  characterMap.set(nameKey, {
+                  const entry = {
                     assigned_name: char.assigned_name || '',
                     visual_description: char.visual_description || '',
-                  });
+                  };
+                  if (typeof char.role === 'string' && char.role.trim()) {
+                    entry.role = char.role.trim();
+                  }
+                  characterMap.set(nameKey, entry);
                 }
               });
             }
@@ -2170,8 +2174,44 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
 
         const charRegistry = data.character_registry || [];
         if (Array.isArray(charRegistry) && charRegistry.length > 0) {
+          // Collect characters already introduced in prior parts (1..chunkPart-1) so AI skips re-overlaying them
+          const priorNames = new Set();
+          const curPartNum = Number(chunkPart) || 1;
+          for (let prevP = 1; prevP < curPartNum; prevP++) {
+            const prevStr = String(prevP).padStart(2, '0');
+            const prevMapFile = path.join(p.ALURFILM_DIR, `${contentId}_mapping_part_${prevStr}.json`);
+            if (fs.existsSync(prevMapFile)) {
+              try {
+                const pm = JSON.parse(fs.readFileSync(prevMapFile, 'utf-8'));
+                if (Array.isArray(pm?.mappings)) {
+                  pm.mappings.forEach(m => {
+                    if (m?.character_overlay?.name) priorNames.add(String(m.character_overlay.name).trim().toLowerCase());
+                  });
+                }
+              } catch { }
+            }
+            const prevAnalysisFile = path.join(p.ALURFILM_DIR, `${contentId}_analysis_part_${prevStr}.json`);
+            if (fs.existsSync(prevAnalysisFile)) {
+              try {
+                const pa = JSON.parse(fs.readFileSync(prevAnalysisFile, 'utf-8'));
+                const prevScript = String(pa?.naskah_voiceover?.script_text || '').toLowerCase();
+                if (Array.isArray(pa?.character_registry)) {
+                  pa.character_registry.forEach(pc => {
+                    const n = String(pc?.assigned_name || '').trim().toLowerCase();
+                    if (n && (!prevScript || prevScript.includes(n))) priorNames.add(n);
+                  });
+                }
+              } catch { }
+            }
+          }
+
           characterRegistryText = charRegistry
-            .map(c => `* ${c.assigned_name}: ${c.visual_description}`)
+            .map(c => {
+              const name = String(c.assigned_name || '').trim();
+              const roleTag = c.role && String(c.role).trim() ? ` [Role: ${String(c.role).trim()}]` : '';
+              const skipTag = priorNames.has(name.toLowerCase()) ? ' [SUDAH DIPERKENALKAN — SKIP OVERLAY]' : '';
+              return `* ${name}${roleTag}${skipTag}: ${c.visual_description}`;
+            })
             .join('\n');
         }
       } catch { }
@@ -2532,7 +2572,24 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
           }
         }
 
-        return {
+        // Sanitize optional character_overlay field from visual mapping JSON
+        let sanitizedOverlay;
+        if (!isVisualOnly && m.character_overlay && typeof m.character_overlay === 'object') {
+          const ovName = typeof m.character_overlay.name === 'string' ? m.character_overlay.name.trim() : '';
+          if (ovName) {
+            const rawPos = String(m.character_overlay.position || '').trim().toLowerCase();
+            const posMap = { left: 'left', kiri: 'left', center: 'center', tengah: 'center', right: 'right', kanan: 'right' };
+            sanitizedOverlay = {
+              name: ovName,
+              ...(typeof m.character_overlay.role === 'string' && m.character_overlay.role.trim()
+                ? { role: m.character_overlay.role.trim() }
+                : {}),
+              ...(posMap[rawPos] ? { position: posMap[rawPos] } : {}),
+            };
+          }
+        }
+
+        const outSentence = {
           ...m,
           start: s,
           end: e,
@@ -2541,6 +2598,12 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
           duration: Number(dur.toFixed(2)),
           visuals: sanitizedVisuals,
         };
+        if (sanitizedOverlay) {
+          outSentence.character_overlay = sanitizedOverlay;
+        } else {
+          delete outSentence.character_overlay;
+        }
+        return outSentence;
       });
 
       // Guarantee continuous BGM timeline covering 0.0 to final sentence end

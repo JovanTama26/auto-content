@@ -25,12 +25,19 @@ export interface VisualClipSpec {
   };
 }
 
+export interface CharacterOverlaySpec {
+  name: string;
+  role?: string;
+  position?: 'left' | 'center' | 'right';
+}
+
 export interface SentenceMapping {
   sentence_index: number;
   text: string;
   start: number;
   end: number;
   duration: number;
+  character_overlay?: CharacterOverlaySpec | null;
   visuals: VisualClipSpec[];
 }
 

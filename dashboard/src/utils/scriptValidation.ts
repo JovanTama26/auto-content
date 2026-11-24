@@ -12,6 +12,7 @@ export interface AlurfilmAnalysisData {
   character_registry?: Array<{
     visual_description: string;
     assigned_name: string;
+    role?: string;
   }>;
   timeline_edits?: Array<{
     id: string;
@@ -216,10 +217,14 @@ export function validateScriptAnalysis(
     } else {
       data.character_registry = data.character_registry.map((c: any) => {
         if (!c || typeof c !== 'object') return { assigned_name: 'Unknown', visual_description: '' };
-        return {
+        const entry: { assigned_name: string; visual_description: string; role?: string } = {
           assigned_name: typeof c.assigned_name === 'string' ? c.assigned_name : (c.assigned_name ? JSON.stringify(c.assigned_name) : 'Unknown'),
           visual_description: typeof c.visual_description === 'string' ? c.visual_description : (c.visual_description ? JSON.stringify(c.visual_description) : ''),
         };
+        if (typeof c.role === 'string' && c.role.trim()) {
+          entry.role = c.role.trim();
+        }
+        return entry;
       });
     }
   }

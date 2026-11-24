@@ -203,6 +203,7 @@ Pastikan seluruh naskah lulus evaluasi internal ini sebelum kamu menyusun JSON.
 
 Output WAJIB dimulai langsung dengan tanda kurung kurawal buka `{` dan diakhiri dengan kurung kurawal tutup `}`.
 DILARANG ADA TEKS PENGANTAR, DILARANG ADA TEKS PENUTUP, DAN DILARANG MENGGUNAKAN CODE BOX MARKDOWN (``` ATAU ```json).
+Untuk setiap tokoh bernama asli di `character_registry`, isi `"role"` secara sangat singkat (2–4 kata peran/hubungan, mis. `"Mantan Petarung Muay Thai"` atau `"Dokter • Pacar Singh"`) untuk overlay nama di video; kosongkan `""` untuk figuran/label generik.
 
 {
   "chunk_part": {{chunk_part}},
@@ -215,7 +216,8 @@ DILARANG ADA TEKS PENGANTAR, DILARANG ADA TEKS PENUTUP, DAN DILARANG MENGGUNAKAN
   "character_registry": [
     {
       "visual_description": "",
-      "assigned_name": ""
+      "assigned_name": "",
+      "role": ""
     }
   ],
   "timeline_edits": [

@@ -136,6 +136,26 @@ COLOR GRADING SHIFT (WAJIB DI SETIAP KLIP UNTUK EVASI PIKSEL)
   `"color_grading_shift": {"mode": "dark_boost", "contrast": 1.15, "brightness": 0.05, "saturation": 1.10, "gamma": 1.35}`
 
 ==================================================
+OVERLAY NAMA KARAKTER (`character_overlay` - OPSIONAL PER KALIMAT)
+==================================================
+Kamu melihat langsung komposisi frame video! Saat narator **PERTAMA KALI** memperkenalkan tokoh **bernama asli** (bukan label generik seperti "Satpam", "Rekan Singh", "Prajurit", "Direktur", "Tangan Kanan", "Tim Alfa") dan wajah tokoh itu tampil jelas pada klip kalimat tersebut, tambahkan field opsional `"character_overlay"` pada objek kalimat di `mappings[]`:
+```json
+"character_overlay": {
+  "name": "Singh",
+  "role": "Mantan Petarung Muay Thai",
+  "position": "left"
+}
+```
+Aturan wajib `character_overlay`:
+1. **1× Per Film Saja:** Hanya munculkan saat perkenalan pertama tokoh tersebut. JANGAN buat `character_overlay` untuk tokoh yang sudah ditandai `[SUDAH DIPERKENALKAN — SKIP OVERLAY]` pada daftar karakter, dan JANGAN ulangi nama yang sama di kalimat lain.
+2. **DILARANG pada `visual_only`:** Hanya pasang pada item dengan `"type": "narration"`. Pada kalimat lain yang tidak memperkenalkan tokoh baru, **hapus/jangan tulis** field `"character_overlay"`.
+3. **Pemilihan `"position"` Cerdas (Anti-Menutupi Wajah):** Pilih `"left"`, `"center"`, atau `"right"` berdasarkan ruang kosong di bagian bawah frame klip tersebut agar overlay TIDAK menimpa wajah tokoh:
+   - Wajah tokoh berada di sisi kanan/tengah-kanan (atau sudut kiri bawah lapang) → `"left"`
+   - Wajah tokoh berada di sisi kiri/tengah-kiri (sudut kanan bawah lapang) → `"right"`
+   - Wide shot simetris / establishing shot dengan area bawah tengah bersih → `"center"`
+4. **Isi `"role"` Singkat:** Gunakan peran sangat singkat 2–4 kata (ambil dari `[Role: ...]` di daftar karakter bila ada, mis. `"Mantan Petarung Muay Thai"` atau `"Dokter • Pacar Singh"`); boleh dikosongkan `""` jika perannya belum jelas.
+
+==================================================
 BGM TIMELINE
 ==================================================
 Gunakan musik latar yang stabil (1 track bertahan 45-90+ detik):
@@ -156,6 +176,7 @@ SELF-VALIDATION CHECKLIST (WAJIB CEK SEBELUM MENGELUARKAN JSON)
 6. Apakah `freeze_frame` / `freeze_zoom_outro` hanya dipakai pada momen jernih & tepat, berdurasi ≥ 2.5s–4.5s, dan TIDAK dipakai beruntun?
 7. Apakah `"mirror_mode": "horizontal"` sudah diterapkan pada ~35%–45% klip yang bebas teks?
 8. Apakah semua `source_start_seconds` berada di bawah ({{chunk_video_duration_sec}} - 3.0)?
+9. Apakah `"character_overlay"` hanya dipasang 1× pada perkenalan pertama tokoh bernama asli (bukan tokoh generik & bukan `[SUDAH DIPERKENALKAN]`) dengan `"position"` (`"left"`/`"center"`/`"right"`) yang tidak menutupi wajah?
 
 ==================================================
 FORMAT OUTPUT: TEKS FLAT RAW JSON MURNI (DILARANG CODE BOX)
@@ -183,6 +204,11 @@ FORMAT OUTPUT: TEKS FLAT RAW JSON MURNI (DILARANG CODE BOX)
       "start": 0.0,
       "end": 5.5,
       "duration": 5.5,
+      "character_overlay": {
+        "name": "Singh",
+        "role": "Mantan Petarung Muay Thai",
+        "position": "left"
+      },
       "visuals": [
         {
           "type": "video_cut",

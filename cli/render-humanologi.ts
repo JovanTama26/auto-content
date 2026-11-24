@@ -1,9 +1,9 @@
-// render-humanologi.ts
+// cli/render-humanologi.ts
 import { Command } from 'commander';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
-import { runFFmpeg, getVideoMeta } from './cli/shared/ffmpeg-helpers.js';
+import { runFFmpeg, getVideoMeta } from './shared/ffmpeg-helpers.js';
 
 interface HumanologiScene {
   scene_number: number;

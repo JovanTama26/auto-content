@@ -13,6 +13,8 @@ const DEFAULT_SETTINGS: RenderSettings = {
   logoOpacity: 0.6,
   logoMargin: 40,
   logoScale: 60,
+  characterOverlayEnabled: true,
+  characterOverlayPosition: 'left',
   introEnabled: true,
   introType: 'cinematic_title',
   introChannelPath: 'assets/intro-chanel.mp4',
@@ -667,6 +669,42 @@ const AlurfilmRenderStep: React.FC = () => {
                   className="accent-purple-600 w-4 h-4 rounded cursor-pointer"
                 />
               </div>
+
+              <div className="flex items-center justify-between">
+                <span className="text-gray-300">Overlay Nama Karakter (Style 1):</span>
+                <input
+                  type="checkbox"
+                  checked={settings.characterOverlayEnabled ?? true}
+                  onChange={(e) => setSettings({ ...settings, characterOverlayEnabled: e.target.checked })}
+                  className="accent-amber-500 w-4 h-4 rounded cursor-pointer"
+                />
+              </div>
+
+              {(settings.characterOverlayEnabled ?? true) && (
+                <div className="flex items-center justify-between gap-2 pl-2">
+                  <span className="text-[11px] text-gray-400">Posisi Overlay Nama:</span>
+                  <div className="inline-flex rounded-lg bg-gray-900 border border-gray-700 p-0.5 text-[11px]">
+                    {([
+                      ['left', 'Kiri'],
+                      ['center', 'Tengah'],
+                      ['right', 'Kanan'],
+                    ] as const).map(([pos, label]) => (
+                      <button
+                        key={pos}
+                        type="button"
+                        onClick={() => setSettings({ ...settings, characterOverlayPosition: pos })}
+                        className={`px-2.5 py-1 rounded-md font-semibold transition-colors ${
+                          (settings.characterOverlayPosition ?? 'left') === pos
+                            ? 'bg-amber-500 text-gray-950'
+                            : 'text-gray-400 hover:text-white'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Opacity */}
               <div className="space-y-1">

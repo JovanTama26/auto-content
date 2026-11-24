@@ -1,10 +1,20 @@
-// render-alurfilm.ts
+// cli/render-alurfilm.ts
 import { Command } from 'commander';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import { z } from 'zod';
-import { runFFmpeg, runFFmpegProgress, getVideoMeta } from './cli/shared/ffmpeg-helpers.js';
+import { runFFmpeg, runFFmpegProgress, getVideoMeta } from './shared/ffmpeg-helpers.js';
+import {
+  resolveAnalysisPath,
+  loadCharacterContext,
+  planCharacterOverlays,
+  generateCharacterOverlayCards,
+  appendCharacterOverlayFilters,
+  normalizeOverlayPosition,
+  type TimelineSentenceSpan,
+  type RenderedNameOverlay,
+} from '../lib/alurfilm/character-overlay.js';
 
 const program = new Command();
 
@@ -38,6 +48,12 @@ const VisualClipSchema = z.object({
   }).optional(),
 });
 
+const CharacterOverlaySchema = z.object({
+  name: z.string(),
+  role: z.string().optional(),
+  position: z.enum(['left', 'center', 'right']).optional(),
+});
+
 const SentenceMappingSchema = z.object({
   sentence_index: z.number().int().min(0),
   text: z.string().optional(),
@@ -45,6 +61,7 @@ const SentenceMappingSchema = z.object({
   start: z.number().min(0).optional(),
   end: z.number().min(0).optional(),
   duration: positiveDurationSchema.optional(),
+  character_overlay: CharacterOverlaySchema.nullish(),
   visuals: z.array(VisualClipSchema).optional(),
 });
 
@@ -167,6 +184,9 @@ program
   .option('--logo-opacity <opacity>', 'Logo opacity factor (0.1 to 1.0)')
   .option('--logo-margin <pixels>', 'Logo margin from top-left corner in px')
   .option('--logo-scale <height>', 'Logo height in pixels for watermark')
+  .option('--analysis <path>', 'Path to analysis JSON containing character_registry for name overlays')
+  .option('--no-character-overlay', 'Disable character name lower-third overlays')
+  .option('--character-overlay-position <pos>', 'Character overlay position: left, center, or right')
   .option('--config <path>', 'Path to render settings JSON file', 'input/render_settings.json')
   .option('-o, --output <path>', 'Output MP4 file path', 'output/alurfilm_render.mp4')
   .action(async (mappingPath: string, opts: {
@@ -181,6 +201,9 @@ program
     logoOpacity?: string;
     logoMargin?: string;
     logoScale?: string;
+    analysis?: string;
+    characterOverlay?: boolean;
+    characterOverlayPosition?: string;
     config?: string;
     output: string;
   }) => {
@@ -214,7 +237,8 @@ program
     if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
 
     // Use explicit logo file if provided, or fallback to jsonSettings.logoPath, or default assets/logo.png
-    let logoFile: string | null = opts.logo ? path.resolve(opts.logo) : (jsonSettings.logoPath ? path.resolve(jsonSettings.logoPath) : null);
+    const savedLogoPath = typeof jsonSettings.logoPath === 'string' && jsonSettings.logoPath ? jsonSettings.logoPath : null;
+    let logoFile: string | null = opts.logo ? path.resolve(opts.logo) : (savedLogoPath ? path.resolve(savedLogoPath) : null);
     if (!logoFile) {
       const alurfilmDefaultLogo = path.join(process.cwd(), 'assets', 'logo.png');
       if (fs.existsSync(alurfilmDefaultLogo)) logoFile = alurfilmDefaultLogo;
@@ -273,7 +297,7 @@ program
     }
 
     // Use explicit BGM file if provided, or fallback to jsonSettings.bgmPath, or resolve from mapping.bgm_timeline or default baseline
-    let bgmCandidate = opts.bgm || jsonSettings.bgmPath;
+    let bgmCandidate = opts.bgm || (typeof jsonSettings.bgmPath === 'string' ? jsonSettings.bgmPath : undefined);
     let bgmFile: string | null = findBgmFile(bgmCandidate);
     if (bgmFile) {
       console.log(`🎵 [Alurfilm Engine] Selected BGM: ${path.basename(bgmFile)}`);
@@ -517,9 +541,22 @@ program
 
     console.log(`✅ [Alurfilm Engine] ${clips.length} Visual Clips across ${mapping.mappings.length} Sentences | Total Duration: ${totalDur.toFixed(1)}s (${(totalDur / 60).toFixed(2)} min) | Resolution ${width}x${height} (16:9)`);
 
-    // Collect exact frame-accurate time intervals for all VISUAL_ONLY clips on the rendered timeline
+    // Collect exact frame-accurate time intervals for VISUAL_ONLY clips & narration sentences
     const visualOnlyIntervals: Array<{ start: number; end: number }> = [];
+    const sentenceSpans: TimelineSentenceSpan[] = [];
     let runningTimelineTime = 0;
+
+    // Map optional per-sentence character_overlay metadata directly from visual mapping JSON
+    const sentenceOverlayByIndex = new Map<number, { name: string; role?: string; position?: 'left' | 'center' | 'right' }>();
+    for (const m of mapping.mappings) {
+      if (m.character_overlay && typeof m.character_overlay.name === 'string' && m.character_overlay.name.trim()) {
+        sentenceOverlayByIndex.set(m.sentence_index, {
+          name: m.character_overlay.name.trim(),
+          role: m.character_overlay.role?.trim() || undefined,
+          position: m.character_overlay.position,
+        });
+      }
+    }
 
     for (const clip of clips) {
       const clipStart = runningTimelineTime;
@@ -531,7 +568,54 @@ program
           end: Number(clipEnd.toFixed(3)),
         });
       }
+
+      const prevSpan = sentenceSpans[sentenceSpans.length - 1];
+      if (prevSpan && prevSpan.sentenceIndex === clip.sentenceIndex) {
+        prevSpan.end = Number(clipEnd.toFixed(3));
+      } else {
+        sentenceSpans.push({
+          sentenceIndex: clip.sentenceIndex,
+          text: clip.text,
+          start: Number(clipStart.toFixed(3)),
+          end: Number(clipEnd.toFixed(3)),
+          isVisualOnly: clip.isVisualOnly,
+          characterOverlay: sentenceOverlayByIndex.get(clip.sentenceIndex) ?? null,
+        });
+      }
       runningTimelineTime = clipEnd;
+    }
+
+    // Plan 1x-per-film Character Name Overlays (mapping JSON character_overlay first, fallback to analysis character_registry)
+    const isCharOverlayEnabled = opts.characterOverlay !== false && jsonSettings.characterOverlayEnabled !== false;
+    const charOverlayPosition = normalizeOverlayPosition(
+      opts.characterOverlayPosition ?? jsonSettings.characterOverlayPosition,
+    );
+    let plannedCharOverlays: ReturnType<typeof planCharacterOverlays> = [];
+    if (isCharOverlayEnabled) {
+      const analysisPath = resolveAnalysisPath({
+        explicitPath: opts.analysis,
+        mappingPath: resolvedMap,
+        videoPath: resolvedVideo,
+        cwd: process.cwd(),
+      });
+      try {
+        const { characters, priorIntroduced } = loadCharacterContext(analysisPath, resolvedMap);
+        plannedCharOverlays = planCharacterOverlays(
+          sentenceSpans,
+          characters,
+          priorIntroduced,
+          totalDur,
+          charOverlayPosition,
+        );
+        if (plannedCharOverlays.length > 0) {
+          const sourceTag = sentenceOverlayByIndex.size > 0 ? 'mapping JSON' : (analysisPath ? path.basename(analysisPath) : 'auto');
+          console.log(`🏷️ [Alurfilm Engine] Character Name Overlays (${plannedCharOverlays.length}, source=${sourceTag}): ${plannedCharOverlays.map(o => `${o.name}@${o.startSec}s[${o.position}]`).join(', ')}`);
+        } else if (analysisPath || sentenceOverlayByIndex.size > 0) {
+          console.log(`🏷️ [Alurfilm Engine] Character Name Overlays: None new in this part`);
+        }
+      } catch (err: any) {
+        console.warn(`⚠️ [Alurfilm Engine] Failed planning character overlays: ${err.message}`);
+      }
     }
 
     let visualOnlyConditions = '0';
@@ -830,6 +914,25 @@ program
         logoIndex = streamIndex++;
       }
 
+      // Generate Style-1 Character Name Overlay PNG cards (graceful skip on error)
+      const activeCharOverlays: Array<RenderedNameOverlay & { streamIndex: number }> = [];
+      if (plannedCharOverlays.length > 0) {
+        try {
+          const renderedCards = await generateCharacterOverlayCards(
+            plannedCharOverlays,
+            path.join(tmpDir, 'char_overlays'),
+            process.cwd(),
+            charOverlayPosition,
+          );
+          for (const card of renderedCards) {
+            fargs.push('-framerate', '30', '-loop', '1', '-t', (card.durationSec + 0.1).toFixed(2), '-i', card.cardPath);
+            activeCharOverlays.push({ ...card, streamIndex: streamIndex++ });
+          }
+        } catch (err: any) {
+          console.warn(`⚠️ [Alurfilm Engine] Skipping character name overlays: ${err.message}`);
+        }
+      }
+
       const filterParts: string[] = [];
       let vMap = '0:v';
       let aMap: string | null = null;
@@ -839,6 +942,11 @@ program
         filterParts.push(`[${logoIndex}:v]scale=-1:${logoScale},format=rgba,colorchannelmixer=aa=${logoOpacity}[logo_alpha]`);
         filterParts.push(`[0:v][logo_alpha]overlay=${logoMargin}:${logoMargin}[vout]`);
         vMap = '[vout]';
+      }
+
+      // Video filter for Character Name Lower-Third Overlays (Style 1)
+      if (activeCharOverlays.length > 0) {
+        vMap = appendCharacterOverlayFilters(activeCharOverlays, vMap, filterParts);
       }
 
       // Build Multi-BGM Audio Filter Graph
@@ -931,7 +1039,7 @@ program
         fargs.push('-map', aMap);
       }
 
-      if (logoIndex !== null) {
+      if (vMap !== '0:v') {
         fargs.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p');
       } else {
         fargs.push('-c:v', 'copy');

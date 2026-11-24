@@ -138,6 +138,7 @@ export interface AlurfilmAnalysisData {
   character_registry: Array<{
     visual_description: string;
     assigned_name: string;
+    role?: string;
   }>;
   timeline_edits: Array<{
     id: string;
@@ -206,6 +207,12 @@ export interface AlurfilmVisualClip {
   };
 }
 
+export interface AlurfilmCharacterOverlay {
+  name: string;
+  role?: string;
+  position?: 'left' | 'center' | 'right';
+}
+
 export interface AlurfilmSentenceMapping {
   sentence_index: number;
   text: string;
@@ -213,6 +220,7 @@ export interface AlurfilmSentenceMapping {
   start: number;
   end: number;
   duration: number;
+  character_overlay?: AlurfilmCharacterOverlay | null;
   visuals: AlurfilmVisualClip[];
 }
 
@@ -254,6 +262,8 @@ export interface RenderSettings {
   logoOpacity: number;
   logoMargin: number;
   logoScale: number;
+  characterOverlayEnabled?: boolean;
+  characterOverlayPosition?: 'left' | 'center' | 'right';
   introEnabled?: boolean;
   introType?: 'cinematic_title' | 'channel_video';
   introChannelPath?: string;

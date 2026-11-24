@@ -1,11 +1,11 @@
-// cli.ts
+// cli/index.ts
 import { Command } from 'commander';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import { z } from 'zod';
-import { runFFmpeg, runFFmpegProgress } from './cli/shared/ffmpeg-helpers.js';
-import { getCaptionFontPath, cleanPunctuation, generateCaptionChunks } from './cli/shared/caption-utils.js';
+import { runFFmpeg, runFFmpegProgress } from './shared/ffmpeg-helpers.js';
+import { getCaptionFontPath, cleanPunctuation, generateCaptionChunks } from './shared/caption-utils.js';
 
 const program = new Command();
 
@@ -406,16 +406,6 @@ program
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
-  });
-
-program
-  .command('playwright:init')
-  .description('Initialize Google Labs user data, launch headed browser for login, and persist session')
-  .option('-u, --url <string>', 'Target URL', 'https://labs.google/')
-  .action(async (options) => {
-    // @ts-ignore
-    const { PlaywrightService } = await import('./playwright/service');
-    await PlaywrightService.initUserData({ url: options.url, headed: true });
   });
 
 program.parse();

@@ -67,7 +67,7 @@ function register(ipcMain, { paths: p, media, ffmpeg, getMainWindow }) {
 
     return new Promise((resolve) => {
       const startTime = Date.now();
-      const cliPath = path.join(p.PROJECT_ROOT, 'cli.ts');
+      const cliPath = path.join(p.PROJECT_ROOT, 'cli', 'index.ts');
       let cmd = `npx tsx "${cliPath}" render "${mappingFile}" --video "${resolvedVideo}"`;
       if (resolvedAudio) cmd += ` --audio "${resolvedAudio}"`;
       cmd += ` -o "${outputPath}"`;
@@ -124,6 +124,8 @@ function register(ipcMain, { paths: p, media, ffmpeg, getMainWindow }) {
     logoOpacity: 0.6,
     logoMargin: 40,
     logoScale: 60,
+    characterOverlayEnabled: true,
+    characterOverlayPosition: 'left',
     introEnabled: true,
     introType: 'cinematic_title',
     introChannelPath: 'assets/intro-chanel.mp4',
@@ -529,7 +531,7 @@ import { renderIntroVideo } from '${enginePath}';
     const audioPath = args.audioPath;
     const saved = loadSavedSettings();
 
-    const { bgmPath, bgmVolume, narrationVolume, logoPath, logoOpacity, logoMargin, logoScale, bgmEnabled, logoEnabled } = args;
+    const { bgmPath, bgmVolume, narrationVolume, logoPath, logoOpacity, logoMargin, logoScale, bgmEnabled, logoEnabled, characterOverlayEnabled, characterOverlayPosition } = args;
 
     if (!mapping || !videoPath) return { error: 'Missing Alurfilm mapping or video path.' };
 
@@ -577,10 +579,15 @@ import { renderIntroVideo } from '${enginePath}';
 
     const isBgmActive = bgmEnabled !== undefined ? bgmEnabled : (saved.bgmEnabled !== undefined ? saved.bgmEnabled : true);
     const isLogoActive = logoEnabled !== undefined ? logoEnabled : (saved.logoEnabled !== undefined ? saved.logoEnabled : true);
+    const isCharOverlayActive = characterOverlayEnabled !== undefined ? characterOverlayEnabled : (saved.characterOverlayEnabled !== undefined ? saved.characterOverlayEnabled : true);
+    const rawCharOverlayPos = characterOverlayPosition || saved.characterOverlayPosition || 'left';
+    const finalCharOverlayPos = ['left', 'center', 'right'].includes(rawCharOverlayPos) ? rawCharOverlayPos : 'left';
+    const analysisCandidate = path.join(p.ALURFILM_DIR, `${contentId}_analysis_part_${partStr}.json`);
+    const resolvedAnalysis = fs.existsSync(analysisCandidate) ? analysisCandidate : null;
 
     return new Promise((resolve) => {
       const startTime = Date.now();
-      const cliPath = path.join(p.PROJECT_ROOT, 'render-alurfilm.ts');
+      const cliPath = path.join(p.PROJECT_ROOT, 'cli', 'render-alurfilm.ts');
       let cmd = `npx tsx "${cliPath}" render "${mappingFile}" --video "${resolvedVideo}"`;
       if (resolvedAudio && fs.existsSync(resolvedAudio)) cmd += ` --audio "${resolvedAudio}"`;
 
@@ -598,6 +605,13 @@ import { renderIntroVideo } from '${enginePath}';
         if (finalLogoOpacity !== undefined) cmd += ` --logo-opacity ${finalLogoOpacity}`;
         if (finalLogoMargin !== undefined) cmd += ` --logo-margin ${finalLogoMargin}`;
         if (finalLogoScale !== undefined) cmd += ` --logo-scale ${finalLogoScale}`;
+      }
+
+      if (isCharOverlayActive === false) {
+        cmd += ` --no-character-overlay`;
+      } else {
+        cmd += ` --character-overlay-position ${finalCharOverlayPos}`;
+        if (resolvedAnalysis) cmd += ` --analysis "${resolvedAnalysis}"`;
       }
 
       cmd += ` -o "${outputPath}"`;

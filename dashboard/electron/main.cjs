@@ -9,7 +9,7 @@ const ffmpeg = require('./shared/ffmpeg.cjs');
 const { loadPrompt } = require('./shared/promptLoader.cjs');
 
 // ─── Services ───────────────────────────────────────────
-const aiClient = require('./aiClient.cjs');
+const aiClient = require('./services/aiClient.cjs');
 
 // ─── Window management ──────────────────────────────────
 let mainWindow = null;
@@ -66,8 +66,3 @@ require('./ipc/renderHandlers.cjs').register(ipcMain, shared);
 require('./ipc/projectHandlers.cjs').register(ipcMain, shared);
 require('./ipc/facelessHandlers.cjs').register(ipcMain, shared);
 require('./ipc/humanologiHandlers.cjs').register(ipcMain, shared);
-
-// ─── Move aiClient.cjs → services/ ──────────────────────
-// aiClient is at ./aiClient.cjs (legacy location). When
-// ready, move it to ./services/aiClient.cjs and change
-// the require above.

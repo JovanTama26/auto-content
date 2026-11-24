@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import type { AlurfilmChunk, AlurfilmAudioResult, AlurfilmAnalysisResult } from '../../electron-api';
 import { GoogleAiStudioTtsPreset } from '../common/GoogleAiStudioTtsPreset';
-import { parseScriptSegments, convertToGeminiTtsScript, convertToElevenLabsTtsScript } from '../../../../lib/alurfilm/script-parser';
+import { parseScriptSegments, convertToGeminiTtsScript, convertToElevenLabsTtsScript } from '@lib/alurfilm/script-parser';
 
 const api = window.electronAPI;
 

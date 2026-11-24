@@ -4,7 +4,7 @@ import type { AlurfilmChunk, AlurfilmAnalysisResult, AlurfilmAudioResult, Alurfi
 
 import { validateScriptAnalysis } from '../../utils/scriptValidation';
 import { GoogleAiStudioTtsPreset } from '../common/GoogleAiStudioTtsPreset';
-import { parseScriptSegments, convertToGeminiTtsScript } from '../../../../lib/alurfilm/script-parser';
+import { parseScriptSegments, convertToGeminiTtsScript } from '@lib/alurfilm/script-parser';
 
 const api = window.electronAPI;
 
@@ -351,10 +351,14 @@ const AlurfilmAnalyzeStep: React.FC = () => {
         itemData.character_registry.forEach((char: any) => {
           const nameKey = (char.assigned_name || char.visual_description || '').trim().toLowerCase();
           if (nameKey && !characterMap.has(nameKey)) {
-            characterMap.set(nameKey, {
+            const entry: any = {
               assigned_name: char.assigned_name || '',
               visual_description: char.visual_description || '',
-            });
+            };
+            if (typeof char.role === 'string' && char.role.trim()) {
+              entry.role = char.role.trim();
+            }
+            characterMap.set(nameKey, entry);
           }
         });
       }

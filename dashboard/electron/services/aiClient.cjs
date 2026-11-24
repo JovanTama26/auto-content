@@ -1,4 +1,4 @@
-// dashboard/electron/aiClient.cjs
+// dashboard/electron/services/aiClient.cjs
 /**
  * Modular AI Client Utility for 9router / OpenAI Compatible API
  */

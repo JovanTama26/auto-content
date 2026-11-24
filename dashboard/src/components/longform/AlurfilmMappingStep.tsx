@@ -895,6 +895,16 @@ const AlurfilmMappingStep: React.FC = () => {
                             [VISUAL_ONLY]
                           </span>
                         )}
+                        {m.character_overlay?.name && (
+                          <span
+                            className="px-1.5 py-0.5 rounded bg-yellow-950/70 text-amber-300 border border-amber-500/50 text-[9px] font-bold"
+                            title={m.character_overlay.role || 'Character Name Overlay'}
+                          >
+                            🏷️ {m.character_overlay.name}
+                            {m.character_overlay.role ? ` — ${m.character_overlay.role}` : ''}
+                            {m.character_overlay.position ? ` (${m.character_overlay.position})` : ''}
+                          </span>
+                        )}
                       </div>
                       <span className="text-gray-400 font-mono text-[11px]">
                         Durasi:{' '}
