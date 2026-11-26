@@ -222,10 +222,14 @@ const AlurfilmAnalyzeStep: React.FC = () => {
         const map: Record<number, AlurfilmAnalysisResult> = {};
         if (analysisList) {
           for (const item of analysisList) {
-            if (item.data && typeof item.data.chunk_part === 'number') {
-              map[item.data.chunk_part] = item;
-            } else if (typeof item.part === 'number') {
-              map[item.part] = item;
+            const pKey =
+              typeof item.data?.chunk_part === 'number'
+                ? item.data.chunk_part
+                : typeof item.part === 'number'
+                  ? item.part
+                  : Number(item.name?.match(/_analysis_part_(\d+)\.json$/)?.[1]);
+            if (!isNaN(pKey) && pKey >= 0) {
+              map[pKey] = item;
             }
           }
         }
@@ -233,6 +237,16 @@ const AlurfilmAnalyzeStep: React.FC = () => {
           map[targetPart] = saveRes;
         }
         setAnalyses(map);
+
+        // Otomatis pindahkan pilihan tab ke part berikutnya yang belum ada JSON-nya
+        const nextPending = mainChunks
+          .map((c) => c.part)
+          .sort((a, b) => a - b)
+          .find((p) => p > 0 && !map[p]?.data);
+        if (nextPending !== undefined) {
+          setActivePart(nextPending);
+        }
+
         setPipelineProgress({ percent: 100, step: 'done', message: `🎉 Part #${targetPart} Naskah Selesai & Tersimpan!` });
         setPipelineLogs((prev) => [...prev, { level: 'info', message: `🎉 Part #${targetPart} Naskah Selesai & Tersimpan!`, timestamp: new Date().toLocaleTimeString() }]);
         showToast(`🎉 Camoufox selesai untuk Part #${targetPart}! JSON naskah tersimpan.`);
@@ -274,11 +288,50 @@ const AlurfilmAnalyzeStep: React.FC = () => {
 
     if (partNumbers.length === 0) return;
 
+    // Selalu cek langsung file terbaru dari disk agar tidak pernah mengulang part yang sudah ada JSON-nya
+    const freshMap: Record<number, AlurfilmAnalysisResult> = { ...analyses };
+    try {
+      const freshList = await api.listAlurfilmAnalyses(contentId || undefined);
+      if (freshList) {
+        for (const item of freshList) {
+          const pKey =
+            typeof item.data?.chunk_part === 'number'
+              ? item.data.chunk_part
+              : typeof item.part === 'number'
+                ? item.part
+                : Number(item.name?.match(/_analysis_part_(\d+)\.json$/)?.[1]);
+          if (!isNaN(pKey) && pKey >= 0) {
+            freshMap[pKey] = item;
+          }
+        }
+        setAnalyses(freshMap);
+      }
+    } catch {}
+
+    const completedParts = partNumbers.filter((p) => Boolean(freshMap[p]?.data));
+    const pendingParts = partNumbers.filter((p) => !freshMap[p]?.data);
+
+    if (pendingParts.length === 0) {
+      showToast(`✅ Semua Part (#1 s/d #${partNumbers[partNumbers.length - 1]}) sudah memiliki hasil JSON!`);
+      return;
+    }
+
+    setActivePart(pendingParts[0]);
     setIsGenerating(true);
     setError(null);
-    setPipelineLogs([]);
+    setPipelineLogs(
+      completedParts.length > 0
+        ? [
+            {
+              level: 'info',
+              message: `⏭️ Melewati Part ${completedParts.map((p) => `#${p}`).join(', ')} (sudah ada hasil JSON). Melanjutkan Part ${pendingParts.map((p) => `#${p}`).join(', ')}...`,
+              timestamp: new Date().toLocaleTimeString(),
+            },
+          ]
+        : []
+    );
     try {
-      for (const pNum of partNumbers) {
+      for (const pNum of pendingParts) {
         const ok = await runSinglePartViaCamoufox(pNum);
         if (!ok) break;
       }
@@ -303,10 +356,14 @@ const AlurfilmAnalyzeStep: React.FC = () => {
           const map: Record<number, AlurfilmAnalysisResult> = {};
           if (analysisList) {
             for (const item of analysisList) {
-              if (item.data && typeof item.data.chunk_part === 'number') {
-                map[item.data.chunk_part] = item;
-              } else if (typeof item.part === 'number') {
-                map[item.part] = item;
+              const pKey =
+                typeof item.data?.chunk_part === 'number'
+                  ? item.data.chunk_part
+                  : typeof item.part === 'number'
+                    ? item.part
+                    : Number(item.name?.match(/_analysis_part_(\d+)\.json$/)?.[1]);
+              if (!isNaN(pKey) && pKey >= 0) {
+                map[pKey] = item;
               }
             }
           }
@@ -326,7 +383,12 @@ const AlurfilmAnalyzeStep: React.FC = () => {
           setAudios(aMap);
 
           if (chunkList && chunkList.length > 0) {
-            setActivePart(chunkList[0].part);
+            // Pilih otomatis part pertama yang BELUM punya hasil JSON (misal Part #4 jika Part 1-3 sudah selesai)
+            const firstPending = chunkList
+              .filter((c) => c.part > 0)
+              .sort((a, b) => a.part - b.part)
+              .find((c) => !map[c.part]?.data);
+            setActivePart(firstPending ? firstPending.part : chunkList[0].part);
           }
         }
       } catch (err: any) {

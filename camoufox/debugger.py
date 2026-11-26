@@ -25,9 +25,10 @@ class CamoufoxDebugger:
     - Rekam input, output, dan metadata elemen
     """
 
-    def __init__(self, session_name: str = "signup"):
+    def __init__(self, session_name: str = "signup", enable_screenshots: bool = False):
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.session_id = f"{session_name}_{self.timestamp}"
+        self.enable_screenshots = enable_screenshots or (os.environ.get("CAMOUFOX_SCREENSHOTS") == "1")
         
         # File log sesi
         self.log_file = LOGS_DIR / f"{self.session_id}.log"
@@ -71,7 +72,9 @@ class CamoufoxDebugger:
             pass
 
     def capture_screenshot(self, page, step_name: str) -> Optional[Path]:
-        """Ambil tangkapan layar dan simpan ke folder screenshots/."""
+        """Ambil tangkapan layar dan simpan ke folder screenshots/ (nonaktif secara default)."""
+        if not getattr(self, "enable_screenshots", False):
+            return None
         clean_step = "".join(c if c.isalnum() or c in "-_" else "_" for c in step_name)
         filename = f"{self.session_id}_{clean_step}.png"
         filepath = SCREENSHOTS_DIR / filename

@@ -1,15 +1,12 @@
 // dashboard/src/components/common/TopBar.tsx
 import React, { useState, useEffect } from 'react';
-
-import type { ContentMode } from './Sidebar';
 import { clearAllCloudData } from '../../lib/supabaseSync';
 
 interface TopBarProps {
   onResetProject?: () => void;
-  contentMode: ContentMode;
 }
 
-const TopBar: React.FC<TopBarProps> = ({ onResetProject, contentMode }) => {
+const TopBar: React.FC<TopBarProps> = ({ onResetProject }) => {
   const [showConfirm, setShowConfirm] = useState<boolean>(false);
   const [resetting, setResetting] = useState<boolean>(false);
   const [contentId, setContentId] = useState<string | null>(null);
@@ -19,12 +16,12 @@ const TopBar: React.FC<TopBarProps> = ({ onResetProject, contentMode }) => {
     (async () => {
       try {
         if (window.electronAPI?.getContentId) {
-          const id = await window.electronAPI.getContentId(contentMode);
+          const id = await window.electronAPI.getContentId('longform');
           setContentId(id);
         }
       } catch {}
     })();
-  }, [contentMode]);
+  }, []);
 
   const handleCopyId = async () => {
     if (!contentId) return;
@@ -43,7 +40,7 @@ const TopBar: React.FC<TopBarProps> = ({ onResetProject, contentMode }) => {
 
       // 2. Reset workspace lokal & generate ID baru via backend Electron
       if (window.electronAPI?.resetProject) {
-        const res = await window.electronAPI.resetProject(contentMode);
+        const res = await window.electronAPI.resetProject('longform');
         if (res?.content_id) {
           setContentId(res.content_id);
         }
@@ -56,10 +53,9 @@ const TopBar: React.FC<TopBarProps> = ({ onResetProject, contentMode }) => {
     }
     setResetting(false);
     setShowConfirm(false);
-    // Refresh mode state
     try {
       if (window.electronAPI?.getContentId) {
-        const id = await window.electronAPI.getContentId(contentMode);
+        const id = await window.electronAPI.getContentId('longform');
         setContentId(id);
       }
     } catch {}
@@ -78,20 +74,8 @@ const TopBar: React.FC<TopBarProps> = ({ onResetProject, contentMode }) => {
           </span>
 
           {/* Mode Indicator Badge */}
-          <span
-            className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-md border ${
-              contentMode === 'faceless'
-                ? 'bg-amber-950/80 text-amber-300 border-amber-800/80'
-                : contentMode === 'humanologi'
-                ? 'bg-emerald-950/80 text-emerald-300 border-emerald-800/80'
-                : 'bg-purple-950/80 text-purple-300 border-purple-800/80'
-            }`}
-          >
-            {contentMode === 'faceless'
-              ? '🎭 Faceless Mode'
-              : contentMode === 'humanologi'
-              ? '🧠 Humanologi Mode'
-              : '🍿 Alur Film Mode'}
+          <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md border bg-purple-950/80 text-purple-300 border-purple-800/80">
+            🍿 Alur Film Mode
           </span>
 
           {/* Copyable Content ID */}
@@ -99,13 +83,7 @@ const TopBar: React.FC<TopBarProps> = ({ onResetProject, contentMode }) => {
             <button
               onClick={handleCopyId}
               title="Click to copy Content ID"
-              className={`px-2 py-0.5 rounded-md border text-[10px] font-mono font-semibold transition-all flex items-center gap-1.5 ${
-                contentMode === 'faceless'
-                  ? 'bg-amber-950/60 hover:bg-amber-900/80 border-amber-700/50 text-amber-300'
-                  : contentMode === 'humanologi'
-                  ? 'bg-emerald-950/60 hover:bg-emerald-900/80 border-emerald-700/50 text-emerald-300'
-                  : 'bg-purple-950/60 hover:bg-purple-900/80 border-purple-700/50 text-purple-300'
-              }`}
+              className="px-2 py-0.5 rounded-md border text-[10px] font-mono font-semibold transition-all flex items-center gap-1.5 bg-purple-950/60 hover:bg-purple-900/80 border-purple-700/50 text-purple-300"
             >
               <span>🆔</span>
               <span className="font-bold">{contentId}</span>
@@ -117,19 +95,13 @@ const TopBar: React.FC<TopBarProps> = ({ onResetProject, contentMode }) => {
         </div>
 
         {/* Reset Workspace Action */}
-        {(contentMode === 'longform' || contentMode === 'humanologi') && (
-          <button
-            onClick={() => setShowConfirm(true)}
-            className="px-3 py-1.5 bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-800/50 rounded-lg text-xs font-semibold shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
-          >
-            <span>🔄</span>
-            <span>
-              {contentMode === 'humanologi'
-                ? 'New Content / Reset ID (Humanologi)'
-                : 'New Content / Reset ID (Alur Film)'}
-            </span>
-          </button>
-        )}
+        <button
+          onClick={() => setShowConfirm(true)}
+          className="px-3 py-1.5 bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-800/50 rounded-lg text-xs font-semibold shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
+        >
+          <span>🔄</span>
+          <span>New Content / Reset ID (Alur Film)</span>
+        </button>
       </header>
 
       {/* Glassmorphic Reset Modal */}
@@ -141,26 +113,10 @@ const TopBar: React.FC<TopBarProps> = ({ onResetProject, contentMode }) => {
             </div>
             <div>
               <h3 className="text-base font-bold text-white">
-                {contentMode === 'humanologi'
-                  ? 'Reset Workspace Humanologi?'
-                  : contentMode === 'faceless'
-                  ? 'Reset Workspace Faceless Content?'
-                  : 'Reset Workspace & Hapus Data Cloud?'}
+                Reset Workspace & Hapus Data Cloud?
               </h3>
               <p className="text-xs text-gray-400 mt-1 leading-relaxed">
-                {contentMode === 'humanologi' ? (
-                  <>
-                    Tindakan ini akan membuat Content ID baru untuk <strong className="text-white uppercase">Humanologi</strong>, membersihkan seluruh naskah narasi, audio rekaman, transkrip, adegan, gambar AI, dan video render lokal di workspace Humanologi.
-                  </>
-                ) : contentMode === 'faceless' ? (
-                  <>
-                    Tindakan ini akan membuat Content ID baru untuk <strong className="text-white uppercase">Faceless Content</strong> dan menghapus state ide beserta riwayat chat di workspace Faceless.
-                  </>
-                ) : (
-                  <>
-                    Tindakan ini akan membuat Content ID baru untuk <strong className="text-white uppercase">Alur Cerita Film</strong>, membersihkan file lokal workspace, serta <strong className="text-red-400 font-semibold">menghapus seluruh data sesi & parts di Cloud (Supabase)</strong>.
-                  </>
-                )}
+                Tindakan ini akan membuat Content ID baru untuk <strong className="text-white uppercase">Alur Cerita Film</strong>, membersihkan file lokal workspace, serta <strong className="text-red-400 font-semibold">menghapus seluruh data sesi & parts di Cloud (Supabase)</strong>.
               </p>
             </div>
             <div className="flex items-center justify-end gap-3 pt-2">
@@ -184,13 +140,7 @@ const TopBar: React.FC<TopBarProps> = ({ onResetProject, contentMode }) => {
                 ) : (
                   <>
                     <span>🗑️</span>
-                    <span>
-                      {contentMode === 'humanologi'
-                        ? 'Ya, Reset Humanologi'
-                        : contentMode === 'faceless'
-                        ? 'Ya, Reset Faceless'
-                        : 'Ya, Reset & Hapus Data Cloud'}
-                    </span>
+                    <span>Ya, Reset & Hapus Data Cloud</span>
                   </>
                 )}
               </button>

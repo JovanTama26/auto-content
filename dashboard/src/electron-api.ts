@@ -213,6 +213,13 @@ export interface AlurfilmCharacterOverlay {
   position?: 'left' | 'center' | 'right';
 }
 
+export type AlurfilmSceneTransition =
+  | 'fade'
+  | 'fade_black'
+  | 'dip_black'
+  | { type?: string; duration?: number }
+  | null;
+
 export interface AlurfilmSentenceMapping {
   sentence_index: number;
   text: string;
@@ -220,6 +227,7 @@ export interface AlurfilmSentenceMapping {
   start: number;
   end: number;
   duration: number;
+  scene_transition?: AlurfilmSceneTransition;
   character_overlay?: AlurfilmCharacterOverlay | null;
   visuals: AlurfilmVisualClip[];
 }

@@ -37,6 +37,7 @@ export interface SentenceMapping {
   start: number;
   end: number;
   duration: number;
+  scene_transition?: string | { type?: string; duration?: number } | null;
   character_overlay?: CharacterOverlaySpec | null;
   visuals: VisualClipSpec[];
 }

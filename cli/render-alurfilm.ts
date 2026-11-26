@@ -30,6 +30,34 @@ const positiveDurationSchema = z.preprocess(
   z.number().positive()
 );
 
+const SceneTransitionSchema = z.union([
+  z.string(),
+  z.boolean(),
+  z.object({
+    type: z.string().optional(),
+    duration: z.number().positive().optional(),
+  }),
+]).nullish();
+
+function parseFadeTransitionDuration(raw: unknown): number {
+  if (!raw) return 0;
+  if (raw === true) return 0.6;
+  if (typeof raw === 'string') {
+    const norm = raw.trim().toLowerCase();
+    if (!norm || norm === 'none' || norm === 'cut' || norm === 'hard_cut') return 0;
+    if (norm.includes('fade') || norm.includes('dip') || norm.includes('black')) return 0.6;
+    return 0;
+  }
+  if (typeof raw === 'object') {
+    const obj = raw as { type?: string; duration?: number };
+    const norm = String(obj.type ?? 'fade').trim().toLowerCase();
+    if (norm === 'none' || norm === 'cut' || norm === 'hard_cut') return 0;
+    const dur = typeof obj.duration === 'number' && obj.duration > 0 ? obj.duration : 0.6;
+    return Math.max(0.2, Math.min(1.6, Number(dur.toFixed(3))));
+  }
+  return 0;
+}
+
 const VisualClipSchema = z.object({
   type: z.enum(['slow_motion', 'mirror_cut', 'freeze_frame', 'freeze_frame_with_zoom', 'freeze_zoom_outro', 'video_cut', 'pan_and_zoom_cut']).optional().default('video_cut'),
   duration: positiveDurationSchema,
@@ -39,6 +67,8 @@ const VisualClipSchema = z.object({
   mirror_mode: z.enum(['horizontal', 'vertical']).optional(),
   zoom_speed: z.number().optional(),
   pan_direction: z.enum(['left', 'right', 'up', 'down', 'center']).optional(),
+  transition: SceneTransitionSchema,
+  scene_transition: SceneTransitionSchema,
   color_grading_shift: z.object({
     mode: z.string().optional(),
     contrast: z.number().optional(),
@@ -61,6 +91,8 @@ const SentenceMappingSchema = z.object({
   start: z.number().min(0).optional(),
   end: z.number().min(0).optional(),
   duration: positiveDurationSchema.optional(),
+  scene_transition: SceneTransitionSchema,
+  transition: SceneTransitionSchema,
   character_overlay: CharacterOverlaySchema.nullish(),
   visuals: z.array(VisualClipSchema).optional(),
 });
@@ -375,6 +407,9 @@ program
       mirrorMode?: 'horizontal' | 'vertical';
       colorShift?: { mode?: string; contrast?: number; brightness?: number; saturation?: number; gamma?: number };
       isVisualOnly: boolean;
+      enterFadeDuration?: number;
+      fadeInSec?: number;
+      fadeOutSec?: number;
     }
 
     const clips: FlattenedClip[] = [];
@@ -385,6 +420,7 @@ program
     for (let sIdx = 0; sIdx < numSents; sIdx++) {
       const sentence = mapping.mappings[sIdx];
       const nextSentence = sIdx < numSents - 1 ? mapping.mappings[sIdx + 1] : null;
+      const sentenceFadeDur = parseFadeTransitionDuration(sentence.scene_transition ?? sentence.transition);
 
       const isVisualOnly = Boolean(
         (sentence.type && sentence.type.toLowerCase().includes('visual_only')) ||
@@ -434,6 +470,11 @@ program
             runningOffset += adjustedDur;
           }
 
+          const clipEnterFade = Math.max(
+            vIdx === 0 ? sentenceFadeDur : 0,
+            parseFadeTransitionDuration(vis.scene_transition ?? vis.transition),
+          );
+
           // If this is the final visual clip of the final sentence and adjustedDur is long (e.g. > 4.2s),
           // split it into a pleasant final narrative cut + slow-motion outro extension
           if (vIdx === visuals.length - 1 && sIdx === numSents - 1 && adjustedDur > 4.2) {
@@ -450,6 +491,7 @@ program
               mirrorMode: vis.mirror_mode || (vis.type === 'mirror_cut' ? 'horizontal' : undefined),
               colorShift: vis.color_grading_shift,
               isVisualOnly,
+              enterFadeDuration: clipEnterFade > 0 ? clipEnterFade : undefined,
             });
             const safeSs = (sourceVideoDuration > 15)
               ? Math.max(0, sourceVideoDuration - outroDur - 5)
@@ -477,6 +519,7 @@ program
               mirrorMode: vis.mirror_mode || (vis.type === 'mirror_cut' ? 'horizontal' : undefined),
               colorShift: vis.color_grading_shift,
               isVisualOnly,
+              enterFadeDuration: clipEnterFade > 0 ? clipEnterFade : undefined,
             });
           }
         });
@@ -493,6 +536,7 @@ program
           duration: targetSentDur,
           type: 'video_cut',
           isVisualOnly,
+          enterFadeDuration: sentenceFadeDur > 0 ? sentenceFadeDur : undefined,
         });
       }
 
@@ -536,10 +580,40 @@ program
     });
     totalDur = Number(clips.reduce((s, c) => s + c.duration, 0).toFixed(3));
 
+    // Resolve selective Scene Fade Transitions (fade-out on outgoing clip + fade-in on incoming clip)
+    const activeFadeLogs: string[] = [];
+    let fadeClock = 0;
+    for (let i = 0; i < clips.length; i++) {
+      const clip = clips[i];
+      if (clip.enterFadeDuration && clip.enterFadeDuration > 0) {
+        if (i === 0) {
+          const fi = Math.min(clip.enterFadeDuration, Number((clip.duration * 0.35).toFixed(3)));
+          if (fi >= 0.08) {
+            clip.fadeInSec = fi;
+            activeFadeLogs.push(`Sentence #${clip.sentenceIndex}@0.0s (${fi.toFixed(2)}s in)`);
+          }
+        } else {
+          const prevClip = clips[i - 1];
+          const halfFade = Number((clip.enterFadeDuration / 2).toFixed(3));
+          const fo = Math.min(halfFade, Number((prevClip.duration * 0.35).toFixed(3)));
+          const fi = Math.min(halfFade, Number((clip.duration * 0.35).toFixed(3)));
+          if (fo >= 0.08 && fi >= 0.08) {
+            prevClip.fadeOutSec = fo;
+            clip.fadeInSec = fi;
+            activeFadeLogs.push(`Sentence #${clip.sentenceIndex}@${fadeClock.toFixed(1)}s (${(fo + fi).toFixed(2)}s)`);
+          }
+        }
+      }
+      fadeClock += clip.duration;
+    }
+
     const width = 1920;
     const height = 1080;
 
     console.log(`✅ [Alurfilm Engine] ${clips.length} Visual Clips across ${mapping.mappings.length} Sentences | Total Duration: ${totalDur.toFixed(1)}s (${(totalDur / 60).toFixed(2)} min) | Resolution ${width}x${height} (16:9)`);
+    if (activeFadeLogs.length > 0) {
+      console.log(`🌗 [Alurfilm Engine] Scene Fade Transitions (${activeFadeLogs.length}): ${activeFadeLogs.join(', ')}`);
+    }
 
     // Collect exact frame-accurate time intervals for VISUAL_ONLY clips & narration sentences
     const visualOnlyIntervals: Array<{ start: number; end: number }> = [];
@@ -711,6 +785,16 @@ program
             }
             inputReadDur = (Math.min(2.0, baseDur) + 1.5).toFixed(3);
           }
+
+          // 4. Selective Scene Transition Fade (Dip-to-Black across scene/location boundaries)
+          if (clip.fadeInSec && clip.fadeInSec >= 0.08) {
+            scaleFilter += `,fade=t=in:st=0:d=${clip.fadeInSec.toFixed(3)}:color=black`;
+          }
+          if (clip.fadeOutSec && clip.fadeOutSec >= 0.08) {
+            const fadeOutStart = Math.max(0, Number((clip.duration - clip.fadeOutSec).toFixed(3)));
+            scaleFilter += `,fade=t=out:st=${fadeOutStart.toFixed(3)}:d=${clip.fadeOutSec.toFixed(3)}:color=black`;
+          }
+
           const readDurNum = parseFloat(inputReadDur) || 0.5;
           let safeSourceStart = clip.sourceStart;
           if (sourceVideoDuration > 0 && safeSourceStart + readDurNum > sourceVideoDuration - 0.2) {

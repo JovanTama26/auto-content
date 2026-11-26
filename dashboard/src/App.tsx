@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import TopBar from './components/common/TopBar';
 import Sidebar from './components/common/Sidebar';
-import type { StepId, ContentMode } from './components/common/Sidebar';
+import type { StepId } from './components/common/Sidebar';
 import MediaPreviewDrawer from './components/common/MediaPreviewDrawer';
 import StatusBar from './components/common/StatusBar';
 
@@ -15,17 +15,11 @@ import AlurfilmMappingStep from './components/longform/AlurfilmMappingStep';
 import AlurfilmRenderStep from './components/longform/AlurfilmRenderStep';
 import AlurfilmMetadataStep from './components/longform/AlurfilmMetadataStep';
 import AlurfilmTestingHub from './components/longform/testing/AlurfilmTestingHub';
-import FacelessIdeaAgentStep from './components/faceless/FacelessIdeaAgentStep';
-import FacelessAudioStep from './components/faceless/FacelessAudioStep';
-import FacelessVisualStep from './components/faceless/FacelessVisualStep';
-import FacelessPreviewStep from './components/faceless/FacelessPreviewStep';
-import HumanologiStepContainer from './components/humanologi/HumanologiStepContainer';
 
 type Status = 'ready' | 'rendering' | 'error';
 
 const App: React.FC = () => {
   const [activeStep, setActiveStep] = useState<StepId>('source');
-  const [contentMode, setContentMode] = useState<ContentMode>('longform');
   const [status] = useState<Status>('ready');
   const [longformId, setLongformId] = useState<string | null>(null);
   const [longformTab, setLongformTab] = useState<'main' | 'testing'>('main');
@@ -47,17 +41,13 @@ const App: React.FC = () => {
   }, []);
 
   const handleResetProject = async () => {
-    setActiveStep(
-      contentMode === 'humanologi' ? 'topic' : contentMode === 'faceless' ? 'idea' : 'source'
-    );
+    setActiveStep('source');
     setLongformResetKey((prev) => prev + 1);
     try {
       Object.keys(localStorage).forEach((key) => {
         if (
           key.toLowerCase().includes('longform') ||
-          key.toLowerCase().includes('alurfilm') ||
-          key.toLowerCase().includes('humanologi') ||
-          key.toLowerCase().includes('faceless')
+          key.toLowerCase().includes('alurfilm')
         ) {
           localStorage.removeItem(key);
         }
@@ -65,7 +55,7 @@ const App: React.FC = () => {
     } catch {}
     try {
       if (window.electronAPI?.getContentId) {
-        const id = await window.electronAPI.getContentId(contentMode);
+        const id = await window.electronAPI.getContentId('longform');
         setLongformId(id);
       }
     } catch { }
@@ -73,60 +63,18 @@ const App: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen bg-gray-950 font-sans overflow-hidden">
-      <TopBar onResetProject={handleResetProject} contentMode={contentMode} />
+      <TopBar onResetProject={handleResetProject} />
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <Sidebar
           activeStep={activeStep}
           onStepChange={setActiveStep}
-          contentMode={contentMode}
-          onModeChange={(mode) => {
-            setContentMode(mode);
-            if (mode === 'faceless') {
-              setActiveStep('idea');
-            } else if (mode === 'humanologi') {
-              setActiveStep('topic');
-            } else {
-              setActiveStep('source');
-            }
-          }}
           longformTab={longformTab}
           onLongformTabChange={setLongformTab}
         />
 
         <main className="flex-1 p-6 overflow-auto bg-gradient-to-br from-gray-950 via-gray-950 to-gray-900">
-          {contentMode === 'faceless' ? (
-            activeStep === 'audio' ? (
-              <FacelessAudioStep
-                key={`faceless-audio-${longformResetKey}`}
-                onBackToIdea={() => setActiveStep('idea')}
-                onGoToNext={() => setActiveStep('visual')}
-              />
-            ) : activeStep === 'visual' ? (
-              <FacelessVisualStep
-                key={`faceless-visual-${longformResetKey}`}
-                onBackToAudio={() => setActiveStep('audio')}
-                onGoToNext={() => setActiveStep('render')}
-              />
-            ) : activeStep === 'render' ? (
-              <FacelessPreviewStep
-                key={`faceless-preview-${longformResetKey}`}
-                onBackToVisual={() => setActiveStep('visual')}
-                onGoToIdea={() => setActiveStep('idea')}
-              />
-            ) : (
-              <FacelessIdeaAgentStep
-                key={`faceless-idea-agent-${longformResetKey}`}
-                onGoToAudio={() => setActiveStep('audio')}
-              />
-            )
-          ) : contentMode === 'humanologi' ? (
-            <HumanologiStepContainer
-              key={`humanologi-step-container-${longformResetKey}`}
-              activeStep={activeStep}
-              onStepChange={setActiveStep}
-            />
-          ) : longformTab === 'testing' ? (
+          {longformTab === 'testing' ? (
             <AlurfilmTestingHub key="longform-testing-hub" />
           ) : activeStep === 'source' ? (
             <AlurfilmSplitterStep key={`longform-source-${longformId}-${longformResetKey}`} />

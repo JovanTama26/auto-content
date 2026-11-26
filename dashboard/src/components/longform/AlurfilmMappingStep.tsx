@@ -365,7 +365,15 @@ const AlurfilmMappingStep: React.FC = () => {
         setMappings(mMap);
 
         if (validChunks.length > 0) {
-          setActivePart(validChunks[0].part);
+          const firstUnmapped = validChunks
+            .filter((c) => c.part > 0)
+            .sort((a, b) => a.part - b.part)
+            .find((c) => {
+              const raw = mMap[c.part]?.data;
+              const norm = Array.isArray(raw) ? raw[0] : raw;
+              return !(norm?.mappings && norm.mappings.length > 0);
+            });
+          setActivePart(firstUnmapped ? firstUnmapped.part : validChunks[0].part);
         }
 
         // Check already synced parts from Supabase
@@ -484,6 +492,19 @@ const AlurfilmMappingStep: React.FC = () => {
           });
         }
         setMappings(mapObj);
+
+        const nextUnmapped = chunks
+          .filter((c) => c.part > 0)
+          .map((c) => c.part)
+          .sort((a, b) => a - b)
+          .find((p) => {
+            const raw = mapObj[p]?.data;
+            const norm = Array.isArray(raw) ? raw[0] : raw;
+            return !(norm?.mappings && norm.mappings.length > 0);
+          });
+        if (nextUnmapped !== undefined) {
+          setActivePart(nextUnmapped);
+        }
       }
       setMappingProgress({ percent: 100, step: 'done', message: `🎉 Video Mapping Part #${partToRun} Selesai & Tersimpan!` });
       setMappingLogs((prev) => [...prev, { level: 'info', message: `🎉 Video Mapping Part #${partToRun} Selesai & Tersimpan!`, timestamp: new Date().toLocaleTimeString() }]);
@@ -518,11 +539,48 @@ const AlurfilmMappingStep: React.FC = () => {
       .sort((a, b) => a - b);
     if (partNumbers.length === 0) return;
 
+    const freshMappings: Record<number, any> = { ...mappings };
+    if (api.listAlurfilmMappings) {
+      try {
+        const updatedList = await api.listAlurfilmMappings(contentId || undefined);
+        if (Array.isArray(updatedList)) {
+          updatedList.forEach((m: any) => {
+            freshMappings[m.part] = m;
+          });
+          setMappings(freshMappings);
+        }
+      } catch {}
+    }
+
+    const isPartMapped = (p: number) => {
+      const raw = freshMappings[p]?.data;
+      const norm = Array.isArray(raw) ? raw[0] : raw;
+      return Boolean(norm?.mappings && norm.mappings.length > 0);
+    };
+    const completedParts = partNumbers.filter((p) => isPartMapped(p));
+    const pendingParts = partNumbers.filter((p) => !isPartMapped(p));
+
+    if (pendingParts.length === 0) {
+      showToast(`✅ Semua Part (#1 s/d #${partNumbers[partNumbers.length - 1]}) sudah memiliki hasil Video Mapping JSON!`);
+      return;
+    }
+
+    setActivePart(pendingParts[0]);
     setIsRunningCamoufox(true);
     setError(null);
-    setMappingLogs([]);
+    setMappingLogs(
+      completedParts.length > 0
+        ? [
+            {
+              level: 'info',
+              message: `⏭️ Melewati Part ${completedParts.map((p) => `#${p}`).join(', ')} (sudah ada JSON Mapping). Melanjutkan Part ${pendingParts.map((p) => `#${p}`).join(', ')}...`,
+              timestamp: new Date().toLocaleTimeString(),
+            },
+          ]
+        : []
+    );
     try {
-      for (const pNum of partNumbers) {
+      for (const pNum of pendingParts) {
         const ok = await runSinglePartMappingViaCamoufox(pNum);
         if (!ok) break;
       }
@@ -584,6 +642,19 @@ const AlurfilmMappingStep: React.FC = () => {
           });
         }
         setMappings(mapObj);
+
+        const nextUnmapped = chunks
+          .filter((c) => c.part > 0)
+          .map((c) => c.part)
+          .sort((a, b) => a - b)
+          .find((p) => {
+            const raw = mapObj[p]?.data;
+            const norm = Array.isArray(raw) ? raw[0] : raw;
+            return !(norm?.mappings && norm.mappings.length > 0);
+          });
+        if (nextUnmapped !== undefined) {
+          setActivePart(nextUnmapped);
+        }
       } else {
         setMappings((prev) => ({ ...prev, [activePart]: res }));
       }
@@ -1150,6 +1221,14 @@ const AlurfilmMappingStep: React.FC = () => {
                             🏷️ {m.character_overlay.name}
                             {m.character_overlay.role ? ` — ${m.character_overlay.role}` : ''}
                             {m.character_overlay.position ? ` (${m.character_overlay.position})` : ''}
+                          </span>
+                        )}
+                        {(m.scene_transition || m.transition) && (
+                          <span
+                            className="px-1.5 py-0.5 rounded bg-cyan-950/70 text-cyan-300 border border-cyan-500/50 text-[9px] font-bold"
+                            title="Transisi Fade Perpindahan Adegan / Tempat"
+                          >
+                            🌗 Scene Fade
                           </span>
                         )}
                       </div>

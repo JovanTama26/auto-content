@@ -676,7 +676,15 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
         const fullPath = path.join(p.ALURFILM_DIR, f);
         try {
           const data = JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
-          return { name: f, filePath: fullPath, data };
+          const partMatch = f.match(/_analysis_part_(\d+)\.json$/);
+          const partFromFile = partMatch ? Number(partMatch[1]) : undefined;
+          const partNum = typeof data?.chunk_part === 'number'
+            ? data.chunk_part
+            : (Number(data?.chunk_part) || partFromFile);
+          if (partNum !== undefined && data && typeof data === 'object') {
+            data.chunk_part = partNum;
+          }
+          return { part: partNum, name: f, filePath: fullPath, data };
         } catch { return null; }
       })
       .filter(Boolean);
@@ -3002,6 +3010,26 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
           }
         }
 
+        // Sanitize optional scene_transition field (e.g. "fade" or { type: "fade", duration: 0.6 })
+        const rawSceneTrans = m.scene_transition ?? m.transition;
+        let sanitizedSceneTransition;
+        if (!isVisualOnly && rawSceneTrans) {
+          if (typeof rawSceneTrans === 'string') {
+            const norm = rawSceneTrans.trim().toLowerCase();
+            if (norm.includes('fade') || norm.includes('dip') || norm.includes('black')) {
+              sanitizedSceneTransition = 'fade';
+            }
+          } else if (typeof rawSceneTrans === 'object' && rawSceneTrans !== null) {
+            const norm = String(rawSceneTrans.type || 'fade').trim().toLowerCase();
+            if (norm !== 'none' && norm !== 'cut' && norm !== 'hard_cut') {
+              const dur = typeof rawSceneTrans.duration === 'number' && rawSceneTrans.duration > 0
+                ? Math.max(0.2, Math.min(1.6, Number(rawSceneTrans.duration.toFixed(2))))
+                : undefined;
+              sanitizedSceneTransition = dur ? { type: 'fade', duration: dur } : 'fade';
+            }
+          }
+        }
+
         const outSentence = {
           ...m,
           start: s,
@@ -3016,6 +3044,12 @@ function register(ipcMain, { paths: p, media, ffmpeg, aiClient, loadPrompt }) {
         } else {
           delete outSentence.character_overlay;
         }
+        if (sanitizedSceneTransition) {
+          outSentence.scene_transition = sanitizedSceneTransition;
+        } else {
+          delete outSentence.scene_transition;
+        }
+        delete outSentence.transition;
         return outSentence;
       });
 
